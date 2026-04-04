@@ -5,6 +5,11 @@
 
 ## Available Skills
 
+### rust-code-standards
+- **Path:** `.agents/skills/rust-code-standards/SKILL.md`
+- **Keywords:** rust, test, unit-test, comment, doc, documentation, cargo-test
+- **When to bind:** ANY Rust task in `micro-core/`. Covers commenting conventions, unit test patterns (AAA, Bevy ECS testing, float comparisons), and test naming.
+
 ---
 
 ## How Skills Work in the DAG

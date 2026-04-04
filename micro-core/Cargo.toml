@@ -1,0 +1,18 @@
+[package]
+name = "micro-core"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+bevy = { version = "0.18", default-features = false }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+rand = "0.9"
+tokio = { version = "1.51.0", features = ["rt-multi-thread", "macros", "sync"] }
+tokio-tungstenite = "0.29.0"
+futures-util = "0.3.32"
+zeromq = "0.5"
+bevy_state = "0.18.1"

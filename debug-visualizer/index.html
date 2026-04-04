@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mass-Swarm AI Debug Visualizer</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Main Canvas Area -->
+        <main class="canvas-container">
+            <canvas id="sim-canvas"></canvas>
+            
+            <!-- Floating connection status -->
+            <div class="connection-status">
+                <div class="status-indicator">
+                    <div id="status-dot" class="dot disconnected"></div>
+                    <span id="status-text">Disconnected</span>
+                </div>
+            </div>
+            
+            <!-- Canvas instruction overlay (hidden on interaction) -->
+            <div class="canvas-hint">
+                Click anywhere to spawn a swarm
+            </div>
+        </main>
+
+        <!-- Right Sidebar Panel -->
+        <aside class="control-panel">
+            <header class="panel-header">
+                <div>
+                    <h1>Swarm<span>Control</span></h1>
+                    <span class="version-badge">v0.1.0</span>
+                </div>
+            </header>
+
+            <section class="panel-section">
+                <h2>Telemetry</h2>
+                <div class="stats-grid">
+                    <div class="stat-box">
+                        <span class="stat-label">TPS</span>
+                        <span id="stat-tps" class="stat-value mono">0</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="stat-label">Tick</span>
+                        <span id="stat-tick" class="stat-value mono">0</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="stat-label">WS Ping</span>
+                        <span id="stat-ping" class="stat-value mono">0ms</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="stat-label">AI Latency</span>
+                        <span id="stat-ai-latency" class="stat-value mono">N/A</span>
+                    </div>
+                    <div class="stat-box full-width">
+                        <span class="stat-label">Total Entities</span>
+                        <span id="stat-entities" class="stat-value mono">0</span>
+                    </div>
+                    <div class="stat-box swarm">
+                        <span class="stat-label">Swarm</span>
+                        <span id="stat-swarm" class="stat-value mono">0</span>
+                    </div>
+                    <div class="stat-box defender">
+                        <span class="stat-label">Defender</span>
+                        <span id="stat-defender" class="stat-value mono">0</span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="panel-section">
+                <h2>Simulation Controls</h2>
+                <div class="controls-row">
+                    <button id="play-pause-btn" class="btn primary">Play</button>
+                    <!-- Small decorative visualization -->
+                    <div class="pulse-ring"></div>
+                </div>
+                <div class="controls-row step-controls">
+                    <button id="step-btn" class="btn secondary">Step</button>
+                    <div class="input-wrapper">
+                        <input type="number" id="step-count-input" class="input-field" value="1" min="1" max="1000">
+                        <span class="input-suffix">ticks</span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="panel-section">
+                <h2>Viewport Layers</h2>
+                <div class="toggle-group">
+                    <label class="toggle-control">
+                        <input type="checkbox" id="toggle-grid" checked>
+                        <span class="control-indicator"></span>
+                        <span class="control-label">Coordinate Grid</span>
+                    </label>
+                    <label class="toggle-control">
+                        <input type="checkbox" id="toggle-velocity">
+                        <span class="control-indicator"></span>
+                        <span class="control-label">Velocity Vectors</span>
+                    </label>
+                    <label class="toggle-control">
+                        <input type="checkbox" id="toggle-fog">
+                        <span class="control-indicator"></span>
+                        <span class="control-label">Fog of War</span>
+                    </label>
+                </div>
+            </section>
+
+            <section class="panel-section">
+                <h2>Legend</h2>
+                <div class="legend-list">
+                    <div class="legend-item">
+                        <span class="color-swatch swarm-color"></span>
+                        <span>Swarm Units</span>
+                    </div>
+                    <div class="legend-item">
+                        <span class="color-swatch defender-color"></span>
+                        <span>Defender Units</span>
+                    </div>
+                </div>
+            </section>
+        </aside>
+    </div>
+
+    <!-- The actual visualization logic (provided by another task) -->
+    <script src="visualizer.js"></script>
+</body>
+</html>

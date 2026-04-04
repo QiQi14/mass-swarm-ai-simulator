@@ -1,0 +1,17 @@
+# ============================================================
+# .aiexclude — Hide from AI assistant @ context picker
+# These files are still tracked by git.
+# Uses .gitignore syntax. Supported by Antigravity, Gemini, etc.
+# ============================================================
+
+# Archived dispatch prompts (inside history — verbose, stale)
+.agents/history/**/.dispatch/
+
+# Rust build artifacts
+micro-core/target/
+
+# Python venvs and caches
+.venv_dispatch/
+.venv_task_tool/
+macro-brain/.venv/
+macro-brain/**/__pycache__/

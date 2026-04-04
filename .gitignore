@@ -1,0 +1,47 @@
+# ============================================================
+# Mass-Swarm AI Simulator — .gitignore
+# ============================================================
+
+# ── Rust / Micro-Core ────────────────────────────────────────
+micro-core/target/
+**/*.rs.bk
+
+# ── Python / Macro-Brain ─────────────────────────────────────
+macro-brain/.venv/
+macro-brain/__pycache__/
+macro-brain/**/__pycache__/
+macro-brain/**/*.pyc
+macro-brain/**/*.pyo
+macro-brain/*.egg-info/
+macro-brain/.pytest_cache/
+macro-brain/.ruff_cache/
+
+# PyTorch / ONNX artifacts
+macro-brain/**/*.pt
+macro-brain/**/*.onnx
+macro-brain/**/*.pth
+
+# ── Debug Visualizer ─────────────────────────────────────────
+# (nothing to ignore — static HTML/JS, no build step)
+
+# ── Agent Framework Runtime Artifacts ────────────────────────
+# Lock file (transient, per-machine)
+.task_state.lock
+
+# Python venvs for CLI tools
+.venv_dispatch/
+.venv_task_tool/
+
+# ── IDE / OS ─────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+*.iml
+
+# ── Misc ─────────────────────────────────────────────────────
+*.log
+*.tmp

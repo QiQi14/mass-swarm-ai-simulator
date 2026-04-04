@@ -1,0 +1,90 @@
+{
+  "feature": "phase_2_universal_core_algorithms",
+  "global_status": "PENDING",
+  "total_tasks": 8,
+  "created_at": "2026-04-04T06:30:49+00:00",
+  "updated_at": "2026-04-04T06:47:18+00:00",
+  "tasks": [
+    {
+      "task_id": "task_01_context_agnostic_refactor",
+      "status": "COMPLETE",
+      "phase": "Phase",
+      "source_file": "tasks_pending/task_01_context_agnostic_refactor.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-04T06:42:30+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-04T06:47:18+00:00"
+    },
+    {
+      "task_id": "task_02_spatial_hash_grid",
+      "status": "PENDING",
+      "phase": "Phase",
+      "source_file": "tasks_pending/task_02_spatial_hash_grid.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": null,
+      "failed_at": null
+    },
+    {
+      "task_id": "task_03_flow_field_registry",
+      "status": "PENDING",
+      "phase": "Phase",
+      "source_file": "tasks_pending/task_03_flow_field_registry.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": null,
+      "failed_at": null
+    },
+    {
+      "task_id": "task_04_rule_resources",
+      "status": "PENDING",
+      "phase": "Phase",
+      "source_file": "tasks_pending/task_04_rule_resources.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": null,
+      "failed_at": null
+    },
+    {
+      "task_id": "task_05_interaction_removal_systems",
+      "status": "PENDING",
+      "phase": "Phase",
+      "source_file": "tasks_pending/task_05_interaction_removal_systems.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": null,
+      "failed_at": null
+    },
+    {
+      "task_id": "task_06_flow_field_movement_spawning",
+      "status": "PENDING",
+      "phase": "Phase",
+      "source_file": "tasks_pending/task_06_flow_field_movement_spawning.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": null,
+      "failed_at": null
+    },
+    {
+      "task_id": "task_07_ipc_visualizer_upgrades",
+      "status": "PENDING",
+      "phase": "Phase",
+      "source_file": "tasks_pending/task_07_ipc_visualizer_upgrades.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": null,
+      "failed_at": null
+    },
+    {
+      "task_id": "task_08_integration_stress_test",
+      "status": "PENDING",
+      "phase": "Phase",
+      "source_file": "tasks_pending/task_08_integration_stress_test.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": null,
+      "failed_at": null
+    }
+  ]
+}

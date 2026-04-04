@@ -1,0 +1,502 @@
+# AGENT ROLE: EXECUTION SPECIALIST
+
+You are an **Execution Specialist** in a multi-agent DAG workflow.
+You have been assigned ONE specific task. You implement it with surgical precision.
+
+---
+
+## Your Assignment
+
+| Field   | Value |
+|---------|-------|
+| Task ID | `task_01_project_scaffold` |
+| Feature | P1-MP1 Rust/Bevy Scaffold + Minimal ECS |
+| Tier    | basic |
+
+## Context Loading (Tier-Dependent)
+
+**If your tier is `basic`:**
+- Skip all external file reading. Your Task Brief below IS your complete instruction.
+- Write the code exactly as specified, then create a changelog and run `./task_tool.sh done task_01_project_scaffold`.
+
+**If your tier is `standard` or `advanced`:**
+1. Read `.agents/context.md` — Thin index pointing to context sub-files
+2. Load ONLY the `context/*` sub-files listed in your `Context_Bindings` below
+3. Scan `.agents/knowledge/` — Lessons from previous sessions relevant to your task
+
+**Workflow:**
+- `.agents/workflows/execution-lifecycle.md` — Your 4-step execution loop
+
+**Rules:**
+- `.agents/rules/execution-boundary.md` — Scope and contract constraints
+**Skill binding:** `skills/rust-code-standards` — Follow these conventions for ALL Rust code.
+
+---
+
+## Rust Code Standards (Inline Skill)
+
+> **MANDATORY:** Apply these conventions to every `.rs` file you create.
+
+### Comment Structure
+
+**Module-level doc comment (`//!`)** — every `.rs` file starts with this:
+```rust
+//! # [Module Title]
+//!
+//! [Brief description of what this module does.]
+//!
+//! ## Ownership
+//! - **Task:** [task_id]
+//! - **Contract:** implementation_plan.md → [section reference]
+//!
+//! ## Depends On
+//! - `crate::path::to::Dependency`
+```
+
+**Public item doc comments (`///`)** — every `pub` struct/enum/function:
+```rust
+/// 2D position in world space.
+///
+/// Origin is top-left `(0, 0)`. Positive Y goes down.
+#[derive(Component)]
+pub struct Position {
+    /// Horizontal coordinate in world units.
+    pub x: f32,
+    /// Vertical coordinate in world units.
+    pub y: f32,
+}
+```
+
+**Inline comments (`//`)** — only for non-obvious logic:
+```rust
+// IDs start at 1 — 0 is reserved for "no entity" sentinel
+```
+
+### Unit Testing
+
+Tests live inside the same file using `#[cfg(test)]`:
+```rust
+// ── Tests ──────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_descriptive_name() {
+        // Arrange
+        // Act
+        // Assert
+    }
+}
+```
+
+**Naming:** `test_<unit>_<scenario>` (e.g., `test_position_serialization_roundtrip`)
+**Structure:** Arrange-Act-Assert with `// Arrange`, `// Act`, `// Assert` comments
+**Float comparisons:** Never `==`, always `(val - expected).abs() < f32::EPSILON`
+
+---
+
+## Task Brief
+
+# Task 01: Project Scaffold
+
+```yaml
+Task_ID: task_01_project_scaffold
+Feature: P1-MP1 Rust/Bevy Scaffold + Minimal ECS
+Execution_Phase: A (first — no dependencies)
+Model_Tier: basic
+```
+
+## Target Files
+- `micro-core/Cargo.toml` [NEW]
+- `micro-core/src/main.rs` [NEW] (stub only — Task 04 wires the full app)
+- `micro-core/src/components/mod.rs` [NEW] (empty module)
+- `micro-core/src/systems/mod.rs` [NEW] (empty module)
+- `micro-core/src/lib.rs` [NEW] (crate root for cdylib — re-exports modules)
+
+## Dependencies
+None — this is the first task.
+
+## Context_Bindings
+- context/tech-stack
+- context/conventions
+- skills/rust-code-standards
+
+## Strict Instructions
+
+### 1. Create the `micro-core/` directory structure
+
+```
+micro-core/
+├── Cargo.toml
+└── src/
+    ├── main.rs
+    ├── lib.rs
+    ├── components/
+    │   └── mod.rs
+    └── systems/
+        └── mod.rs
+```
+
+### 2. Write `Cargo.toml`
+
+```toml
+[package]
+name = "micro-core"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+bevy = { version = "0.18", default-features = false, features = ["bevy_app", "bevy_ecs"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+rand = "0.9"
+```
+
+> **CRITICAL:** Use `edition = "2024"`. Use `default-features = false` for Bevy.
+> The `cdylib` crate type enables future C-ABI export. The `rlib` crate type allows `cargo test` to work.
+
+### 3. Write `src/lib.rs`
+
+```rust
+pub mod components;
+pub mod systems;
+```
+
+This is the crate root for the library target. It re-exports the module tree.
+
+### 4. Write `src/main.rs`
+
+Create a minimal Bevy application that compiles and runs:
+
+```rust
+use bevy::app::ScheduleRunnerPlugin;
+use bevy::prelude::*;
+use std::time::Duration;
+
+fn main() {
+    App::new()
+        .add_plugins(
+            MinimalPlugins.set(
+                ScheduleRunnerPlugin::run_loop(Duration::from_secs_f64(1.0 / 60.0))
+            ),
+        )
+        .run();
+}
+```
+
+> This app has no systems yet — it just proves Bevy headless runs at 60 TPS.
+> Task 04 will update this file to wire in all components and systems.
+
+### 5. Write `src/components/mod.rs`
+
+```rust
+// ECS components — populated by Task 02
+```
+
+Empty file with a comment. Task 02 will add module declarations and re-exports.
+
+### 6. Write `src/systems/mod.rs`
+
+```rust
+// ECS systems — populated by Task 03
+```
+
+Empty file with a comment. Task 03 will add module declarations and re-exports.
+
+## Verification_Strategy
+
+```yaml
+Test_Type: unit
+Test_Stack: cargo (Rust toolchain)
+Acceptance_Criteria:
+  - "`cd micro-core && cargo build` succeeds with zero errors"
+  - "`cd micro-core && cargo clippy` produces zero warnings"
+  - "`cd micro-core && cargo run` starts and runs (process starts without crash — can be killed manually)"
+  - "Directory structure matches the layout above exactly"
+  - "Cargo.toml dependencies match pinned versions from context/tech-stack.md"
+Suggested_Test_Commands:
+  - "cd micro-core && cargo build 2>&1"
+  - "cd micro-core && cargo clippy 2>&1"
+  - "cd micro-core && timeout 3 cargo run || true"
+```
+
+---
+
+## Shared Contracts
+
+# Phase 1 — Micro-Phase 1: Rust/Bevy Scaffold + Minimal ECS
+
+> **Parent:** Phase 1 (Vertical Slice) from the [5-phase roadmap](file:///Users/manifera/.gemini/antigravity/brain/5b98b12b-904d-4b26-ada5-daed7b94875b/implementation_plan.md)
+> **Scope:** Stand up the Rust Micro-Core project with Bevy 0.18 headless, minimal ECS components, a movement system, and entity spawning. **No bridges, no visualizer** — those are separate micro-phases.
+
+---
+
+## Micro-Phase Breakdown Strategy
+
+Phase 1 (Vertical Slice) is split into the following micro-phases:
+
+| Micro-Phase | Scope | Depends On |
+|-------------|-------|------------|
+| **MP1 (this plan)** | Rust project scaffold + Bevy ECS + movement system | None |
+| **MP2 (future)** | WebSocket bridge (`ws_bridge.rs`) + delta-sync tracking | MP1 |
+| **MP3 (future)** | ZeroMQ bridge (`zmq_bridge.rs`) + stub AI round-trip | MP1 |
+| **MP4 (future)** | Debug Visualizer (HTML/Canvas/JS) + WS client | MP2 |
+| **MP5 (future)** | Integration wiring + end-to-end vertical slice test | MP2, MP3, MP4 |
+
+> [!NOTE]
+> MP2 and MP3 can run **in parallel** since they touch different files and communicate through the same ECS state. MP4 depends on MP2 (needs WS server). MP5 wires everything together.
+
+---
+
+## Proposed Changes
+
+### Component 1: Project Scaffold
+
+#### [NEW] [Cargo.toml](file:///Users/manifera/Documents/Study/mass-swarm-ai-simulator/micro-core/Cargo.toml)
+- Create `micro-core/` directory with a properly configured `Cargo.toml`
+- Package name: `micro-core`
+- Edition: `2024`
+- Crate type: `cdylib` + `rlib` (C-ABI readiness from day one, `rlib` for tests)
+- Dependencies (only what MP1 needs — bridges add theirs later):
+  - `bevy = { version = "0.18", default-features = false, features = ["bevy_app", "bevy_ecs"] }`
+  - `serde = { version = "1.0", features = ["derive"] }`
+  - `serde_json = "1.0"`
+  - `rand = "0.9"` (for random initial positions/velocities)
+
+> [!IMPORTANT]
+> **Bevy 0.18 feature selection:** We deliberately use `default-features = false` and cherry-pick only `bevy_app` and `bevy_ecs`. This avoids pulling in rendering, audio, windowing, and asset pipelines that we don't need in headless mode. The `ScheduleRunnerPlugin` is available from `bevy_app`. Future micro-phases will add `tokio`, `tokio-tungstenite`, and `zeromq` when bridges are needed.
+
+#### [NEW] [main.rs](file:///Users/manifera/Documents/Study/mass-swarm-ai-simulator/micro-core/src/main.rs)
+- Bevy app entry point using `MinimalPlugins`
+- `ScheduleRunnerPlugin::run_loop(Duration::from_secs_f64(1.0 / 60.0))` for 60 TPS
+- Register all ECS systems and startup system for initial entity spawning
+
+---
+
+### Component 2: ECS Components
+
+#### [NEW] [mod.rs](file:///Users/manifera/Documents/Study/mass-swarm-ai-simulator/micro-core/src/components/mod.rs)
+- Module barrel file re-exporting all components
+
+#### [NEW] [position.rs](file:///Users/manifera/Documents/Study/mass-swarm-ai-simulator/micro-core/src/components/position.rs)
+- `Position` component: `x: f32, y: f32`
+- Derives: `Component, Debug, Clone, Serialize, Deserialize`
+
+#### [NEW] [velocity.rs](file:///Users/manifera/Documents/Study/mass-swarm-ai-simulator/micro-core/src/components/velocity.rs)
+- `Velocity` component: `dx: f32, dy: f32`
+- Derives: `Component, Debug, Clone, Serialize, Deserialize`
+
+#### [NEW] [team.rs](file:///Users/manifera/Documents/Study/mass-swarm-ai-simulator/micro-core/src/components/team.rs)
+- `Team` enum: `Swarm`, `Defender`
+- Derives: `Component, Debug, Clone, PartialEq, Serialize, Deserialize`
+- Custom `Display` impl for JSON-compatible lowercase output (`"swarm"`, `"defender"`)
+
+#### [NEW] [entity_id.rs](file:///Users/manifera/Documents/Study/mass-swarm-ai-simulator/micro-core/src/components/entity_id.rs)
+- `EntityId` component: `id: u32`  
+- Derives: `Component, Debug, Clone, Serialize, Deserialize`
+- A `Resource` counter `NextEntityId(u32)` for monotonic ID assignment
+
+---
+
+### Component 3: ECS Systems
+
+#### [NEW] [mod.rs](file:///Users/manifera/Documents/Study/mass-swarm-ai-simulator/micro-core/src/systems/mod.rs)
+- Module barrel file re-exporting all systems
+
+#### [NEW] [movement.rs](file:///Users/manifera/Documents/Study/mass-swarm-ai-simulator/micro-core/src/systems/movement.rs)
+- `movement_system`: queries `(&mut Position, &Velocity)`, applies `pos.x += vel.dx; pos.y += vel.dy` per tick
+- World-boundary wrapping: entities that exit `[0, WORLD_WIDTH]` × `[0, WORLD_HEIGHT]` wrap around
+
+#### [NEW] [spawning.rs](file:///Users/manifera/Documents/Study/mass-swarm-ai-simulator/micro-core/src/systems/spawning.rs)
+- `initial_spawn_system` (startup system): spawns `INITIAL_ENTITY_COUNT` entities with random positions, small random velocities, and alternating teams
+- Uses `NextEntityId` resource for ID assignment
+
+---
+
+### Component 4: Simulation Config Resource
+
+#### [NEW] [config.rs](file:///Users/manifera/Documents/Study/mass-swarm-ai-simulator/micro-core/src/config.rs)
+- `SimulationConfig` resource with:
+  - `world_width: f32` (default: `1000.0`)
+  - `world_height: f32` (default: `1000.0`)
+  - `initial_entity_count: u32` (default: `100`)
+- `TickCounter` resource: `tick: u64` (incremented each frame by a `tick_counter_system`)
+
+---
+
+## Shared Contracts
+
+These are the exact data structures that MP2/MP3/MP4 will depend on. They are defined here so future micro-phases code against them.
+
+### ECS Components (Rust types)
+
+```rust
+// components/position.rs
+#[derive(Component, Debug, Clone, Serialize, Deserialize)]
+pub struct Position {
+    pub x: f32,
+    pub y: f32,
+}
+
+// components/velocity.rs
+#[derive(Component, Debug, Clone, Serialize, Deserialize)]
+pub struct Velocity {
+    pub dx: f32,
+    pub dy: f32,
+}
+
+// components/team.rs
+#[derive(Component, Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum Team {
+    Swarm,
+    Defender,
+}
+
+// components/entity_id.rs
+#[derive(Component, Debug, Clone, Serialize, Deserialize)]
+pub struct EntityId {
+    pub id: u32,
+}
+
+#[derive(Resource, Debug)]
+pub struct NextEntityId(pub u32);
+```
+
+### Resources (Rust types)
+
+```rust
+// config.rs
+#[derive(Resource, Debug, Clone, Serialize, Deserialize)]
+pub struct SimulationConfig {
+    pub world_width: f32,
+    pub world_height: f32,
+    pub initial_entity_count: u32,
+}
+
+impl Default for SimulationConfig {
+    fn default() -> Self {
+        Self {
+            world_width: 1000.0,
+            world_height: 1000.0,
+            initial_entity_count: 100,
+        }
+    }
+}
+
+#[derive(Resource, Debug, Default)]
+pub struct TickCounter {
+    pub tick: u64,
+}
+```
+
+### System Signatures
+
+```rust
+// systems/movement.rs
+pub fn movement_system(
+    mut query: Query<(&mut Position, &Velocity)>,
+    config: Res<SimulationConfig>,
+) { /* boundary wrapping logic */ }
+
+// systems/spawning.rs
+pub fn initial_spawn_system(
+    mut commands: Commands,
+    config: Res<SimulationConfig>,
+    mut next_id: ResMut<NextEntityId>,
+) { /* spawn INITIAL_ENTITY_COUNT entities */ }
+
+// tick_counter lives alongside config or in systems/
+pub fn tick_counter_system(mut counter: ResMut<TickCounter>) {
+    counter.tick += 1;
+}
+```
+
+---
+
+## DAG Execution Graph
+
+```mermaid
+graph TD
+    T1["Task 01<br/>Project Scaffold<br/>(basic)"]
+    T2["Task 02<br/>ECS Components<br/>(basic)"]
+    T3["Task 03<br/>Systems + Config<br/>(standard)"]
+    T4["Task 04<br/>Integration + Smoke Test<br/>(standard)"]
+
+    T1 --> T2
+    T1 --> T3
+    T2 --> T4
+    T3 --> T4
+```
+
+| Phase | Tasks | Parallelism |
+|-------|-------|-------------|
+| Phase A | Task 01 (scaffold) | Sequential — creates the project |
+| Phase B | Task 02 (components), Task 03 (systems + config) | **Parallel** — zero file overlap |
+| Phase C | Task 04 (integration wiring + smoke test) | Sequential — wires Phase B outputs into `main.rs` |
+
+---
+
+## Task Summaries
+
+### Task 01 — Project Scaffold
+- **Tier:** `basic`
+- **Files:** `micro-core/Cargo.toml`, `micro-core/src/main.rs` (stub only), `micro-core/src/components/mod.rs` (empty), `micro-core/src/systems/mod.rs` (empty)
+- **Description:** Create the Rust project directory structure. `main.rs` contains a minimal Bevy app with `MinimalPlugins` + `ScheduleRunnerPlugin` at 60 TPS that compiles and runs (exits cleanly or loops with no systems). Module directories exist but are empty stubs.
+- **Verification:** `cd micro-core && cargo build` succeeds with zero errors. `cargo clippy` has zero warnings.
+
+### Task 02 — ECS Components
+- **Tier:** `basic`
+- **Files:** `micro-core/src/components/mod.rs`, `micro-core/src/components/position.rs`, `micro-core/src/components/velocity.rs`, `micro-core/src/components/team.rs`, `micro-core/src/components/entity_id.rs`
+- **Description:** Implement all ECS component structs exactly as defined in the shared contracts above. Each file contains one struct/enum with all required derives. `mod.rs` re-exports everything.
+- **Verification:** `cargo build` succeeds. Unit test: instantiate each component, serialize to JSON, deserialize back, assert equality.
+
+### Task 03 — Systems + Config
+- **Tier:** `standard`
+- **Files:** `micro-core/src/systems/mod.rs`, `micro-core/src/systems/movement.rs`, `micro-core/src/systems/spawning.rs`, `micro-core/src/config.rs`
+- **Context Bindings:** `context/conventions`, `context/architecture`
+- **Description:** Implement `movement_system`, `initial_spawn_system`, `tick_counter_system`, `SimulationConfig`, and `TickCounter` exactly as defined in the shared contracts. Movement system applies velocity to position with world-boundary wrapping. Spawning system creates entities with random positions/velocities.
+- **Verification:** Unit tests: (1) `movement_system` moves an entity correctly, (2) boundary wrapping works at edges, (3) `initial_spawn_system` creates the correct number of entities with valid IDs.
+
+### Task 04 — Integration Wiring + Smoke Test  
+- **Tier:** `standard`
+- **Files:** `micro-core/src/main.rs` (update only)
+- **Context Bindings:** `context/tech-stack`, `context/conventions`
+- **Description:** Wire all components, systems, and resources into `main.rs`. The final binary should: start Bevy app → spawn 100 entities → tick at 60 TPS → entities move each tick → print tick count every 60 ticks (1 second) to stdout for verification. Add a log-based exit after 300 ticks (5 seconds) for CI-friendly smoke test mode.
+- **Verification:** `cargo run` executes, prints tick logs, and exits after ~5 seconds. `cargo test` passes all unit tests. `cargo clippy` clean.
+
+---
+
+## User Review Required
+
+> [!IMPORTANT]
+> **Bevy 0.18 feature flags:** I've specified `bevy_app` + `bevy_ecs` as the minimal feature set. Need to verify these exact feature names exist in Bevy 0.18. If they've changed, we'll adjust before dispatching tasks.
+
+> [!IMPORTANT]
+> **Scope boundary:** This micro-phase deliberately excludes bridges and the visualizer. The output is a standalone Rust binary that spawns entities and moves them in a headless loop. Is this the right granularity for MP1, or would you prefer to include the WS bridge in this first pass?
+
+## Open Questions
+
+1. **Entity count for MP1:** The roadmap says 100 for the initial vertical slice. Should MP1 use 100, or should we start with a smaller number (e.g., 10) for faster iteration and bump it in MP5?
+2. **Random seed:** Should entity positions/velocities be deterministic (seeded RNG) for reproducible debugging, or truly random?
+3. **Exit behavior:** For the smoke test, I've proposed auto-exit after 300 ticks. Should the binary also support a "run forever" mode for when we add bridges in MP2/MP3?
+
+---
+
+## Verification Plan
+
+### Automated Tests
+```bash
+cd micro-core && cargo build          # Compilation check
+cd micro-core && cargo clippy         # Lint check (zero warnings)
+cd micro-core && cargo test           # Unit tests for components + systems
+cd micro-core && cargo run            # Smoke test: exits after ~5 seconds with tick logs
+```
+
+### Manual Verification
+- Inspect stdout output to confirm tick counter increments and entity count matches config
+- Verify that `Cargo.toml` dependencies match the pinned versions from `context/tech-stack.md`
