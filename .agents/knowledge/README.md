@@ -50,14 +50,15 @@ knowledge/
 | `tooling_stale_rust_analyzer_cache.md` | low | Stale `target/` fingerprints cause phantom errors in rust-analyzer — fix with `cargo clean` |
 | `tooling_testing_tmp_dir.md` | low | Use workspace-local temp dirs for test artifacts, not system `/tmp` |
 
-## `workflow/` — Multi-Agent Process (3 files)
+## `workflow/` — Multi-Agent Process (4 files)
 
 | File | Severity | Summary |
 |------|----------|---------|
 | `architecture_dispatch_template_vs_workflow.md` | high | Dispatch prompt is the ONLY input for executors — don't use `/executor` workflow trigger |
 | `convention_strict_scope_and_changelog.md` | high | Executor must create changelog + stay within `Target_Files` scope — mandatory in dispatch template |
+| `convention_split_large_plans.md` | high | Split `implementation_plan.md` into index + per-feature detail files when >400 lines to avoid executor token truncation |
 | `gotcha_basic_tier_context_ignorance.md` | high | `basic` tier models skip `Context_Bindings` — inline critical rules in the task brief |
 
 ---
 
-*Last updated: 2026-04-04. Run `find .agents/knowledge -name "*.md" | sort` to verify.*
+*Last updated: 2026-04-05. Run `find .agents/knowledge -name "*.md" | sort` to verify.*

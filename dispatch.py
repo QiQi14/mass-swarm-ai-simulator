@@ -47,6 +47,7 @@ WORKFLOWS_DIR = SCRIPT_DIR / ".agents" / "workflows"
 STATE_FILE = SCRIPT_DIR / "task_state.json"
 TASKS_PENDING_DIR = SCRIPT_DIR / "tasks_pending"
 IMPLEMENTATION_PLAN = SCRIPT_DIR / "implementation_plan.md"
+IMPLEMENTATION_PLAN_FEATURE_GLOB = "implementation_plan_feature_*.md"
 DISPATCH_DIR = SCRIPT_DIR / ".dispatch"
 
 AVAILABLE_ROLES = {
@@ -275,10 +276,38 @@ def _resolve_context_binding(binding: str) -> Optional[Path]:
     return None
 
 
+def _load_all_plan_content() -> str:
+    """
+    Load the main implementation_plan.md and any split feature detail files.
+    Returns all plan content concatenated, with clear separators.
+
+    Supports the split-plan convention:
+      implementation_plan.md              (index / overview)
+      implementation_plan_feature_1.md    (feature detail)
+      implementation_plan_feature_2.md    (feature detail)
+      ...
+    """
+    parts = []
+
+    # Main plan (always required)
+    main_content = _read_file_safe(IMPLEMENTATION_PLAN)
+    parts.append(main_content)
+
+    # Feature detail files (optional, sorted for determinism)
+    feature_files = sorted(SCRIPT_DIR.glob(IMPLEMENTATION_PLAN_FEATURE_GLOB))
+    for ff in feature_files:
+        content = ff.read_text(encoding="utf-8").strip()
+        if content:
+            parts.append(f"\n\n---\n<!-- Source: {ff.name} -->\n\n{content}")
+
+    return "\n".join(parts)
+
+
 def _extract_contracts(plan_content: str, task_id: str) -> str:
     """
-    Extract relevant shared contracts from implementation_plan.md.
+    Extract relevant shared contracts from implementation plan content.
     Looks for sections titled 'Contract', 'Shared Contracts', 'Handshake', etc.
+    Searches across the main plan and any feature detail files.
     Returns the contract text or a fallback message.
     """
     # Try to find a contracts section
@@ -384,8 +413,8 @@ def generate_prompt(role: str, task_id: Optional[str] = None, feature_name: Opti
 
     context_bindings_str = "\n".join(bindings_list_lines) if bindings_list_lines else "_No additional context bindings specified._"
 
-    # Extract contracts from implementation plan
-    plan_content = _read_file_safe(IMPLEMENTATION_PLAN)
+    # Extract contracts from implementation plan (main + feature detail files)
+    plan_content = _load_all_plan_content()
     contracts = _extract_contracts(plan_content, task_id)
 
     # Load changelog (for QA role)

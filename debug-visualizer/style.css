@@ -75,17 +75,18 @@ body {
     background-color: #050608;
     background-image: radial-gradient(circle at center, #111420 0%, #050608 100%);
     overflow: hidden;
-    display: flex;
-    justify-content: center;
-    align-items: center;
 }
 
-#sim-canvas {
-    display: block;
-    width: 100%;
-    height: 100%;
+.canvas-container canvas {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
     cursor: crosshair;
 }
+
+#canvas-bg { z-index: 1; }
+#canvas-entities { z-index: 2; pointer-events: auto; }
+
 
 .canvas-hint {
     position: absolute;
@@ -553,3 +554,50 @@ body {
         height: 60vh;
     }
 }
+
+/* ==========================================================================
+   Task 07 Visualizer Upgrades (Inspector, Performance, Factions)
+   ========================================================================== */
+
+/* Inspector panel */
+.inspector-grid {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 4px 12px;
+}
+.inspector-label { color: var(--text-muted); font-size: 0.75rem; }
+.inspector-value { font-size: 0.85rem; }
+
+/* Performance bar chart */
+.perf-bar-chart { display: flex; flex-direction: column; gap: 4px; }
+.perf-bar-row {
+    display: flex; align-items: center; gap: 8px;
+}
+.perf-bar-label { width: 80px; font-size: 0.7rem; color: var(--text-muted); }
+.perf-bar-track { flex: 1; height: 12px; background: var(--border-color); border-radius: 6px; overflow: hidden; }
+.perf-bar-fill { height: 100%; border-radius: 6px; transition: width 0.15s ease; }
+.perf-bar-fill.green { background: #30d158; }
+.perf-bar-fill.yellow { background: #ffd60a; }
+.perf-bar-fill.red { background: #ff453a; }
+.perf-bar-value { width: 50px; text-align: right; font-size: 0.7rem; font-family: var(--font-mono); }
+
+/* Sparkline */
+.stat-with-graph { display: flex; align-items: center; gap: 6px; }
+.sparkline { height: 24px; opacity: 0.8; }
+
+/* Faction toggle buttons */
+.faction-toggle-btn {
+    display: flex; justify-content: space-between; align-items: center;
+    width: 100%; padding: 8px 12px; margin-bottom: 4px;
+    border: 1px solid var(--border-color); border-radius: 6px;
+    background: var(--bg-dark); color: var(--text-main);
+    cursor: pointer; font-size: 0.8rem;
+}
+.faction-toggle-btn:hover { background: var(--bg-input); }
+.faction-mode-badge {
+    padding: 2px 8px; border-radius: 3px; font-size: 0.65rem;
+    text-transform: uppercase; font-weight: 700;
+}
+.faction-mode-badge.static { background: rgba(255,69,58,0.2); color: #ff453a; }
+.faction-mode-badge.brain { background: rgba(48,209,88,0.2); color: #30d158; }
+

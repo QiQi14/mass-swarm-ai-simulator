@@ -10,9 +10,17 @@
 //! - `crate::bridges`
 //! - `crate::components`
 //! - `crate::config`
+//! - `crate::pathfinding`
+//! - `crate::spatial`
 //! - `crate::systems`
 
 pub mod bridges;
 pub mod components;
 pub mod config;
+pub mod pathfinding;
+pub mod spatial;
 pub mod systems;
+pub mod rules;
+pub mod plugins;
+pub mod visibility;
+pub mod terrain;

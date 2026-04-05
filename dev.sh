@@ -1,0 +1,223 @@
+#!/usr/bin/env bash
+# ============================================================================
+# Mass-Swarm AI Simulator — Development Environment Launcher
+# ============================================================================
+#
+# Starts all required services for debugging:
+#   1. Rust Micro-Core (simulation engine + WS server on :8080)
+#   2. HTTP file server for Debug Visualizer (on :3000)
+#
+# Usage:
+#   ./dev.sh              — Normal dev mode
+#   ./dev.sh --smoke      — Run 300-tick smoke test then exit
+#   ./dev.sh --release    — Build and run with release optimizations
+#   ./dev.sh --prod       — Production build (no debug telemetry)
+#   ./dev.sh --clean      — Kill leftover processes and exit
+#   ./dev.sh --help       — Show this help
+# ============================================================================
+
+set -euo pipefail
+
+# ── Colors ──────────────────────────────────────────────────────────────
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+DIM='\033[2m'
+BOLD='\033[1m'
+RESET='\033[0m'
+
+# ── Configuration ───────────────────────────────────────────────────────
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+MICRO_CORE_DIR="$SCRIPT_DIR/micro-core"
+VISUALIZER_DIR="$SCRIPT_DIR/debug-visualizer"
+HTTP_PORT=3000
+WS_PORT=8080
+PID_FILE="$SCRIPT_DIR/.dev.pids"
+
+# ── Port Cleanup Function ──────────────────────────────────────────────
+# Kills any process occupying the given port.
+kill_port() {
+    local port=$1
+    local pids
+    pids=$(lsof -ti:"$port" 2>/dev/null || true)
+    if [ -n "$pids" ]; then
+        echo -e "  ${YELLOW}⚠  Port $port in use — killing PID(s): $pids${RESET}"
+        echo "$pids" | xargs kill -9 2>/dev/null || true
+        sleep 0.3
+    fi
+}
+
+# Kill processes from a previous dev.sh run (PID file)
+kill_saved_pids() {
+    if [ -f "$PID_FILE" ]; then
+        while IFS= read -r pid; do
+            if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+                kill -9 "$pid" 2>/dev/null || true
+            fi
+        done < "$PID_FILE"
+        rm -f "$PID_FILE"
+    fi
+}
+
+# ── Parse Arguments ─────────────────────────────────────────────────────
+CARGO_PROFILE=""
+CARGO_EXTRA_ARGS=""
+FEATURES=""
+SMOKE_TEST=false
+
+for arg in "$@"; do
+    case "$arg" in
+        --smoke)
+            SMOKE_TEST=true
+            CARGO_EXTRA_ARGS="$CARGO_EXTRA_ARGS --smoke-test"
+            ;;
+        --release)
+            CARGO_PROFILE="--release"
+            ;;
+        --prod|--production)
+            CARGO_PROFILE="--release"
+            FEATURES="--no-default-features"
+            ;;
+        --clean)
+            echo -e "${YELLOW}▸ Cleaning up leftover processes...${RESET}"
+            kill_saved_pids
+            kill_port "$HTTP_PORT"
+            kill_port "$WS_PORT"
+            echo -e "${GREEN}✔ All ports freed.${RESET}"
+            exit 0
+            ;;
+        --help|-h)
+            head -n 17 "$0" | tail -n 14
+            exit 0
+            ;;
+        *)
+            echo -e "${RED}Unknown argument: $arg${RESET}"
+            exit 1
+            ;;
+    esac
+done
+
+# ── Cleanup on Exit ────────────────────────────────────────────────────
+# Trapping SIGHUP is critical — that's what the terminal sends on close.
+CORE_PID=""
+HTTP_PID=""
+
+cleanup() {
+    echo ""
+    echo -e "${YELLOW}⏹  Shutting down...${RESET}"
+    
+    if [ -n "$CORE_PID" ] && kill -0 "$CORE_PID" 2>/dev/null; then
+        kill "$CORE_PID" 2>/dev/null || true
+        wait "$CORE_PID" 2>/dev/null || true
+        echo -e "   ${DIM}Micro-Core stopped${RESET}"
+    fi
+    
+    if [ -n "$HTTP_PID" ] && kill -0 "$HTTP_PID" 2>/dev/null; then
+        kill "$HTTP_PID" 2>/dev/null || true
+        wait "$HTTP_PID" 2>/dev/null || true
+        echo -e "   ${DIM}HTTP server stopped${RESET}"
+    fi
+    
+    # Also kill by port in case any child escaped the PID tracking
+    lsof -ti:"$HTTP_PORT" 2>/dev/null | xargs kill -9 2>/dev/null || true
+    lsof -ti:"$WS_PORT" 2>/dev/null | xargs kill -9 2>/dev/null || true
+    
+    rm -f "$PID_FILE"
+    echo -e "${GREEN}✔  All services stopped.${RESET}"
+}
+
+trap cleanup EXIT INT TERM HUP
+
+# ── Banner ──────────────────────────────────────────────────────────────
+echo ""
+echo -e "${CYAN}${BOLD}╔══════════════════════════════════════════════════╗${RESET}"
+echo -e "${CYAN}${BOLD}║     Mass-Swarm AI Simulator — Dev Environment    ║${RESET}"
+echo -e "${CYAN}${BOLD}╚══════════════════════════════════════════════════╝${RESET}"
+echo ""
+
+# ── Step 0: Kill leftovers from previous runs ──────────────────────────
+kill_saved_pids
+kill_port "$HTTP_PORT"
+kill_port "$WS_PORT"
+
+# ── Step 1: Build Micro-Core ───────────────────────────────────────────
+echo -e "${YELLOW}▸ Building Micro-Core...${RESET}"
+
+BUILD_CMD="cargo build $CARGO_PROFILE $FEATURES"
+echo -e "  ${DIM}$ cd micro-core && $BUILD_CMD${RESET}"
+
+if ! (cd "$MICRO_CORE_DIR" && eval "$BUILD_CMD" 2>&1); then
+    echo -e "${RED}✘ Build failed. Fix compilation errors and retry.${RESET}"
+    exit 1
+fi
+echo -e "${GREEN}✔ Build succeeded${RESET}"
+echo ""
+
+# ── Step 2: Start HTTP Server for Visualizer ───────────────────────────
+if [ "$SMOKE_TEST" = false ]; then
+    echo -e "${YELLOW}▸ Starting Debug Visualizer HTTP server on port $HTTP_PORT...${RESET}"
+    
+    python3 -m http.server "$HTTP_PORT" --bind 127.0.0.1 --directory "$VISUALIZER_DIR" 2>/dev/null &
+    HTTP_PID=$!
+    
+    # Save PID for cross-session cleanup
+    echo "$HTTP_PID" > "$PID_FILE"
+    
+    # Verify the HTTP server started
+    sleep 0.5
+    if ! kill -0 "$HTTP_PID" 2>/dev/null; then
+        echo -e "${RED}✘ Failed to start HTTP server on port $HTTP_PORT.${RESET}"
+        echo -e "  ${DIM}Run: ./dev.sh --clean${RESET}"
+        exit 1
+    fi
+    echo -e "${GREEN}✔ Visualizer serving at http://127.0.0.1:$HTTP_PORT${RESET}"
+    echo ""
+fi
+
+# ── Step 3: Start Micro-Core ───────────────────────────────────────────
+echo -e "${YELLOW}▸ Starting Micro-Core simulation...${RESET}"
+
+RUN_CMD="cargo run $CARGO_PROFILE $FEATURES"
+if [ -n "$CARGO_EXTRA_ARGS" ]; then
+    RUN_CMD="$RUN_CMD -- $CARGO_EXTRA_ARGS"
+fi
+echo -e "  ${DIM}$ cd micro-core && $RUN_CMD${RESET}"
+echo ""
+
+if [ "$SMOKE_TEST" = true ]; then
+    # Foreground — run and exit
+    (cd "$MICRO_CORE_DIR" && eval "$RUN_CMD")
+    echo ""
+    echo -e "${GREEN}✔ Smoke test complete.${RESET}"
+else
+    # Run in foreground directly (not subshell) — keeps it attached to terminal
+    cd "$MICRO_CORE_DIR"
+
+    eval "$RUN_CMD" &
+    CORE_PID=$!
+    
+    # Save both PIDs for cross-session cleanup
+    echo "$CORE_PID" >> "$PID_FILE"
+    
+    sleep 1
+    if ! kill -0 "$CORE_PID" 2>/dev/null; then
+        echo -e "${RED}✘ Micro-Core failed to start. Check errors above.${RESET}"
+        exit 1
+    fi
+    
+    echo -e "${GREEN}${BOLD}═══════════════════════════════════════════════════${RESET}"
+    echo -e "${GREEN}${BOLD}  🚀 All services running!${RESET}"
+    echo -e "${GREEN}${BOLD}═══════════════════════════════════════════════════${RESET}"
+    echo ""
+    echo -e "  ${BOLD}Debug Visualizer:${RESET}  ${CYAN}http://127.0.0.1:$HTTP_PORT${RESET}"
+    echo -e "  ${BOLD}WebSocket Server:${RESET}  ${CYAN}ws://127.0.0.1:$WS_PORT${RESET}"
+    echo -e "  ${BOLD}Rust Logs:${RESET}         ${DIM}(streaming below)${RESET}"
+    echo ""
+    echo -e "  ${DIM}Press Ctrl+C to stop all services.${RESET}"
+    echo ""
+    echo -e "${DIM}─────────────────────────────────────────────────────${RESET}"
+    
+    # Wait for Core process — keeps script alive and logs streaming
+    wait "$CORE_PID" 2>/dev/null || true
+fi

@@ -23,3 +23,9 @@ globs: **/tasks_pending/*.md
 ## 4. The Explicit Handoff Mandate
 - You MUST explicitly document every single file you created, modified, or deleted.
 - You cannot assume the QA Agent or the Architect knows what you did. You must leave a precise "paper trail" via the changelog.
+
+## 5. Human Intervention Traceability
+- If a human intercepts your execution and provides code, redirects your approach, or overrides a spec decision, you MUST record this in your changelog under a `## Human Interventions` section.
+- Each intervention entry must include: **(a)** what the human proposed, **(b)** what you adopted/corrected, **(c)** any deviations from the original task brief.
+- The QA Agent uses this section to distinguish spec-originated code from human-originated code. Missing entries are treated as undocumented scope changes.
+- **Human-provided code is conceptual, not truth.** Verify it against the framework version, project contracts, and compiler rules before adopting. See `multi-agents-planning.md` §4.

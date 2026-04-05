@@ -11,7 +11,11 @@ use bevy::prelude::*;
 use crate::components::{EntityId, FactionId, Position, StatBlock, Velocity};
 use crate::config::TickCounter;
 use crate::bridges::ws_protocol::{WsMessage, EntityState};
+use crate::rules::RemovalEvents;
 use tokio::sync::broadcast::Sender;
+
+#[cfg(feature = "debug-telemetry")]
+use crate::plugins::telemetry::PerfTelemetry;
 
 /// Resource wrapping the async broadcast sender.
 #[derive(Resource, Clone)]
@@ -23,7 +27,13 @@ pub fn ws_sync_system(
     query: Query<(&EntityId, &Position, &Velocity, &FactionId, &StatBlock), Changed<Position>>,
     tick: Res<TickCounter>,
     sender: Res<BroadcastSender>,
+    mut removal_events: ResMut<RemovalEvents>,
+    #[cfg(feature = "debug-telemetry")]
+    telemetry: Option<ResMut<PerfTelemetry>>,
 ) {
+    #[cfg(feature = "debug-telemetry")]
+    let start = telemetry.as_ref().map(|_| std::time::Instant::now());
+
     let mut moved = Vec::new();
     for (id, pos, vel, faction, stat_block) in query.iter() {
         moved.push(EntityState {
@@ -37,16 +47,32 @@ pub fn ws_sync_system(
         });
     }
 
-    if !moved.is_empty() {
+    let removed = removal_events.removed_ids.clone();
+    removal_events.removed_ids.clear();
+
+    if !moved.is_empty() || !removed.is_empty() {
         let msg = WsMessage::SyncDelta {
             tick: tick.tick,
             moved,
+            removed,
+            #[cfg(feature = "debug-telemetry")]
+            telemetry: telemetry.as_ref().map(|t| {
+                let mut snapshot = (*t).clone();
+                snapshot.entity_count = query.iter().count() as u32;
+                snapshot
+            }),
         };
+
         if let Ok(json_str) = serde_json::to_string(&msg) {
             // Try to send to connected clients. If no clients exist,
             // the channel returns an error, which we simply ignore.
             let _ = sender.0.send(json_str);
         }
+    }
+
+    #[cfg(feature = "debug-telemetry")]
+    if let (Some(mut t), Some(s)) = (telemetry, start) {
+        t.ws_sync_us = s.elapsed().as_micros() as u32;
     }
 }
 
@@ -65,6 +91,9 @@ mod tests {
         let (tx, mut rx) = broadcast::channel::<String>(10);
         app.insert_resource(BroadcastSender(tx));
         app.insert_resource(TickCounter { tick: 42 });
+        app.init_resource::<crate::rules::RemovalEvents>();
+        #[cfg(feature = "debug-telemetry")]
+        app.init_resource::<crate::plugins::telemetry::PerfTelemetry>();
 
         app.add_systems(Update, ws_sync_system);
 

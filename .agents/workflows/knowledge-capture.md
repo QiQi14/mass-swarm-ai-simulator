@@ -24,19 +24,29 @@ You MUST create a knowledge file when:
 
 ## Where to Write
 
-Create a Markdown file in `.agents/knowledge/`:
+Create a Markdown file in the appropriate **subdirectory** under `.agents/knowledge/`:
 
 ```
-.agents/knowledge/[category]_[short_name].md
+.agents/knowledge/
+├── README.md               ← Master index (agent lookup table)
+├── bevy/                   ← Bevy ECS engine gotchas and patterns
+├── rust/                   ← Rust language conventions
+├── tooling/                ← IDE, build tools, dev environment
+└── workflow/               ← Multi-agent DAG process rules
 ```
 
-**Categories:** `architecture`, `ui`, `data`, `tooling`, `convention`, `gotcha`, `deprecation`
+**File naming:** `[type]_[short_name].md`  
+**Types:** `architecture`, `convention`, `gotcha`, `deprecation`, `tooling`
 
 **Examples:**
-- `.agents/knowledge/deprecation_react_router_v7.md`
-- `.agents/knowledge/gotcha_android_keystore_samsung.md`
-- `.agents/knowledge/tooling_vite_config_alias.md`
-- `.agents/knowledge/convention_zustand_slice_pattern.md`
+- `.agents/knowledge/bevy/gotcha_bevy_018_test_query.md`
+- `.agents/knowledge/rust/convention_rust_file_splitting.md`
+- `.agents/knowledge/tooling/tooling_stale_rust_analyzer_cache.md`
+- `.agents/knowledge/workflow/gotcha_basic_tier_context_ignorance.md`
+
+**After creating a knowledge file**, you MUST update `README.md` to add the new entry to the appropriate domain table. The README is the lookup index — if a file isn't listed there, agents won't find it.
+
+If a new domain subdirectory is needed (e.g., `python/`, `frontend/`), create the folder and add a new section to README.md.
 
 ## File Format
 

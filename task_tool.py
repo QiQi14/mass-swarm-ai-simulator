@@ -630,6 +630,7 @@ def _perform_archive(state: dict) -> None:
     Move the following artifacts into .agents/history/<timestamp>/:
       - task_state.json
       - implementation_plan.md
+      - implementation_plan_feature_*.md  (split plan detail files, if any)
       - tasks_pending/  (entire directory)
       - .dispatch/      (generated session prompts)
 
@@ -651,6 +652,11 @@ def _perform_archive(state: dict) -> None:
         if IMPLEMENTATION_PLAN.exists():
             shutil.move(str(IMPLEMENTATION_PLAN), str(archive_dir / IMPLEMENTATION_PLAN.name))
             print(f"  {C.GREEN}→{C.RESET} Archived {IMPLEMENTATION_PLAN.name}")
+
+        # Move split plan feature files (implementation_plan_feature_*.md)
+        for feature_plan in sorted(PROJECT_ROOT.glob("implementation_plan_feature_*.md")):
+            shutil.move(str(feature_plan), str(archive_dir / feature_plan.name))
+            print(f"  {C.GREEN}→{C.RESET} Archived {feature_plan.name}")
 
         # Move tasks_pending/ directory
         if TASKS_PENDING_DIR.exists():

@@ -8,6 +8,9 @@
 
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "debug-telemetry")]
+use crate::plugins::telemetry::PerfTelemetry;
+
 /// Individual entity state snapshot for IPC.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct EntityState {
@@ -37,6 +40,23 @@ pub enum WsMessage {
         tick: u64,
         /// List of entities with state changes.
         moved: Vec<EntityState>,
+        #[serde(default)]
+        removed: Vec<u32>,
+        /// Present only when `debug-telemetry` feature is enabled.
+        #[cfg(feature = "debug-telemetry")]
+        #[serde(skip_serializing_if = "Option::is_none")]
+        telemetry: Option<PerfTelemetry>,
+    },
+    /// Flow field vector data for debug visualization.
+    /// Only compiled when `debug-telemetry` feature is enabled.
+    #[cfg(feature = "debug-telemetry")]
+    FlowFieldSync {
+        target_faction: u32,
+        grid_width: u32,
+        grid_height: u32,
+        cell_size: f32,
+        /// Flat array of [dx, dy] vectors, row-major order.
+        vectors: Vec<[f32; 2]>,
     },
 }
 

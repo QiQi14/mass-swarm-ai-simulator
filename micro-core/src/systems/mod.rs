@@ -11,6 +11,9 @@
 //! - `initial_spawn_system`
 //! - `tick_counter_system`
 
+pub mod interaction;
+pub mod removal;
+pub mod flow_field_update;
 pub mod movement;
 pub mod spawning;
 pub mod ws_sync;
@@ -19,8 +22,11 @@ pub mod ws_command;
 use bevy::prelude::*;
 use crate::config::TickCounter;
 
+pub use interaction::interaction_system;
+pub use removal::removal_system;
+pub use flow_field_update::flow_field_update_system;
 pub use movement::movement_system;
-pub use spawning::initial_spawn_system;
+pub use spawning::{initial_spawn_system, wave_spawn_system};
 pub use ws_sync::{BroadcastSender, ws_sync_system};
 
 /// Increments the global tick counter each frame.

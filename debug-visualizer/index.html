@@ -13,7 +13,8 @@
     <div class="app-container">
         <!-- Main Canvas Area -->
         <main class="canvas-container">
-            <canvas id="sim-canvas"></canvas>
+            <canvas id="canvas-bg"></canvas>
+            <canvas id="canvas-entities"></canvas>
             
             <!-- Floating connection status -->
             <div class="connection-status">
@@ -43,23 +44,21 @@
                 <div class="stats-grid">
                     <div class="stat-box">
                         <span class="stat-label">TPS</span>
-                        <span id="stat-tps" class="stat-value mono">0</span>
+                        <div class="stat-with-graph">
+                            <span id="stat-tps" class="stat-value mono">0</span>
+                            <canvas id="graph-tps" class="sparkline" width="60" height="24"></canvas>
+                        </div>
                     </div>
                     <div class="stat-box">
                         <span class="stat-label">Tick</span>
                         <span id="stat-tick" class="stat-value mono">0</span>
                     </div>
-                    <div class="stat-box">
-                        <span class="stat-label">WS Ping</span>
-                        <span id="stat-ping" class="stat-value mono">0ms</span>
-                    </div>
-                    <div class="stat-box">
-                        <span class="stat-label">AI Latency</span>
-                        <span id="stat-ai-latency" class="stat-value mono">N/A</span>
-                    </div>
                     <div class="stat-box full-width">
                         <span class="stat-label">Total Entities</span>
-                        <span id="stat-entities" class="stat-value mono">0</span>
+                        <div class="stat-with-graph" style="justify-content: space-between; width: 100%;">
+                            <span id="stat-entities" class="stat-value mono">0</span>
+                            <canvas id="graph-entities" class="sparkline" width="60" height="24"></canvas>
+                        </div>
                     </div>
                     <div class="stat-box swarm">
                         <span class="stat-label">Swarm</span>
@@ -70,6 +69,30 @@
                         <span id="stat-defender" class="stat-value mono">0</span>
                     </div>
                 </div>
+            </section>
+
+            <section class="panel-section">
+                <h2>System Performance</h2>
+                <div id="perf-bars" class="perf-bar-chart">
+                    <!-- Populated dynamically from PerfTelemetry -->
+                </div>
+            </section>
+
+            <section id="inspector-panel" class="panel-section" style="display: none;">
+                <h2>Entity Inspector</h2>
+                <div class="inspector-grid">
+                    <span class="inspector-label">ID</span>
+                    <span id="insp-id" class="inspector-value mono">—</span>
+                    <span class="inspector-label">Faction</span>
+                    <span id="insp-faction" class="inspector-value mono">—</span>
+                    <span class="inspector-label">Position</span>
+                    <span id="insp-pos" class="inspector-value mono">—</span>
+                    <span class="inspector-label">Velocity</span>
+                    <span id="insp-vel" class="inspector-value mono">—</span>
+                    <span class="inspector-label">Stats</span>
+                    <span id="insp-stats" class="inspector-value mono">—</span>
+                </div>
+                <button id="insp-deselect" class="btn secondary" style="margin-top: 10px;">Deselect</button>
             </section>
 
             <section class="panel-section">
@@ -89,12 +112,27 @@
             </section>
 
             <section class="panel-section">
+                <h2>Faction Behavior</h2>
+                <div id="faction-toggles"></div>
+            </section>
+
+            <section class="panel-section">
                 <h2>Viewport Layers</h2>
                 <div class="toggle-group">
                     <label class="toggle-control">
                         <input type="checkbox" id="toggle-grid" checked>
                         <span class="control-indicator"></span>
                         <span class="control-label">Coordinate Grid</span>
+                    </label>
+                    <label class="toggle-control">
+                        <input type="checkbox" id="toggle-spatial-grid">
+                        <span class="control-indicator"></span>
+                        <span class="control-label">Spatial Hash Grid</span>
+                    </label>
+                    <label class="toggle-control">
+                        <input type="checkbox" id="toggle-flow-field">
+                        <span class="control-indicator"></span>
+                        <span class="control-label">Flow Field Arrows</span>
                     </label>
                     <label class="toggle-control">
                         <input type="checkbox" id="toggle-velocity">
@@ -125,7 +163,7 @@
         </aside>
     </div>
 
-    <!-- The actual visualization logic (provided by another task) -->
+    <!-- The actual visualization logic -->
     <script src="visualizer.js"></script>
 </body>
 </html>

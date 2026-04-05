@@ -34,17 +34,53 @@ Group the atomic tasks into a Directed Acyclic Graph (DAG) of execution phases t
 
 ## Step 4: Output Generation & File Splitting
 
-To prevent output truncation and ensure maximum detail, DO NOT attempt to write the entire DAG and all task instructions into a single file. You MUST split your output:
+To prevent output truncation and ensure maximum detail, you MUST split your output across multiple files.
 
-**1. The Index File (`implementation_plan.md`) — Draft Phase:**
-- Create this file as an **Antigravity artifact** at `<appDataDir>/brain/<conversation-id>/implementation_plan.md` with `RequestFeedback: true`.
-- This file must contain the high-level architecture, the DAG execution phases, the shared contracts (from Step 2), and the dependency mapping between tasks.
+### 4a. The Implementation Plan — Draft Phase
+
+Create the plan as an **Antigravity artifact** at `<appDataDir>/brain/<conversation-id>/implementation_plan.md` with `RequestFeedback: true`.
+
+**Token Budget Rule:** If the plan exceeds ~400 lines, you MUST split it:
+
+| File | Contains | Max Lines |
+|------|----------|-----------|
+| `implementation_plan.md` | Overview, core principles, inter-layer architecture, DAG phases, file summary, verification plan | ~300 |
+| `implementation_plan_feature_[N].md` | Detailed contracts + strict instructions for one feature/component | ~300 each |
+
+**Index file (`implementation_plan.md`) MUST contain:**
+- High-level architecture and design decisions
+- The DAG execution phases with dependency graph
+- Shared contracts that cross feature boundaries (e.g., WS protocol types)
+- File summary table (all files across all features)
+- Verification plan
+- A `## Feature Details` section listing links to detail files:
+  ```markdown
+  ## Feature Details
+  - [Feature 1: Mass Spawn](./implementation_plan_feature_1.md)
+  - [Feature 2: Fog of War](./implementation_plan_feature_2.md)
+  ```
+
+**Detail files (`implementation_plan_feature_[N].md`) contain:**
+- Full code contracts (struct definitions, function signatures, algorithm pseudocode)
+- Strict per-file change instructions
+- Anti-patterns and gotchas specific to that feature
+
+> **Why split?** A 780-line plan consumed during the planning phase's review loop
+> is fine for the Planner agent, but Executor agents loading it via `Context_Bindings`
+> often hit token limits. Splitting lets each executor load ONLY the feature detail
+> file relevant to their task.
+
+**Small plans (<400 lines):** Keep everything in a single `implementation_plan.md`. Don't split unnecessarily.
+
 - The user will review, ask questions, and request changes via the artifact feedback loop.
 - **Do NOT create task files or run `task_tool.sh` until the user explicitly approves the plan.**
 
-**1b. Plan Promotion (After User Approval):**
-- Once the user approves the implementation plan, **copy** the finalized artifact to the project ROOT: `implementation_plan.md`.
+### 4b. Plan Promotion (After User Approval)
+
+- Once the user approves the implementation plan, **copy** ALL plan files (index + detail files) to the project ROOT.
 - Only then proceed to generate task files and dispatch.
+
+### 4c. Task File Generation
 
 - Create a directory: `tasks_pending/` (if it does not exist).
 - For EACH task identified in your DAG, create a separate, heavily detailed Markdown file inside this directory (e.g., `tasks_pending/task_01_auth_ui.md`).
@@ -84,13 +120,32 @@ Verification_Strategy:
 
 **Model Tier Assignment:**
 
-| Tier | Model Size | Use When |
-|------|-----------|----------|
-| `basic` | ~14B local | Single-file tasks, config changes, simple CRUD, boilerplate. Task brief must be fully self-contained — agent skips external file reading. |
-| `standard` | Mid-tier (Sonnet, Flash, 4o-mini) | Multi-file tasks, business logic, state management. Agent reads task brief + 1-2 external context files. |
-| `advanced` | Top-tier (Opus, Pro, GPT-4) | Architectural decisions, complex state, cross-layer integration. Agent reads full context. |
+| Tier | Models | Max Context | Use When |
+|------|--------|-------------|----------|
+| `basic` | Qwen 3.6 14B, Gemma 3 27B, Nemotron Nano | ≤ 8K tokens | Single-file tasks, config changes, simple CRUD, boilerplate. Task brief must be fully self-contained — agent skips external file reading. |
+| `standard` | Gemini Flash, Claude Sonnet 4.6, GPT-OSS 120B | ≤ 32K tokens | Multi-file tasks, business logic, state management. Agent reads task brief + 1-2 external context files. |
+| `advanced` | Gemini Pro, Claude Opus 4.6 | > 32K tokens | Architectural decisions, complex state, cross-layer integration. Agent reads full context. |
 
 For `basic` tier: write MORE detailed `Strict_Instructions` — include exact imports, full function signatures, and literal code where possible. The task brief IS the complete instruction.
+
+## Step 4d: Token Budget Verification
+
+After generating all task files, run the token estimation script to verify tier assignments are correct:
+
+```bash
+python3 .agents/scripts/estimate_tokens.py --verbose
+```
+
+Review the output:
+- **✔ OK**: The assigned tier can handle the estimated context
+- **⚠ UPGRADE**: The estimated tokens exceed the tier's budget — upgrade `Model_Tier` in the task brief
+- **↓ DOWNGRADE**: The context is well below the tier's capacity — consider downgrading to save budget
+
+If adjustments are needed:
+1. Edit the `Model_Tier` field in the flagged `tasks_pending/task_*.md` files
+2. Re-run the script to confirm all tasks are within budget
+
+> **Note:** This step is advisory. The Planner and developer make the final tier decision.
 
 ## Step 5: Execution Handover
 

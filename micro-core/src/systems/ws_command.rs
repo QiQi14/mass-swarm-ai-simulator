@@ -18,6 +18,7 @@ use rand::Rng;
 use crate::bridges::ws_protocol::WsCommand;
 use crate::components::{EntityId, FactionId, NextEntityId, Position, StatBlock, Velocity};
 use crate::config::{SimPaused, SimSpeed, SimStepRemaining, SimulationConfig};
+use crate::rules::FactionBehaviorMode;
 
 /// Resource wrapping the standard library MPSC receiver for WS commands.
 #[derive(Resource)]
@@ -34,6 +35,7 @@ pub fn ws_command_system(
     mut step: ResMut<SimStepRemaining>,
     _config: Res<SimulationConfig>,
     faction_query: Query<(Entity, &FactionId)>,
+    mut behavior_mode: ResMut<FactionBehaviorMode>,
 ) {
     let Ok(rx) = receiver.0.lock() else { return; };
     while let Ok(json) = rx.try_recv() {
@@ -89,6 +91,19 @@ pub fn ws_command_system(
                             }
                         }
                         println!("[WS Command] Killed {} faction_{} entities", count, fid);
+                    }
+                }
+                "set_faction_mode" => {
+                    if let (Some(faction_id), Some(mode)) = (
+                        cmd.params.get("faction_id").and_then(|v| v.as_u64()).map(|v| v as u32),
+                        cmd.params.get("mode").and_then(|v| v.as_str()),
+                    ) {
+                        match mode {
+                            "static" => { behavior_mode.static_factions.insert(faction_id); }
+                            "brain"  => { behavior_mode.static_factions.remove(&faction_id); }
+                            _ => { println!("[WS Command] Unknown mode: {}", mode); }
+                        }
+                        println!("[WS Command] Faction {} mode set to: {}", faction_id, mode);
                     }
                 }
                 other => {

@@ -1,957 +1,744 @@
-# Phase 2 — Universal Core Algorithms (Context-Agnostic Architecture)
+# Debug Visualizer UX Refactor — Mass Spawn, Fog of War, Terrain Editor
 
-**TDD Reference:** CASE_STUDY.md §2.2, ROADMAP.md Phase 2
-**Depends On:** Phase 1 (complete ✅)
-**Architectural Pivot:** Universal Brain System — context-agnostic Micro-Core
+## Overview
 
----
+Three cross-cutting features to make the debug visualizer a proper simulation laboratory.
 
-## Architectural Vision: The Black-Box Universal Core
-
-Phase 2 adopts the **Universal Brain System** thesis: the Rust Micro-Core and Python Macro-Brain must be **semantically blind** — they handle mathematical quantities, spatial vectors, numeric identifiers, and anonymous data blocks. They never know whether they're running a swarm RTS, an Action RPG's Nemesis-style system, an FPS combat arena, or a real-world drone swarm.
-
-### Validated Principles
-
-| Principle | Status | Notes |
-|-----------|--------|-------|
-| Context-agnostic core | ✅ Adopted | Core never knows "health" or "team" — only stat indices and faction IDs |
-| Dynamic Payload Array (`Stats: [f32; N]`) | ✅ Adopted with refinement | Fixed `[f32; 8]` array per entity — cache-friendly, zero allocation |
-| 4-Layer Architecture | ✅ Adopted | Dumb Client → Adapter → Universal Core → Macro-Brain |
-| FlatBuffers/Protobuf | ⏸️ Deferred to Phase 4 | JSON remains for Phases 2–3 (debuggability). Binary serialization is a throughput optimization, not an algorithmic concern |
-| Config-driven rule sets | ✅ Adopted | Interaction rules, removal rules loaded from config — zero hardcoded game logic |
-
-### Design Refinement: ECS × Stats Array
-
-The analysis proposes `Stats: [f32; 8]` as a flat array. This is correct but needs ECS-friendly refinement:
-
-```
-❌ Anti-pattern: Put EVERYTHING in Stats array (position, velocity, faction)
-   → Loses Bevy query efficiency, can't filter "entities at position X"
-
-✅ Best practice: Keep spatial components (Position, Velocity) as native ECS components.
-   Use StatBlock ONLY for game-logic attributes (health, mana, fuel, damage, etc.)
-   Use FactionId as a separate queryable component (critical for spatial queries)
-```
-
-**Why?** `Position` and `Velocity` are already context-agnostic (pure math). Merging them into a generic array would destroy Bevy's `Changed<Position>` tracking and `With<FactionId>` filtering — both critical for 10K+ entity performance.
-
-### What Changes from Phase 1
-
-| Phase 1 Concept | Phase 2 Replacement | Reason |
-|-----------------|---------------------|--------|
-| `Team` enum (`Swarm`/`Defender`) | `FactionId(u32)` | Numeric ID = context-agnostic. Adapter maps ID → name |
-| No health/stats | `StatBlock([f32; 8])` | Anonymous stat array. Adapter maps index → meaning |
-| Hardcoded "combat" | `InteractionRuleSet` config | Rules define what happens when factions proximity-interact |
-| Hardcoded "death" | `RemovalRuleSet` config | Rules define when entities are removed (stat thresholds) |
-| `Team::Swarm` string in IPC | `faction_id: 0` integer in IPC | Protocol becomes numeric, adapter adds labels |
-
-### Adapter Layer in Phase 2
-
-The formal Adapter layer (Layer 2 in the user's analysis) is a Phase 5 concern (engine integration). In Phase 2, the **Debug Visualizer acts as the adapter** — it contains a small `ADAPTER_CONFIG` object that maps:
-
-```javascript
-// debug-visualizer/visualizer.js — Adapter Config
-const ADAPTER_CONFIG = {
-    factions: {
-        0: { name: "Swarm",    color: "#ff3b30" },
-        1: { name: "Defender", color: "#0a84ff" },
-    },
-    stats: {
-        0: { name: "Health", display: "bar", color_low: "#ff3b30", color_high: "#30d158" },
-    },
-};
-```
-
-This proves the adapter concept without building a separate layer.
+### Core Principles
+- **Contract-based:** Rust core deals ONLY with numeric weights and vision radii. Named types exist ONLY in JS.
+- **Self-contained:** FoW and terrain live in the Rust core. ML brain works without visualizer.
+- **Setup→Run workflow:** Visualizer starts in `SimState::Setup`. User designs → presses Play → `SimState::Running`.
+- **Integer-only hot paths:** No floating-point in Dijkstra inner loop. No division in tick-hot systems.
 
 ---
 
-## User Review Required
+## Inter-Layer Architecture — How FoW Feeds the ML Brain
+
+The simulator has **three layers** connected by two IPC channels with **different data fidelity**:
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        RUST MICRO-CORE (Ground Truth)                   │
+│                                                                         │
+│  ┌────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │
+│  │ All Entity │  │ TerrainGrid  │  │ FactionVis   │  │  FlowField   │  │
+│  │ Positions  │  │ hard + soft  │  │ explored +   │  │  Registry    │  │
+│  │ (omniscient│  │ costs        │  │ visible per  │  │              │  │
+│  │  ECS World)│  │              │  │ faction      │  │              │  │
+│  └─────┬──────┘  └──────┬───────┘  └──────┬───────┘  └──────────────┘  │
+│        │                │                  │                             │
+│   ┌────┴────────────────┴──────────────────┴────┐                       │
+│   │          DATA FILTER CONTRACTS              │                       │
+│   │                                            │                       │
+│   │  Channel A: ZMQ → Python Brain             │                       │
+│   │  ─────────────────────────────             │                       │
+│   │  FILTERED by FoW. Brain is NOT omniscient. │                       │
+│   │  • own_entities: ALL own faction entities  │                       │
+│   │  • visible_enemies: ONLY enemies in        │                       │
+│   │    faction's VISIBLE cells                 │                       │
+│   │  • explored_grid: bit-packed (what I know) │                       │
+│   │  • visible_grid: bit-packed (what I see)   │                       │
+│   │  • terrain: FULL grid (terrain is public)  │                       │
+│   │                                            │                       │
+│   │  Channel B: WebSocket → JS Debug Visualizer│                       │
+│   │  ──────────────────────────────────────     │                       │
+│   │  UNFILTERED. Debug tool sees everything.   │                       │
+│   │  • All entities (omniscient for debugging) │                       │
+│   │  • FoW overlay = OPTIONAL visual layer     │                       │
+│   │  • Terrain + Flow field arrows             │                       │
+│   │  • Telemetry (perf bars, tick counter)      │                       │
+│   └─────────────────────────────────────────────┘                       │
+└───────────────┬──────────────────────────┬──────────────────────────────┘
+                │                          │
+       ZMQ REQ/REP (~2 TPS)        WebSocket (60 TPS entities,
+       Fog-filtered snapshot         10 TPS fog, feature-gated)
+                │                          │
+                ▼                          ▼
+┌──────────────────────────┐  ┌────────────────────────────────┐
+│   PYTHON MACRO-BRAIN     │  │  JS DEBUG VISUALIZER (Browser) │
+│                          │  │                                │
+│ Observation Space:       │  │ Omniscient view:               │
+│ • I see 200 enemies      │  │ • All 10,000 entities visible  │
+│   (3000 hidden by fog)   │  │ • FoW overlay shows what a     │
+│ • I know 60% of map      │  │   faction WOULD see            │
+│   (explored grid)        │  │ • Terrain grid painted by user │
+│ • Terrain is fully known │  │ • Flow field arrows visible    │
+│                          │  │                                │
+│ Decision Output:         │  │ Controls:                      │
+│ • MacroAction (HOLD,     │  │ • Spawn units, paint terrain   │
+│   FLANK_LEFT, RETREAT)   │  │ • Toggle fog per faction       │
+│                          │  │ • Save/Load scenarios          │
+└──────────────────────────┘  └────────────────────────────────┘
+```
+
+### Key Data Flow Contracts
+
+| Data | ZMQ → Python Brain | WS → JS Visualizer |
+|------|:-:|:-:|
+| Own faction entities | ✅ Always (full stats) | ✅ Always |
+| Enemy entities | ⚠️ **Only if in VISIBLE cells** | ✅ Always (debug omniscient) |
+| Explored grid (bit-packed) | ✅ Faction's own grid | ✅ Selected faction's grid |
+| Visible grid (bit-packed) | ✅ Faction's own grid | ✅ Selected faction's grid |
+| Terrain grid | ✅ Full (terrain is public info) | ✅ Full |
+| Telemetry / perf data | ❌ Never (Python doesn't need it) | ✅ Feature-gated |
+| Flow field arrows | ❌ Never (brain makes its own decisions) | ✅ Optional overlay |
+
+### ZMQ Integration Change
+
+The existing `build_state_snapshot()` in [systems.rs](file:///Users/manifera/Documents/Study/mass-swarm-ai-simulator/micro-core/src/bridges/zmq_bridge/systems.rs) currently sends **ALL entities omnisciently**. This must be refactored:
+
+#### [MODIFY] [zmq_bridge/systems.rs](file:///Users/manifera/Documents/Study/mass-swarm-ai-simulator/micro-core/src/bridges/zmq_bridge/systems.rs) — FoW-Filtered Snapshot
+
+```rust
+fn build_state_snapshot(
+    tick: &TickCounter,
+    sim_config: &SimulationConfig,
+    query: &Query<(&EntityId, &Position, &FactionId, &StatBlock)>,
+    visibility: &FactionVisibility,      // NEW: fog data
+    terrain: &TerrainGrid,               // NEW: terrain data
+    brain_faction: u32,                  // NEW: which faction this brain controls
+) -> StateSnapshot {
+    let vis_grid = visibility.visible.get(&brain_faction);
+    let exp_grid = visibility.explored.get(&brain_faction);
+
+    let mut entities = Vec::new();
+    for (eid, pos, faction, stat_block) in query.iter() {
+        if faction.0 == brain_faction {
+            // OWN ENTITIES: always visible to self
+            entities.push(EntitySnapshot { /* ... */ });
+        } else if let Some(vg) = vis_grid {
+            // ENEMY ENTITIES: only if in a VISIBLE cell
+            let cell_idx = pos_to_cell_index(pos, visibility);
+            if FactionVisibility::get_bit(vg, cell_idx) {
+                entities.push(EntitySnapshot { /* ... */ });
+            }
+            // Enemies in fog are INVISIBLE to the brain
+        }
+    }
+
+    StateSnapshot {
+        entities,
+        // NEW FIELDS:
+        explored: exp_grid.cloned(),     // What the brain has explored
+        visible: vis_grid.cloned(),       // What the brain currently sees
+        terrain_hard: terrain.hard_costs.clone(),
+        terrain_soft: terrain.soft_costs.clone(),
+        // ... existing fields ...
+    }
+}
+```
+
+#### [MODIFY] [zmq_protocol.rs](file:///Users/manifera/Documents/Study/mass-swarm-ai-simulator/micro-core/src/bridges/zmq_protocol.rs) — Extended Protocol
+
+```rust
+pub struct StateSnapshot {
+    pub msg_type: String,
+    pub tick: u64,
+    pub world_size: WorldSize,
+    pub entities: Vec<EntitySnapshot>,   // FoW-filtered — brain sees only visible enemies
+    pub summary: SummarySnapshot,
+    // NEW: Fog of War data for the brain's faction
+    pub explored: Option<Vec<u32>>,      // Bit-packed explored grid
+    pub visible: Option<Vec<u32>>,       // Bit-packed visible grid
+    // NEW: Terrain data (always full — terrain is public knowledge)
+    pub terrain_hard: Vec<u16>,
+    pub terrain_soft: Vec<u16>,
+    pub terrain_grid_w: u32,
+    pub terrain_grid_h: u32,
+    pub terrain_cell_size: f32,
+}
+```
 
 > [!IMPORTANT]
-> **Breaking Refactor — `Team` → `FactionId`:** All Phase 1 code referencing `Team::Swarm`/`Team::Defender` will be refactored to `FactionId(0)`/`FactionId(1)`. This is a coordinated refactor touching 10 files (components, systems, bridges, visualizer). The refactor must run first (Phase 0) before any new features.
-
-> [!IMPORTANT]
-> **StatBlock Size:** Proposing `MAX_STATS = 8` (32 bytes per entity). For 10K entities = 320KB total. Is 8 slots sufficient? Can be changed at compile time, but increasing it later requires recompilation.
-
-> [!IMPORTANT]
-> **Movement Change:** Replacing world-edge wrapping with boundary clamping. Flow field navigation is incompatible with toroidal topology (entities chasing a target would wrap to the opposite side).
+> **The brain is NOT omniscient.** Before this change, `build_state_snapshot()` sent ALL 10,000 entities to Python. After this change, a brain controlling faction 0 sees its own 5,000 entities + only the ~200 enemy entities that are within its VISIBLE cells. The remaining ~4,800 enemies are hidden behind fog. **This creates information asymmetry — the core strategic constraint for ML training.**
 
 > [!WARNING]
-> **FlatBuffers Deferral:** The analysis recommends "absolutely no JSON" for 10K+. I recommend keeping JSON for Phase 2–3 because: (1) algorithm development needs debuggable messages in browser DevTools; (2) the bottleneck is CPU (algorithms), not I/O; (3) ROADMAP already plans binary serialization for Phase 4. Switching to FlatBuffers now adds schema compilation complexity without algorithmic benefit.
-
-> [!IMPORTANT]
-> **ZMQ Protocol also refactored:** The `zmq_protocol.rs` currently uses `team: String` and game-specific `SummarySnapshot` fields (`swarm_count`, `defender_count`, `avg_swarm_health`). These must be made context-agnostic too: `faction_id: u32` and per-faction summary arrays.
+> **Terrain IS public.** Unlike entities, terrain weights are fully visible to all factions (you can see a mountain even in fog — it's static geography). The brain receives the complete terrain grid every snapshot.
 
 ---
 
-## Shared Contracts
+## Feature 1: Mass Spawn Controls (Fibonacci Spiral)
 
-### Contract 1: `FactionId` Component (replaces `Team`)
+**Scope:** JS/HTML + Rust `spawn_wave` refactor.
+
+### Current Problem
+`visualizer.js:290`: hardcoded `faction_id: 0, amount: 10`. No spread. Random placement would cause Boids supernova.
+
+### Architecture: Fibonacci Spiral Packing
+
+Naive random spawning (`r = spread * rand()`) causes center-clumping (circle area scales quadratically).
+Worse, overlapping positions create astronomically high Boids inverse-square repulsion → fragmentation grenade on frame 1.
+
+**Solution:** Fibonacci Spiral with `sqrt()` area distribution — mathematically equidistant packing.
 
 ```rust
-// File: micro-core/src/components/faction.rs (replaces team.rs)
-use bevy::prelude::*;
-use serde::{Deserialize, Serialize};
+// micro-core/src/systems/ws_command.rs → spawn_wave handler
+let golden_angle = 137.5f32.to_radians();
 
-/// Numeric faction identifier. Context-agnostic — the adapter maps ID to meaning.
-/// Example: 0 = "swarm", 1 = "defender" (in the swarm demo adapter config).
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct FactionId(pub u32);
+for i in 0..amount {
+    // sqrt() ensures uniform AREA distribution, preventing center-clumping
+    let r = spread * (i as f32 / amount as f32).sqrt();
+    let theta = i as f32 * golden_angle;
+    
+    let spawn_x = x + r * theta.cos();
+    let spawn_y = y + r * theta.sin();
+    
+    // Skip wall cells — don't spawn inside terrain
+    let cell = IVec2::new(
+        (spawn_x / terrain.cell_size).floor() as i32,
+        (spawn_y / terrain.cell_size).floor() as i32,
+    );
+    if terrain.get_hard_cost(cell) == u16::MAX { continue; }
+    
+    commands.spawn(( /* entity bundle */ ));
+}
+```
 
-impl std::fmt::Display for FactionId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "faction_{}", self.0)
+### Proposed Changes
+
+#### [MODIFY] [index.html](file:///Users/manifera/Documents/Study/mass-swarm-ai-simulator/debug-visualizer/index.html)
+Add **Spawn Tools** section:
+- Faction dropdown (populated from `ADAPTER_CONFIG`)
+- Amount: slider (1–500) synced with number input
+- Spread radius: slider (0–100) synced with number input
+
+#### [MODIFY] [visualizer.js](file:///Users/manifera/Documents/Study/mass-swarm-ai-simulator/debug-visualizer/visualizer.js)
+- Read spawn controls on canvas click
+- Show ghost circle at cursor (radius = spread) while hovering
+- Send: `sendCommand("spawn_wave", { faction_id, amount, x, y, spread })`
+
+#### [MODIFY] [ws_command.rs](file:///Users/manifera/Documents/Study/mass-swarm-ai-simulator/micro-core/src/systems/ws_command.rs)
+- Replace random scatter with Fibonacci Spiral
+- Skip wall cells during spawn
+- Add `spread` param (default 0 = single-point, backward compatible)
+
+---
+
+## Feature 2: Fog of War (Core Resource, Bit-Packed, Wall-Aware)
+
+**Scope:** Rust core + JS visualizer. First-class simulation resource for ML.
+
+### Architecture
+
+```
+Rust Core (Contract-Based)                 JS Visualizer
+┌────────────────────────────────┐         ┌───────────────────┐
+│ VisionRadius component         │         │ Per-faction toggle │
+│ (per-entity, default 80.0)     │         │                   │
+│                                │  WS     │ Render layers:    │
+│ FactionVisibility resource     │ 10 TPS  │ 1. Unexplored=■   │
+│   explored: HashMap<u32,       │────────►│ 2. Explored  =▓   │
+│     Vec<u32>> (bit-packed)     │ ~350B   │ 3. Visible   =□   │
+│   visible:  HashMap<u32,       │         │                   │
+│     Vec<u32>> (bit-packed)     │         │ Offscreen canvas  │
+│                                │         │ compositing       │
+│ visibility_update_system       │         └───────────────────┘
+│ (every tick, cell-deduplicated)│
+│ (wall-aware: no X-ray vision) │
+└────────────────────────────────┘
+```
+
+### Anti-Patterns Addressed
+
+| Problem | Solution |
+|---------|----------|
+| `Vec<bool>` JSON = 15KB/faction/frame | Bit-packed `Vec<u32>`: 2500 bits = 79 integers = **~350 bytes** |
+| 60 FPS sync = 1 MB/s bandwidth | Throttle VisibilitySync to **10 TPS** |
+| 5000 entities in chokepoint → 5000× redundant cell writes | **Cell-centric deduplication**: group by grid cell, calc once per occupied cell |
+| Mathematical radius ignores walls → X-ray vision | **Wall-aware**: cast through terrain grid, stop at `hard_cost == MAX` |
+
+### Proposed Changes
+
+#### [NEW] `micro-core/src/components.rs` — Add `VisionRadius`
+```rust
+/// Per-entity vision radius in world units.
+/// Determines fog of war explored/visible area for the entity's faction.
+#[derive(Component, Debug, Clone)]
+pub struct VisionRadius(pub f32);
+
+impl Default for VisionRadius {
+    fn default() -> Self { Self(80.0) }
+}
+```
+
+#### [NEW] `micro-core/src/visibility.rs`
+
+```rust
+/// Per-faction visibility state. Self-contained — works without visualizer.
+///
+/// ## Bit-Packing
+/// A 50×50 grid = 2,500 cells. Stored as Vec<u32> where each u32 holds
+/// 32 cells. Total: ceil(2500/32) = 79 integers per faction.
+///
+/// ## Cell-Centric Deduplication
+/// Instead of iterating entities (O(E × vision_cells)), we:
+/// 1. Group entities into grid cells           — O(E)
+/// 2. Deduplicate to unique occupied cells      — O(cells)
+/// 3. Calculate vision per occupied cell         — O(cells × vision_cells)
+/// At 10K entities in ~200 unique cells → 200 × 49 = 9,800 cell checks vs 490,000.
+///
+/// ## Wall-Aware Vision
+/// Vision does not penetrate walls (hard_cost == u16::MAX).
+/// Uses a simple cell-adjacency flood within vision radius — cells behind
+/// walls are never marked visible.
+#[derive(Resource, Debug, Clone)]
+pub struct FactionVisibility {
+    pub grid_width: u32,
+    pub grid_height: u32,
+    pub cell_size: f32,
+    /// explored[faction_id] = bit-packed grid of EVER-seen cells
+    pub explored: HashMap<u32, Vec<u32>>,
+    /// visible[faction_id] = bit-packed grid of CURRENTLY-seen cells
+    pub visible: HashMap<u32, Vec<u32>>,
+}
+
+impl FactionVisibility {
+    // Bit manipulation helpers
+    pub fn set_bit(grid: &mut [u32], index: usize) {
+        grid[index / 32] |= 1 << (index % 32);
+    }
+    pub fn get_bit(grid: &[u32], index: usize) -> bool {
+        (grid[index / 32] >> (index % 32)) & 1 == 1
+    }
+    pub fn clear_all(grid: &mut [u32]) {
+        grid.iter_mut().for_each(|v| *v = 0);
     }
 }
 ```
 
-### Contract 2: `StatBlock` Component (anonymous stat array)
+#### [NEW] `micro-core/src/systems/visibility.rs`
 
 ```rust
-// File: micro-core/src/components/stat_block.rs
-use bevy::prelude::*;
-use serde::{Deserialize, Serialize};
-
-/// Maximum number of stats per entity. Compile-time constant.
-pub const MAX_STATS: usize = 8;
-
-/// Anonymous stat array. The Micro-Core never knows what each index means.
-/// The Adapter layer defines the mapping (e.g., index 0 = "health", index 1 = "mana").
-///
-/// Default: all zeros. Initialize via `StatBlock::with_defaults(&[...])`.
-#[derive(Component, Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct StatBlock(pub [f32; MAX_STATS]);
-
-impl Default for StatBlock {
-    fn default() -> Self {
-        Self([0.0; MAX_STATS])
+/// Updates per-faction visible and explored grids.
+/// Runs every tick. Cell-centric deduplication + wall-aware flood.
+pub fn visibility_update_system(
+    mut visibility: ResMut<FactionVisibility>,
+    terrain: Res<TerrainGrid>,
+    query: Query<(&Position, &FactionId, &VisionRadius)>,
+) {
+    // 1. Clear all visible grids (transient — rebuilt each tick)
+    for grid in visibility.visible.values_mut() {
+        FactionVisibility::clear_all(grid);
     }
-}
 
-impl StatBlock {
-    /// Create a StatBlock with specified (index, value) pairs.
-    /// Unspecified indices default to 0.0.
-    pub fn with_defaults(pairs: &[(usize, f32)]) -> Self {
-        let mut block = Self::default();
-        for &(idx, val) in pairs {
-            if idx < MAX_STATS {
-                block.0[idx] = val;
+    // 2. Group entities into grid cells, deduplicate per faction
+    //    Key: (faction_id, cell_x, cell_y) → max vision radius in that cell
+    let mut occupied: HashMap<(u32, i32, i32), f32> = HashMap::default();
+    for (pos, faction, vision) in query.iter() {
+        let cx = (pos.x / visibility.cell_size).floor() as i32;
+        let cy = (pos.y / visibility.cell_size).floor() as i32;
+        let entry = occupied.entry((faction.0, cx, cy)).or_insert(0.0);
+        *entry = entry.max(vision.0); // Keep largest vision radius
+    }
+
+    // 3. For each unique (faction, cell), flood-fill within vision radius
+    //    Wall-aware: skip cells where terrain hard_cost == u16::MAX
+    for (&(faction_id, cx, cy), &vision_r) in &occupied {
+        let cell_radius = (vision_r / visibility.cell_size).ceil() as i32;
+        let vis_grid = visibility.visible
+            .entry(faction_id)
+            .or_insert_with(|| vec![0u32; bitpack_size(visibility)]);
+        let exp_grid = visibility.explored
+            .entry(faction_id)
+            .or_insert_with(|| vec![0u32; bitpack_size(visibility)]);
+
+        for dy in -cell_radius..=cell_radius {
+            for dx in -cell_radius..=cell_radius {
+                let nx = cx + dx;
+                let ny = cy + dy;
+                if nx < 0 || ny < 0
+                    || nx >= visibility.grid_width as i32
+                    || ny >= visibility.grid_height as i32 { continue; }
+
+                // Wall-aware: don't see through walls
+                let cell = IVec2::new(nx, ny);
+                if terrain.get_hard_cost(cell) == u16::MAX { continue; }
+
+                // Distance check (in cells)
+                if (dx * dx + dy * dy) as f32 <= (cell_radius as f32).powi(2) {
+                    let idx = (ny as u32 * visibility.grid_width + nx as u32) as usize;
+                    FactionVisibility::set_bit(vis_grid, idx);
+                    FactionVisibility::set_bit(exp_grid, idx);
+                }
             }
         }
-        block
     }
 }
 ```
 
-### Contract 3: `SpatialHashGrid` Resource
-
+#### [MODIFY] [ws_sync.rs](file:///Users/manifera/Documents/Study/mass-swarm-ai-simulator/micro-core/src/systems/ws_sync.rs)
+Add VisibilitySync to SyncDelta (feature-gated, **throttled to 10 TPS**):
 ```rust
-// File: micro-core/src/spatial/hash_grid.rs
-use bevy::prelude::*;
-use std::collections::HashMap;
+#[cfg(feature = "debug-telemetry")]
+visibility: Option<VisibilitySync>,
+// Only populated every 6th tick (60/6 = 10 TPS)
+// Only for the active fog faction (set by "set_fog_faction" command)
+```
 
-/// Spatial hash grid for O(1) proximity lookups.
-/// Rebuilt every tick by `update_spatial_grid_system`.
-#[derive(Resource, Debug)]
-pub struct SpatialHashGrid {
-    pub cell_size: f32,
-    grid: HashMap<IVec2, Vec<(Entity, Vec2)>>,
-}
-
-impl SpatialHashGrid {
-    pub fn new(cell_size: f32) -> Self;
-    pub fn rebuild(&mut self, entities: &[(Entity, Vec2)]);
-    pub fn query_radius(&self, center: Vec2, radius: f32) -> Vec<(Entity, Vec2)>;
-    fn world_to_cell(&self, pos: Vec2) -> IVec2;
+#### [MODIFY] [ws_protocol.rs](file:///Users/manifera/Documents/Study/mass-swarm-ai-simulator/micro-core/src/bridges/ws_protocol.rs)
+```rust
+#[cfg(feature = "debug-telemetry")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VisibilitySync {
+    pub faction_id: u32,
+    pub explored: Vec<u32>,  // Bit-packed: 79 integers for 50×50
+    pub visible: Vec<u32>,   // Bit-packed: 79 integers for 50×50
 }
 ```
 
-### Contract 4: `FlowField` + `FlowFieldRegistry` (N-Faction Pathfinding)
+#### [MODIFY] [index.html](file:///Users/manifera/Documents/Study/mass-swarm-ai-simulator/debug-visualizer/index.html)
+Replace single `toggle-fog` with per-faction toggles (only one active at a time — radio behavior):
+```html
+<label class="toggle-control">
+    <input type="checkbox" id="toggle-fog-0">
+    <span class="control-indicator" style="border-color:#ff3b30"></span>
+    <span class="control-label">Swarm Fog</span>
+</label>
+<label class="toggle-control">
+    <input type="checkbox" id="toggle-fog-1">
+    <span class="control-indicator" style="border-color:#0a84ff"></span>
+    <span class="control-label">Defender Fog</span>
+</label>
+```
+
+#### [MODIFY] [visualizer.js](file:///Users/manifera/Documents/Study/mass-swarm-ai-simulator/debug-visualizer/visualizer.js)
+- Bit-unpacking helpers for `Vec<u32>` fog data
+- Offscreen canvas compositing: unexplored=black, explored-only=dim, visible=clear
+- On fog toggle change: send `set_fog_faction` command to Rust core
+
+---
+
+## Feature 3: Terrain Editor (Integer Dual-Weight)
+
+**Scope:** Cross-cutting — JS UI + WS commands + Rust resource + flow field + movement integration.
+
+### Core Design: Inverted Integer Cost Model
+
+The Rust core uses **inverted integer multipliers** — no floats in Dijkstra.
+
+```
+                 Core Contract                         UI Mapping
+                 ─────────────                         ──────────
+                 hard_cost (u16)    soft_cost (u16)    Brush
+                 ──────────────    ──────────────     ─────
+Wall:            u16::MAX (∞)      0                  ⬛ Wall
+Mud:             200 (2× cost)     30 (30% speed)     🟫 Mud
+Pushable:        125 (1.25× cost)  50 (50% speed)     🟧 Pushable
+Clear:           100 (normal)      100 (full speed)   ⬜ Clear
+
+hard_cost: Dijkstra cost multiplier. Pure integer: (move_cost × hard_cost) / 100
+  → 100 = normal cost
+  → 200 = 2× cost (mud — paths strongly avoid)
+  → 125 = 1.25× cost (pushable — paths mildly avoid)
+  → u16::MAX = absolute wall (skipped entirely in BFS queue)
+
+soft_cost: Movement speed percentage (0–100 scale)
+  → 100 = full speed
+  → 50 = 50% speed (pushable terrain)
+  → 30 = 30% speed (mud)
+  → 0 = frozen (but kinematic wall-sliding prevents getting stuck)
+```
+
+### Anti-Patterns Addressed
+
+| Problem | Solution |
+|---------|----------|
+| `move_cost / hard_weight` → div-by-zero at 0.0 | `hard_cost == u16::MAX → continue` (skip entirely) |
+| Float division in Dijkstra inner loop | Pure integer: `(move_cost * hard_cost) / 100` |
+| Integer truncation (12.5→12) | Multiplier scale 100 preserves precision |
+| Entity pushed into wall → `speed × 0.0 = 0` → permanent paralysis | **Kinematic Wall-Sliding**: per-axis velocity zeroing |
+
+### Proposed Changes
+
+#### [NEW] `micro-core/src/terrain.rs`
 
 ```rust
-// File: micro-core/src/pathfinding/flow_field.rs
-use bevy::prelude::*;
-use std::collections::HashMap;
-
-/// Pre-computed vector flow field for mass pathfinding.
-/// Each cell contains a normalized direction vector toward the nearest goal.
-/// NOT a Resource — owned by FlowFieldRegistry.
-#[derive(Debug)]
-pub struct FlowField {
+/// Paintable terrain weight grid. Contract-based — core sees only integers.
+///
+/// ## Inverted Integer Cost Model
+/// - `hard_costs`: Dijkstra cost multiplier (scale 100).
+///   100 = normal, 200 = double cost, u16::MAX = impassable wall.
+///   Formula: `effective_cost = (movement_cost × hard_cost) / 100`
+/// - `soft_costs`: Movement speed percentage (0–100).
+///   100 = full speed, 50 = half speed, 0 = stopped.
+///   Formula: `effective_speed = max_speed × soft_cost / 100`
+///
+/// ## Dimensions
+/// Grid matches flow field: ceil(world_size / cell_size).
+/// Default cell_size = 20.0 → 50×50 grid for 1000×1000 world.
+#[derive(Resource, Debug, Clone, Serialize, Deserialize)]
+pub struct TerrainGrid {
     pub width: u32,
     pub height: u32,
     pub cell_size: f32,
-    /// Flat array of direction vectors, indexed as [y * width + x]
-    pub directions: Vec<Vec2>,
-    /// Integration field costs (for debug overlay)
-    pub costs: Vec<u16>,
+    pub hard_costs: Vec<u16>,  // [y * width + x], default 100
+    pub soft_costs: Vec<u16>,  // [y * width + x], default 100
 }
 
-impl FlowField {
-    pub fn new(width: u32, height: u32, cell_size: f32) -> Self;
-    pub fn calculate(&mut self, goals: &[Vec2], obstacles: &[IVec2]);
-    pub fn sample(&self, world_pos: Vec2) -> Vec2;
-}
+impl TerrainGrid {
+    pub fn new(width: u32, height: u32, cell_size: f32) -> Self {
+        let size = (width * height) as usize;
+        Self {
+            width, height, cell_size,
+            hard_costs: vec![100u16; size],
+            soft_costs: vec![100u16; size],
+        }
+    }
 
-/// Registry of flow fields, keyed by target faction ID.
-/// Each field converges on entities of that faction.
-/// Supports N-faction scenarios (e.g., Wolves→Sheep, Sheep→Grass).
-/// If 5 different factions target faction 1, the field for faction 1
-/// is only calculated ONCE — deduplication is automatic.
-#[derive(Resource, Debug, Default)]
-pub struct FlowFieldRegistry {
-    pub fields: HashMap<u32, FlowField>,
-}
-```
+    pub fn get_hard_cost(&self, cell: IVec2) -> u16 {
+        if !self.in_bounds(cell) { return u16::MAX; }  // OOB = wall
+        self.hard_costs[(cell.y as u32 * self.width + cell.x as u32) as usize]
+    }
 
-### Contract 5: Interaction, Removal & Navigation Rules (Config-Driven)
+    pub fn get_soft_cost(&self, cell: IVec2) -> u16 {
+        if !self.in_bounds(cell) { return 0; }  // OOB = frozen
+        self.soft_costs[(cell.y as u32 * self.width + cell.x as u32) as usize]
+    }
 
-```rust
-// File: micro-core/src/rules/interaction.rs
+    pub fn set_cell(&mut self, x: u32, y: u32, hard: u16, soft: u16) {
+        if x < self.width && y < self.height {
+            let idx = (y * self.width + x) as usize;
+            self.hard_costs[idx] = hard;
+            self.soft_costs[idx] = soft;
+        }
+    }
 
-/// Defines what happens when entities of different factions are in proximity.
-/// Loaded from config — zero hardcoded game logic.
-#[derive(Resource, Debug, Clone, Serialize, Deserialize)]
-pub struct InteractionRuleSet {
-    pub rules: Vec<InteractionRule>,
-}
+    /// Returns cells with hard_cost == u16::MAX as IVec2 obstacles.
+    pub fn hard_obstacles(&self) -> Vec<IVec2> {
+        let mut obs = Vec::new();
+        for y in 0..self.height {
+            for x in 0..self.width {
+                if self.hard_costs[(y * self.width + x) as usize] == u16::MAX {
+                    obs.push(IVec2::new(x as i32, y as i32));
+                }
+            }
+        }
+        obs
+    }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct InteractionRule {
-    /// Faction ID of the source entity
-    pub source_faction: u32,
-    /// Faction ID of the target entity
-    pub target_faction: u32,
-    /// Range in world units at which this interaction activates
-    pub range: f32,
-    /// Effects to apply to TARGET entity's StatBlock
-    pub effects: Vec<StatEffect>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StatEffect {
-    /// Index into target's StatBlock
-    pub stat_index: usize,
-    /// Change per second (positive = buff, negative = debuff). Normalized to ticks internally.
-    pub delta_per_second: f32,
-}
-```
-
-```rust
-// File: micro-core/src/rules/removal.rs
-
-/// Defines when entities are removed from simulation.
-#[derive(Resource, Debug, Clone, Serialize, Deserialize)]
-pub struct RemovalRuleSet {
-    pub rules: Vec<RemovalRule>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RemovalRule {
-    /// Which stat index to monitor
-    pub stat_index: usize,
-    /// Threshold value
-    pub threshold: f32,
-    /// Removal condition
-    pub condition: RemovalCondition,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum RemovalCondition {
-    /// Remove when stat <= threshold (e.g., "health" drops to 0)
-    LessOrEqual,
-    /// Remove when stat >= threshold (e.g., "corruption" reaches 100)
-    GreaterOrEqual,
-}
-```
-
-```rust
-// File: micro-core/src/rules/navigation.rs
-
-/// Defines which factions navigate toward which other factions.
-/// This is the N-faction navigation matrix — fully config-driven.
-///
-/// The flow_field_update_system reads this to decide:
-/// 1. Which target factions need flow fields calculated.
-/// 2. Which follower factions use which flow field.
-///
-/// Runtime-modifiable: the Macro-Brain can send IPC commands to
-/// update this rule set mid-simulation (e.g., redirect swarm).
-#[derive(Resource, Debug, Clone, Serialize, Deserialize)]
-pub struct NavigationRuleSet {
-    pub rules: Vec<NavigationRule>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NavigationRule {
-    /// Faction ID of entities that will follow the flow field
-    pub follower_faction: u32,
-    /// Faction ID of entities used as goals (flow field converges on them)
-    pub target_faction: u32,
-}
-```
-
-**Default "Swarm Demo" Config:**
-```rust
-// This is what the adapter config defines. The core just processes numbers.
-InteractionRuleSet {
-    rules: vec![
-        InteractionRule {
-            source_faction: 0,     // (swarm in adapter)
-            target_faction: 1,     // (defender in adapter)
-            range: 15.0,
-            effects: vec![StatEffect { stat_index: 0, delta_per_second: -10.0 }],
-        },
-        InteractionRule {
-            source_faction: 1,     // (defender in adapter)
-            target_faction: 0,     // (swarm in adapter)
-            range: 15.0,
-            effects: vec![StatEffect { stat_index: 0, delta_per_second: -20.0 }],
-        },
-    ],
-}
-RemovalRuleSet {
-    rules: vec![
-        RemovalRule {
-            stat_index: 0,        // (health in adapter)
-            threshold: 0.0,
-            condition: RemovalCondition::LessOrEqual,
-        },
-    ],
-}
-NavigationRuleSet {
-    rules: vec![
-        NavigationRule {
-            follower_faction: 0,   // swarm follows flow field toward...
-            target_faction: 1,     // ...defenders
-        },
-    ],
-}
-```
-
-This same core handles ANY genre:
-- **RTS 3-way:** `[{0→1}, {1→2}, {2→0}]` — triangle of pursuit
-- **Ecosystem:** `[{0→1 (wolves→sheep)}, {1→2 (sheep→grass)}]`
-- **RPG:** faction 0 heals faction 0 → `effects: [(0, +5.0)]`
-- **Racing:** stat[1] = fuel, removal when `stat[1] <= 0.0`
-- **Drones:** faction 0 converges on faction 1 (waypoints as entities)
-- **Dynamic retargeting:** Macro-Brain sends IPC to change `target_faction` mid-game
-
-### Contract 6: `RemovalEvents` Resource
-
-```rust
-/// Accumulates entity IDs removed this tick for WS broadcast.
-#[derive(Resource, Debug, Default)]
-pub struct RemovalEvents {
-    pub removed_ids: Vec<u32>,
-}
-```
-
-### Contract 10: `FactionBehaviorMode` Resource
-
-```rust
-// File: micro-core/src/rules/behavior.rs
-use bevy::prelude::*;
-use std::collections::HashSet;
-
-/// Controls per-faction behavior mode at runtime.
-/// Factions in `static_factions` use random drift (Phase 1 behavior).
-/// All other factions follow NavigationRuleSet flow fields (brain-driven).
-///
-/// Toggleable via Debug Visualizer: `set_faction_mode` WS command.
-/// This enables testing scenarios like:
-/// - Both factions static (baseline)
-/// - One faction brain-driven, other static (flow field validation)
-/// - Both brain-driven (multi-brain combat testing in Phase 3)
-#[derive(Resource, Debug, Clone)]
-pub struct FactionBehaviorMode {
-    /// Set of faction IDs currently in "static" mode (random drift).
-    /// Factions NOT in this set follow flow fields.
-    pub static_factions: HashSet<u32>,
-}
-
-impl Default for FactionBehaviorMode {
-    fn default() -> Self {
-        let mut static_factions = HashSet::new();
-        static_factions.insert(1); // Defenders start in static mode (swarm demo default)
-        Self { static_factions }
+    fn in_bounds(&self, cell: IVec2) -> bool {
+        cell.x >= 0 && cell.x < self.width as i32
+            && cell.y >= 0 && cell.y < self.height as i32
     }
 }
 ```
 
-### Contract 7: System Signatures
+#### [MODIFY] [flow_field.rs](file:///Users/manifera/Documents/Study/mass-swarm-ai-simulator/micro-core/src/pathfinding/flow_field.rs) — Integer Cost Map
 
-| System | Signature | Schedule | Run Condition |
-|--------|-----------|----------|---------------|
-| `update_spatial_grid_system` | `(ResMut<SpatialHashGrid>, Query<(Entity, &Position)>)` | `Update` | Always (runs before interaction) |
-| `flow_field_update_system` | `(ResMut<FlowFieldRegistry>, Res<NavigationRuleSet>, Query<(&Position, &FactionId)>, Res<SimulationConfig>)` | `Update` | `SimState::Running`, every N ticks |
-| `interaction_system` | `(Res<SpatialHashGrid>, Res<InteractionRuleSet>, Query<(Entity, &Position, &mut StatBlock, &FactionId)>)` | `Update` | `SimState::Running`, after spatial grid |
-| `removal_system` | `(Res<RemovalRuleSet>, Query<(Entity, &EntityId, &StatBlock)>, Cmds, ResMut<RemovalEvents>)` | `Update` | After interaction |
-| `movement_system` (modified) | `+Res<FlowFieldRegistry>, +Res<NavigationRuleSet>, +Res<FactionBehaviorMode>, +Option<&FlowFieldFollower>` | `Update` | `SimState::Running` (unchanged) |
-| `wave_spawn_system` | `(Res<TickCounter>, Res<SimulationConfig>, Cmds, ResMut<NextEntityId>)` | `Update` | `SimState::Running` |
+New `calculate()` signature:
+```rust
+pub fn calculate(
+    &mut self,
+    goals: &[Vec2],
+    obstacles: &[IVec2],
+    cost_map: Option<&[u16]>,  // Inverted integer costs (100=normal, u16::MAX=wall)
+)
+```
 
-### Contract 8: IPC Protocol Changes
+Inner Dijkstra loop (100% integer math):
+```rust
+for &(dx, dy, move_cost) in &NEIGHBORS_8 {
+    let neighbor = IVec2::new(cell.x + dx, cell.y + dy);
+    if !self.in_bounds(neighbor) || obstacle_set.contains(&neighbor) { continue; }
 
-**WS EntityState** (Rust → Browser):
-```json
-{
-    "id": 42,
-    "x": 150.3,
-    "y": 201.0,
-    "dx": 0.5,
-    "dy": -0.3,
-    "faction_id": 0,
-    "stats": [0.85, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    // Anti-corner-cutting (unchanged)
+    if move_cost == 14 { /* ... existing check ... */ }
+
+    // ── NEW: Terrain cost integration (pure integer) ──
+    let terrain_penalty = cost_map
+        .map(|cm| cm[self.cell_index(neighbor)])
+        .unwrap_or(100);
+
+    // Absolute wall — skip entirely (never enters BFS queue)
+    if terrain_penalty == u16::MAX { continue; }
+
+    // Integer math: (10 × 200) / 100 = 20 (double cost for mud)
+    let effective_cost = (move_cost * terrain_penalty as u32) / 100;
+    let next_cost = cost.saturating_add(effective_cost);
+
+    // ... rest of Dijkstra unchanged ...
 }
 ```
 
-**WS SyncDelta** extended with `removed`:
-```json
-{
-    "type": "SyncDelta",
-    "tick": 1234,
-    "moved": [ ... ],
-    "removed": [42, 99, 107]
-}
+> [!IMPORTANT]
+> `cost_map: Option` means ALL existing callers and tests work with `None` (backward compatible). When `Some`, costs scale by terrain. When `u16::MAX`, cell is treated as absolute wall — never enters the BFS queue.
+
+#### [MODIFY] [flow_field_update.rs](file:///Users/manifera/Documents/Study/mass-swarm-ai-simulator/micro-core/src/systems/flow_field_update.rs)
+```diff
+- field.calculate(goals, &[]);
++ field.calculate(goals, &terrain.hard_obstacles(), Some(&terrain.hard_costs));
 ```
 
-**WS Command — `set_faction_mode`** (Browser → Rust):
-```json
-{
-    "type": "command",
-    "cmd": "set_faction_mode",
-    "params": { "faction_id": 1, "mode": "brain" }
-}
-```
-`mode` values: `"static"` (random drift) | `"brain"` (flow field / Macro-Brain driven).
-Updates `FactionBehaviorMode` resource at runtime.
-
-**ZMQ EntitySnapshot** (Rust → Python):
-```json
-{
-    "id": 42,
-    "x": 150.3,
-    "y": 201.0,
-    "faction_id": 0,
-    "stats": [0.85, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-}
-```
-
-**ZMQ SummarySnapshot** — made generic:
-```json
-{
-    "faction_counts": { "0": 5000, "1": 200 },
-    "faction_avg_stats": {
-        "0": [0.72, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-        "1": [0.91, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-    }
-}
-```
-
-### Contract 9: SimulationConfig Extensions
+#### [MODIFY] [movement.rs](file:///Users/manifera/Documents/Study/mass-swarm-ai-simulator/micro-core/src/systems/movement.rs) — Kinematic Wall-Sliding
 
 ```rust
-// Added to config.rs:
-pub flow_field_cell_size: f32,       // default: 20.0 world units
-pub flow_field_update_interval: u64, // default: 30 ticks
-// NOTE: flow_field_target_faction / flow_field_follower_faction REMOVED.
-// Navigation targeting is now fully defined by NavigationRuleSet (Contract 5).
-pub wave_spawn_interval: u64,        // default: 300 ticks (5 seconds)
-pub wave_spawn_count: u32,           // default: 50 entities per wave
-pub wave_spawn_faction: u32,         // default: 0
-pub wave_spawn_stat_defaults: Vec<(usize, f32)>, // default: [(0, 1.0)] — stat[0] = 1.0
+// After computing desired next_x, next_y from velocity:
+
+let world_to_cell = |x: f32, y: f32| -> IVec2 {
+    IVec2::new(
+        (x / terrain.cell_size).floor() as i32,
+        (y / terrain.cell_size).floor() as i32,
+    )
+};
+
+// ── Kinematic Wall-Sliding ──
+// Check X and Y axes INDEPENDENTLY to allow sliding along walls.
+// This prevents the "quicksand trap" where soft_cost=0 freezes the entity.
+if terrain.get_hard_cost(world_to_cell(next_x, pos.y)) == u16::MAX {
+    vel.dx = 0.0;
+    next_x = pos.x;  // Blocked on X — slide vertically
+}
+if terrain.get_hard_cost(world_to_cell(pos.x, next_y)) == u16::MAX {
+    vel.dy = 0.0;
+    next_y = pos.y;  // Blocked on Y — slide horizontally
+}
+
+// ── Soft terrain speed modifier ──
+let cell = world_to_cell(next_x, next_y);
+let soft = terrain.get_soft_cost(cell) as f32 / 100.0;
+let effective_speed = mc.max_speed * soft;  // 50 = half speed, 100 = full
+```
+
+#### [MODIFY] [ws_command.rs](file:///Users/manifera/Documents/Study/mass-swarm-ai-simulator/micro-core/src/systems/ws_command.rs)
+
+New terrain commands:
+```rust
+"set_terrain" => {
+    // { cells: [{ x, y, hard, soft }, ...] }
+    // Batch update terrain cells
+    // Set terrain_dirty flag → triggers flow field recalc
+}
+"clear_terrain" => {
+    // Reset all costs to (hard=100, soft=100)
+    // Set terrain_dirty flag
+}
+"load_scenario" => {
+    // { terrain: { hard_costs, soft_costs }, entities: [{id, x, y, faction, stats}] }
+    // 1. Despawn all existing entities
+    // 2. Apply terrain grid
+    // 3. Spawn entities from JSON
+    // 4. UPDATE NextEntityId to max_loaded_id + 1 ← Prevents ID collision
+    // 5. Set terrain_dirty flag
+}
+"save_scenario" => {
+    // Responds with full scenario JSON via WS broadcast
+    // Terrain grid + all entity data
+}
+```
+
+> [!WARNING]
+> **Entity ID Collision Prevention:** `load_scenario` MUST scan loaded entity IDs and set `NextEntityId = max(loaded_ids) + 1`. Otherwise, subsequent manual spawns produce duplicate IDs.
+
+#### [MODIFY] [index.html](file:///Users/manifera/Documents/Study/mass-swarm-ai-simulator/debug-visualizer/index.html)
+
+```html
+<section class="panel-section">
+    <h2>Terrain Editor</h2>
+    <div class="controls-row">
+        <button id="paint-mode-btn" class="btn secondary">🖌 Paint Mode</button>
+    </div>
+    <div id="brush-tools" class="brush-toolbar" style="display: none;">
+        <button class="brush-btn active" data-brush="wall">⬛ Wall</button>
+        <button class="brush-btn" data-brush="mud">🟫 Mud</button>
+        <button class="brush-btn" data-brush="pushable">🟧 Pushable</button>
+        <button class="brush-btn" data-brush="clear">⬜ Clear</button>
+    </div>
+    <div class="controls-row" style="margin-top: 8px;">
+        <button id="save-scenario-btn" class="btn secondary">💾 Save</button>
+        <button id="load-scenario-btn" class="btn secondary">📂 Load</button>
+        <input type="file" id="scenario-file-input" accept=".json" style="display:none">
+    </div>
+    <div class="controls-row">
+        <button id="clear-terrain-btn" class="btn secondary">🗑 Clear All</button>
+    </div>
+</section>
+```
+
+#### [MODIFY] [visualizer.js](file:///Users/manifera/Documents/Study/mass-swarm-ai-simulator/debug-visualizer/visualizer.js)
+
+Brush-to-cost mapping (UI-only, core never sees these names):
+```js
+const BRUSH_MAP = {
+    wall:     { hard: 65535, soft: 0,   color: '#1a1a2e',  label: 'Wall' },
+    mud:      { hard: 200,   soft: 30,  color: '#8b6914',  label: 'Mud' },
+    pushable: { hard: 125,   soft: 50,  color: '#d4790e',  label: 'Pushable' },
+    clear:    { hard: 100,   soft: 100, color: null,        label: 'Clear' },
+};
+```
+
+Terrain rendering (on `#canvas-bg`):
+```js
+function drawTerrain(bgCtx) {
+    // For each cell, if hard_cost != 100 or soft_cost != 100:
+    //   Wall (65535): dark fill
+    //   Mud (200): brown fill with alpha based on cost
+    //   Pushable (125): orange fill
+    // Clear cells are skipped (no draw)
+}
 ```
 
 ---
 
-## DAG Execution Phases
+## Feature 4: State Management
 
-```mermaid
-graph LR
-    subgraph "Phase 0 — Refactor (Sequential)"
-        T01["Task 01<br/>Context-Agnostic Refactor<br/>Team→FactionId + StatBlock"]
-    end
+### SimState Gating
 
-    subgraph "Phase 1 — Foundation (Parallel)"
-        T02["Task 02<br/>SpatialHashGrid"]
-        T03["Task 03<br/>FlowField<br/>+ FlowFieldRegistry"]
-        T04["Task 04<br/>Interaction, Removal<br/>& Navigation Rules"]
-    end
+The simulation already has `SimState::Setup` and `SimState::Running`. Enforce proper gating:
 
-    subgraph "Phase 2 — Core Systems (Parallel)"
-        T05["Task 05<br/>Interaction System<br/>+ Removal System"]
-        T06["Task 06<br/>FlowFieldFollower<br/>+ Movement + Spawning"]
-    end
+| System | Runs in Setup? | Runs in Running? | Reason |
+|--------|:-:|:-:|--------|
+| `ws_command_system` | ✅ | ✅ | Must receive paint/spawn commands while paused |
+| `ws_sync_system` | ✅ | ✅ | Must send terrain/entity data to visualizer |
+| `flow_field_update_system` | ✅ | ✅ | Must recalc when terrain changes while paused |
+| `visibility_update_system` | ✅ | ✅ | Must show fog while placing units |
+| `movement_system` | ❌ | ✅ | Physics only when running |
+| `interaction_system` | ❌ | ✅ | Combat only when running |
+| `removal_system` | ❌ | ✅ | Death only when running |
+| `wave_spawn_system` | ❌ | ✅ | Auto-spawn only when running |
 
-    subgraph "Phase 3 — Visualization"
-        T07["Task 07<br/>IPC Extensions<br/>+ Visualizer Upgrades"]
-    end
+### NextEntityId on Scenario Load
 
-    subgraph "Phase 4 — Integration"
-        T08["Task 08<br/>Integration Wiring<br/>+ 10K Stress Test"]
-    end
+```rust
+"load_scenario" => {
+    // ... despawn all, apply terrain, spawn from JSON ...
 
-    T01 --> T02
-    T01 --> T03
-    T01 --> T04
-    T02 --> T05
-    T04 --> T05
-    T02 --> T06
-    T03 --> T06
-    T05 --> T07
-    T06 --> T07
-    T07 --> T08
+    // CRITICAL: Prevent ID collision on subsequent manual spawns
+    let max_id = loaded_entities.iter()
+        .map(|e| e.id)
+        .max()
+        .unwrap_or(0);
+    next_id.0 = max_id + 1;
+}
 ```
 
 ---
 
-## Task Summaries
+## File Summary
 
----
+### New Files
+| File | Description |
+|------|-------------|
+| `micro-core/src/terrain.rs` | TerrainGrid resource — dual integer weights (hard_cost + soft_cost) |
+| `micro-core/src/visibility.rs` | FactionVisibility resource — bit-packed, cell-deduplicated, wall-aware |
+| `micro-core/src/systems/visibility.rs` | visibility_update_system |
 
-### Task 01 — Context-Agnostic Refactor
-**Phase:** 0 (Sequential — must complete before all others) | **Tier:** `advanced` | **Domain:** Cross-cutting refactor
-
-| Property | Value |
-|----------|-------|
-| **Target Files** | `components/faction.rs` [NEW], `components/stat_block.rs` [NEW], `components/team.rs` [DELETE], `components/mod.rs` [MODIFY], `systems/spawning.rs` [MODIFY], `systems/ws_sync.rs` [MODIFY], `systems/ws_command.rs` [MODIFY], `bridges/ws_protocol.rs` [MODIFY], `bridges/zmq_protocol.rs` [MODIFY], `bridges/zmq_bridge/systems.rs` [MODIFY], `debug-visualizer/visualizer.js` [MODIFY] |
-| **Dependencies** | None |
-| **Context Bindings** | `context/conventions`, `context/architecture`, `context/ipc-protocol`, `skills/rust-code-standards` |
-
-**Strict Instructions:**
-
-1. **Create `components/faction.rs`** — `FactionId(u32)` per Contract 1. Full serde derives, Display impl, unit tests.
-2. **Create `components/stat_block.rs`** — `StatBlock([f32; MAX_STATS])` per Contract 2. `MAX_STATS = 8`. Default, `with_defaults()`, unit tests.
-3. **Delete `components/team.rs`** — Remove the file entirely.
-4. **Update `components/mod.rs`** — Remove `pub mod team` / `pub use Team`. Add `pub mod faction` / `pub mod stat_block` / re-exports `FactionId`, `StatBlock`, `MAX_STATS`.
-5. **Update `systems/spawning.rs`** — Replace `Team` import with `FactionId` + `StatBlock`. Replace `Team::Swarm`/`Defender` with `FactionId(0)`/`FactionId(1)`. Add `StatBlock::with_defaults(&[(0, 1.0)])` to entity bundles (stat[0] = initial "health").
-6. **Update `systems/ws_sync.rs`** — Replace `Team` import with `FactionId` + `StatBlock`. Query now includes `&StatBlock`. Serialize `faction_id: u32` and `stats: [f32; 8]` into `EntityState`.
-7. **Update `systems/ws_command.rs`** — Replace `Team` import with `FactionId`. `spawn_wave` parses `faction_id: u32` from params (default 0). `kill_all` matches by `FactionId` instead of `Team`. Add `StatBlock::with_defaults(&[(0, 1.0)])` to spawned entities.
-8. **Update `bridges/ws_protocol.rs`** — Replace `team: Team` with `faction_id: u32` and `stats: Vec<f32>` in `EntityState`. Remove `use crate::components::team::Team`.
-9. **Update `bridges/zmq_protocol.rs`** — Replace `team: String` with `faction_id: u32` and `stats: Vec<f32>` in `EntitySnapshot`. Replace `SummarySnapshot` fields with generic `faction_counts: HashMap<u32, u32>` and `faction_avg_stats: HashMap<u32, Vec<f32>>`.
-10. **Update `bridges/zmq_bridge/systems.rs`** — Replace `Team` import/usage with `FactionId`. Replace `Team::Swarm`/`Defender` match arms with `FactionId` numeric checks. Build generic summary by iterating factions dynamically.
-11. **Update `debug-visualizer/visualizer.js`** — Add `ADAPTER_CONFIG` at top (faction→color, stat→display mapping). Replace `ent.team === "swarm"` with `ent.faction_id === 0` using adapter config. Replace `team: "swarm"` in `sendCommand` with `faction_id: 0`. Support `stats` array in entity data; render stat[0] as health bar if configured.
-
-**Verification Strategy:**
-```yaml
-Verification_Strategy:
-  Test_Type: unit + integration
-  Test_Stack: cargo test (Rust), manual browser validation (JS)
-  Acceptance_Criteria:
-    - "cargo test passes with all existing tests updated for FactionId/StatBlock"
-    - "cargo clippy -- -D warnings is clean"
-    - "Debug Visualizer renders entities with correct colors based on faction_id"
-    - "spawn_wave command works with faction_id parameter"
-    - "kill_all command works with faction_id parameter"
-  Suggested_Test_Commands:
-    - "cd micro-core && cargo test"
-    - "cd micro-core && cargo clippy -- -D warnings"
-  Manual_Steps:
-    - "Run micro-core, open debug-visualizer/index.html"
-    - "Verify entities render as red (faction 0) and blue (faction 1)"
-    - "Click canvas to spawn entities — verify they appear correctly"
-```
-
----
-
-### Task 02 — Spatial Hash Grid
-**Phase:** 1 (Parallel) | **Tier:** `standard` | **Domain:** Data Structure
-
-| Property | Value |
-|----------|-------|
-| **Target Files** | `spatial/mod.rs` [NEW], `spatial/hash_grid.rs` [NEW], `lib.rs` [MODIFY] |
-| **Dependencies** | Task 01 (only needs `Position` component — unchanged, no real dependency) |
-| **Context Bindings** | `context/conventions`, `context/architecture`, `skills/rust-code-standards` |
-
-**Strict Instructions:**
-
-1. **Create `spatial/mod.rs`** — Re-export `hash_grid::SpatialHashGrid` and `hash_grid::update_spatial_grid_system`.
-2. **Create `spatial/hash_grid.rs`** — Implement per Contract 3:
-   - `SpatialHashGrid` resource with `HashMap<IVec2, Vec<(Entity, Vec2)>>`.
-   - `new(cell_size: f32)` constructor.
-   - `rebuild(&mut self, entities: &[(Entity, Vec2)])` — clear grid, insert all entities into cells.
-   - `query_radius(&self, center: Vec2, radius: f32) -> Vec<(Entity, Vec2)>` — check 9-cell neighborhood, filter by Euclidean distance.
-   - `world_to_cell(&self, pos: Vec2) -> IVec2` — floor division.
-   - `update_spatial_grid_system` — Bevy system that calls `rebuild()` with all entity positions.
-3. **Update `lib.rs`** — Add `pub mod spatial`.
-4. **Unit tests** — empty grid returns empty, single entity found in correct cell, multi-cell radius query, exact boundary behavior, 1000-entity stress test.
-
-**Verification Strategy:**
-```yaml
-Verification_Strategy:
-  Test_Type: unit
-  Test_Stack: cargo test
-  Acceptance_Criteria:
-    - "query_radius returns correct entities within radius"
-    - "query_radius excludes entities outside radius"
-    - "rebuild correctly handles entities at cell boundaries"
-    - "1000-entity rebuild completes in under 1ms (debug build)"
-  Suggested_Test_Commands:
-    - "cd micro-core && cargo test spatial"
-```
-
----
-
-### Task 03 — Flow Field + Flow Field Registry
-**Phase:** 1 (Parallel) | **Tier:** `standard` | **Domain:** Algorithm
-
-| Property | Value |
-|----------|-------|
-| **Target Files** | `pathfinding/mod.rs` [NEW], `pathfinding/flow_field.rs` [NEW], `lib.rs` [MODIFY] |
-| **Dependencies** | None |
-| **Context Bindings** | `context/conventions`, `context/architecture`, `skills/rust-code-standards` |
-
-**Strict Instructions:**
-
-1. **Create `pathfinding/mod.rs`** — Re-export `flow_field::FlowField` and `flow_field::FlowFieldRegistry`.
-2. **Create `pathfinding/flow_field.rs`** — Implement per Contract 4:
-   - `FlowField` struct (NOT a Resource — owned by registry) with flat `Vec<Vec2>` for directions and `Vec<u16>` for costs.
-   - `new(width, height, cell_size)` — allocate zeroed vectors.
-   - `calculate(&mut self, goals: &[Vec2], obstacles: &[IVec2])`:
-     - Initialize all costs to `u16::MAX`.
-     - Set goal cells to cost 0, add to BFS queue (`VecDeque`).
-     - BFS flood-fill: for each neighbor (4-connected), if `new_cost < current_cost`, update and enqueue.
-     - After BFS: for each cell, compare neighbor costs, store normalized direction toward lowest-cost neighbor.
-   - `sample(&self, world_pos: Vec2) -> Vec2` — convert world pos to cell index, return direction. Return `Vec2::ZERO` if out of bounds or at goal.
-   - `FlowFieldRegistry` resource (Contract 4) — `HashMap<u32, FlowField>` keyed by target faction ID. Implement `Default` (empty map).
-3. **Update `lib.rs`** — Add `pub mod pathfinding`.
-4. **Unit tests** — single goal at center produces outward gradient, multiple goals merge correctly, boundary cells handled, out-of-bounds returns zero, 50×50 grid calculation completes in under 5ms, registry stores and retrieves fields by faction ID.
-
-**Verification Strategy:**
-```yaml
-Verification_Strategy:
-  Test_Type: unit
-  Test_Stack: cargo test
-  Acceptance_Criteria:
-    - "Single goal produces correct directional vectors in adjacent cells"
-    - "Multiple goals generate shortest-path field"
-    - "sample() returns Vec2::ZERO for out-of-bounds positions"
-    - "50x50 grid calculation completes in < 5ms"
-    - "FlowFieldRegistry stores/retrieves fields by target faction ID"
-  Suggested_Test_Commands:
-    - "cd micro-core && cargo test pathfinding"
-```
-
----
-
-### Task 04 — Interaction, Removal & Navigation Rule Resources
-**Phase:** 1 (Parallel) | **Tier:** `basic` | **Domain:** Data Model
-
-| Property | Value |
-|----------|-------|
-| **Target Files** | `rules/mod.rs` [NEW], `rules/interaction.rs` [NEW], `rules/removal.rs` [NEW], `rules/navigation.rs` [NEW], `rules/behavior.rs` [NEW], `lib.rs` [MODIFY] |
-| **Dependencies** | None |
-| **Context Bindings** | `context/conventions`, `skills/rust-code-standards` |
-
-**Strict Instructions:**
-
-1. **Create `rules/mod.rs`** — Re-export all types from sub-modules.
-2. **Create `rules/interaction.rs`** — `InteractionRuleSet`, `InteractionRule`, `StatEffect` per Contract 5. Implement `Default` with the swarm demo config. Include `RemovalEvents` resource (Contract 6).
-3. **Create `rules/removal.rs`** — `RemovalRuleSet`, `RemovalRule`, `RemovalCondition` per Contract 5. Implement `Default` with stat[0] ≤ 0.0 removal rule.
-4. **Create `rules/navigation.rs`** — `NavigationRuleSet`, `NavigationRule` per Contract 5. Implement `Default` with swarm demo config: `[{follower_faction: 0, target_faction: 1}]`. Unit tests for serialization and default values.
-5. **Create `rules/behavior.rs`** — `FactionBehaviorMode` per Contract 10. Implement `Default` with faction 1 in `static_factions`. Unit tests for default and toggle logic.
-6. **Update `lib.rs`** — Add `pub mod rules`.
-7. **Unit tests** — Default configs have expected values. Serialization roundtrip. `RemovalCondition` enum coverage. NavigationRuleSet default has 1 rule. FactionBehaviorMode default has faction 1 static.
-
-> [!NOTE]
-> This task creates only the **data structures and default configs**. The systems that USE these rules (interaction_system, removal_system, flow_field_update_system) are in Tasks 05 and 06.
-
-**Verification Strategy:**
-```yaml
-Verification_Strategy:
-  Test_Type: unit
-  Test_Stack: cargo test
-  Acceptance_Criteria:
-    - "Default InteractionRuleSet has 2 rules (faction 0→1 and 1→0)"
-    - "Default RemovalRuleSet has 1 rule (stat[0] <= 0.0)"
-    - "Default NavigationRuleSet has 1 rule (faction 0 → faction 1)"
-    - "Default FactionBehaviorMode has faction 1 in static_factions"
-    - "All rule types survive JSON serialization roundtrip"
-  Suggested_Test_Commands:
-    - "cd micro-core && cargo test rules"
-```
-
----
-
-### Task 05 — Interaction System + Removal System
-**Phase:** 2 (Parallel) | **Tier:** `standard` | **Domain:** ECS Systems
-
-| Property | Value |
-|----------|-------|
-| **Target Files** | `systems/interaction.rs` [NEW], `systems/removal.rs` [NEW] |
-| **Dependencies** | Task 02 (SpatialHashGrid), Task 04 (InteractionRuleSet, RemovalRuleSet, RemovalEvents) |
-| **Context Bindings** | `context/conventions`, `context/architecture`, `skills/rust-code-standards` |
-
-**Strict Instructions:**
-
-1. **Create `systems/interaction.rs`** — `interaction_system`:
-   - For each entity: get its `FactionId` and `Position`.
-   - For each `InteractionRule` where `source_faction == entity.faction_id`:
-     - Query `SpatialHashGrid::query_radius(entity.position, rule.range)`.
-     - For each neighbor with matching `target_faction`:
-       - Apply each `StatEffect`: `target.stat_block.0[effect.stat_index] += effect.delta_per_second / 60.0` (per-tick normalization).
-   - **Optimization:** collect stat modifications into a `HashMap<Entity, Vec<(usize, f32)>>` first, then apply in a second pass (avoids mutable borrow conflicts in Bevy queries).
-2. **Create `systems/removal.rs`** — `removal_system`:
-   - For each entity with `StatBlock`:
-     - For each `RemovalRule`: check if `stat_block.0[rule.stat_index]` crosses threshold per `rule.condition`.
-     - If triggered: record `entity_id.id` in `RemovalEvents`, despawn entity.
-3. **DO NOT modify `systems/mod.rs`** — The integration task (T08) handles wiring.
-4. **Unit tests:**
-   - Two entities of different factions in range → target stat decreases.
-   - Same-faction entities with no matching rule → no stat changes.
-   - Entity with stat[0] ≤ 0.0 → despawned and recorded in `RemovalEvents`.
-   - Entity with stat[0] > 0.0 → not removed.
-
-**Verification Strategy:**
-```yaml
-Verification_Strategy:
-  Test_Type: unit
-  Test_Stack: cargo test
-  Acceptance_Criteria:
-    - "interaction_system reduces target stat by delta_per_second / 60 per tick"
-    - "Same-faction entities do not interact (unless rule exists)"
-    - "removal_system despawns entities crossing stat threshold"
-    - "RemovalEvents contains despawned entity IDs"
-  Suggested_Test_Commands:
-    - "cd micro-core && cargo test interaction"
-    - "cd micro-core && cargo test removal"
-```
-
----
-
-### Task 06 — FlowFieldFollower + Movement Integration + Wave Spawning
-**Phase:** 2 (Parallel) | **Tier:** `standard` | **Domain:** ECS Components + Systems
-
-| Property | Value |
-|----------|-------|
-| **Target Files** | `components/flow_field_follower.rs` [NEW], `components/mod.rs` [MODIFY], `systems/movement.rs` [MODIFY], `systems/flow_field_update.rs` [NEW], `systems/spawning.rs` [MODIFY] |
-| **Dependencies** | Task 02 (SpatialHashGrid — for queries), Task 03 (FlowField + FlowFieldRegistry), Task 04 (NavigationRuleSet) |
-| **Context Bindings** | `context/conventions`, `context/architecture`, `skills/rust-code-standards` |
-
-**Strict Instructions:**
-
-1. **Create `components/flow_field_follower.rs`** — Marker component. Entities with this opt into flow field navigation. Unit test for Default derive.
-2. **Update `components/mod.rs`** — Add `pub mod flow_field_follower` and re-export `FlowFieldFollower`.
-3. **Create `systems/flow_field_update.rs`** — `flow_field_update_system`:
-   - Runs every `flow_field_update_interval` ticks (from `SimulationConfig`).
-   - **Reads `NavigationRuleSet`** to determine which target factions need flow fields.
-   - **Deduplicates targets:** collect unique `target_faction` IDs from all navigation rules.
-   - For each unique target faction:
-     - Query all entities with that `FactionId` → collect positions as goals.
-     - Create/reuse a `FlowField` and call `calculate(goals, &[])` (no obstacles yet).
-     - Insert into `FlowFieldRegistry::fields` keyed by target faction ID.
-   - Remove any registry entries for target factions no longer in the rule set.
-4. **Modify `systems/movement.rs`**:
-   - Add `Res<FlowFieldRegistry>`, `Res<NavigationRuleSet>`, `Res<FactionBehaviorMode>`, `&FactionId`, and `Option<&FlowFieldFollower>` to system signature.
-   - Entities WITH `FlowFieldFollower` AND faction NOT in `FactionBehaviorMode::static_factions`:
-     - Look up entity's `FactionId` in `NavigationRuleSet` to find its `target_faction`.
-     - Look up `target_faction` in `FlowFieldRegistry::fields`.
-     - If a field exists, override velocity with `field.sample(position) * base_speed`. `base_speed` = magnitude of current velocity (preserves configured speed).
-     - If no matching rule/field, keep current velocity (fallback).
-   - Entities WITHOUT `FlowFieldFollower` OR faction IN `static_factions`: keep existing random velocity behavior.
-   - **Replace wrap-around with clamping:** `pos.x = pos.x.clamp(0.0, config.world_width)`, same for y.
-5. **Modify `systems/spawning.rs`** — Add `wave_spawn_system`:
-   - Runs every `wave_spawn_interval` ticks.
-   - Spawns `wave_spawn_count` entities of faction `wave_spawn_faction` at random edge positions.
-   - Each entity gets `FlowFieldFollower` marker + `StatBlock::with_defaults(&config.wave_spawn_stat_defaults)`.
-   - Uses `ResMut<NextEntityId>` for sequential IDs.
-6. **DO NOT modify `systems/mod.rs`** — T08 handles wiring.
-7. **Unit tests:**
-   - Entity with FlowFieldFollower + matching navigation rule + faction NOT static → moves toward correct target.
-   - Entity with FlowFieldFollower but faction IN static_factions → keeps random velocity.
-   - Entity with FlowFieldFollower but no matching rule keeps current velocity.
-   - Entity without FlowFieldFollower keeps random velocity.
-   - Boundary clamping prevents position < 0 or > world_size.
-   - wave_spawn_system spawns correct count at correct interval.
-   - Multi-faction scenario: faction 0 → faction 1, faction 2 → faction 1 (field for faction 1 calculated once).
-
-**Verification Strategy:**
-```yaml
-Verification_Strategy:
-  Test_Type: unit
-  Test_Stack: cargo test
-  Acceptance_Criteria:
-    - "FlowFieldFollower entities navigate toward correct target per NavigationRuleSet"
-    - "Entities in static_factions use random drift even with FlowFieldFollower"
-    - "Non-follower entities retain original velocity"
-    - "Position clamps to world boundaries (no wrapping)"
-    - "wave_spawn_system spawns correct count every N ticks"
-    - "Multiple factions targeting same faction share one flow field calculation"
-  Suggested_Test_Commands:
-    - "cd micro-core && cargo test movement"
-    - "cd micro-core && cargo test spawning"
-    - "cd micro-core && cargo test flow_field_update"
-```
-
----
-
-### Task 07 — IPC Protocol Extensions + Visualizer Upgrades
-**Phase:** 3 (Sequential after Phase 2) | **Tier:** `standard` | **Domain:** IPC + Web UI
-
-| Property | Value |
-|----------|-------|
-| **Target Files** | `bridges/ws_protocol.rs` [MODIFY], `systems/ws_sync.rs` [MODIFY], `systems/ws_command.rs` [MODIFY], `debug-visualizer/visualizer.js` [MODIFY] |
-| **Dependencies** | Task 05 (interaction/removal — RemovalEvents), Task 06 (flow field) |
-| **Context Bindings** | `context/conventions`, `context/ipc-protocol`, `skills/rust-code-standards` |
-
-**Strict Instructions:**
-
-**Rust side:**
-1. **Update `bridges/ws_protocol.rs`**:
-   - Add `stats: Vec<f32>` field to `EntityState` (already has `faction_id` from T01).
-   - Add `removed: Vec<u32>` field to `WsMessage::SyncDelta`.
-2. **Update `systems/ws_sync.rs`**:
-   - Add `&StatBlock` to the query.
-   - Populate `stats` field in `EntityState` from `stat_block.0.to_vec()`.
-   - Drain `RemovalEvents::removed_ids` into `SyncDelta::removed`.
-3. **Update `systems/ws_command.rs`**:
-   - Add `set_faction_mode` command handler: parses `faction_id: u32` and `mode: "static" | "brain"` from params.
-   - When `mode == "static"`: insert `faction_id` into `FactionBehaviorMode::static_factions`.
-   - When `mode == "brain"`: remove `faction_id` from `FactionBehaviorMode::static_factions`.
-   - Requires `ResMut<FactionBehaviorMode>` added to `ws_command_system` signature.
-
-**Visualizer side:**
-4. **Update `debug-visualizer/visualizer.js`**:
-   - Parse `stats` array from moved entities.
-   - Parse `removed` array — delete entities from local map (with brief fade animation).
-   - **Health bars**: If `ADAPTER_CONFIG.stats[0].display === "bar"`, draw a small colored bar above each entity. Color interpolates from `color_high` to `color_low` based on `stat[0]` value.
-   - **Death animation**: When entity removed, add to a `deathAnimations` list. Render as expanding, fading ring for 500ms, then remove.
-   - **Per-faction behavior toggle**: For each faction in `ADAPTER_CONFIG.factions`, add a toggle button in the control panel: `"Static" / "Brain"`. Default state matches `FactionBehaviorMode::default()` (faction 1 starts static).
-     - Clicking the toggle sends `set_faction_mode` WS command.
-     - Toggle button label shows current mode and faction name from adapter config.
-   - Update telemetry panel to show per-faction counts dynamically (not hardcoded "swarm"/"defender" labels).
-
-**Verification Strategy:**
-```yaml
-Verification_Strategy:
-  Test_Type: unit + manual_steps
-  Test_Stack: cargo test (Rust), browser (JS)
-  Acceptance_Criteria:
-    - "SyncDelta JSON contains 'stats' array and 'removed' array"
-    - "Visualizer renders health bars above entities"
-    - "Removed entities disappear with fade animation"
-    - "Telemetry shows faction counts based on adapter config"
-    - "Per-faction behavior toggle buttons render in control panel"
-    - "Clicking toggle sends set_faction_mode command and changes entity behavior"
-  Suggested_Test_Commands:
-    - "cd micro-core && cargo test ws_sync"
-    - "cd micro-core && cargo test ws_command"
-  Manual_Steps:
-    - "Run micro-core, open debug-visualizer"
-    - "Verify health bars render in correct colors"
-    - "Click 'Brain' toggle for faction 1 (Defender) — defenders should start navigating"
-    - "Click 'Static' toggle for faction 0 (Swarm) — swarm should revert to random drift"
-    - "Wait for combat — verify entities disappear when stat[0] reaches 0"
-```
-
----
-
-### Task 08 — Integration Wiring + 10K Stress Test
-**Phase:** 4 (Sequential) | **Tier:** `advanced` | **Domain:** Integration
-
-| Property | Value |
-|----------|-------|
-| **Target Files** | `main.rs` [MODIFY], `systems/mod.rs` [MODIFY], `config.rs` [MODIFY] |
-| **Dependencies** | ALL previous tasks (01–07) |
-| **Context Bindings** | `context/conventions`, `context/architecture`, `context/tech-stack`, `context/ipc-protocol`, `skills/rust-code-standards` |
-
-**Strict Instructions:**
-
-1. **Update `config.rs`** — Add all Phase 2 config fields from Contract 9 to `SimulationConfig`. Update `Default` impl with swarm demo defaults.
-2. **Update `systems/mod.rs`** — Add `pub mod` for all new system modules: `interaction`, `removal`, `flow_field_update`. Re-export public system functions.
-3. **Update `main.rs`**:
-   - Insert new resources: `SpatialHashGrid::new(20.0)`, `FlowFieldRegistry::default()`, `InteractionRuleSet::default()`, `RemovalRuleSet::default()`, `NavigationRuleSet::default()`, `FactionBehaviorMode::default()`, `RemovalEvents::default()`.
-   - Register new systems with ordering:
-     ```
-     update_spatial_grid_system
-       → interaction_system (after spatial grid)
-       → removal_system (after interaction)
-       → ws_sync_system (after removal — to include removed IDs)
-     flow_field_update_system (periodic, independent)
-     wave_spawn_system (periodic, independent)
-     ```
-   - All new simulation systems gated by `SimState::Running` and pause/step conditions.
-   - Add `--entity-count <N>` CLI arg to override `initial_entity_count`.
-4. **Stress test:** Run with 10,000 entities:
-   - `cargo run -- --entity-count 10000 --smoke-test`
-   - Verify 60 TPS sustained over 600+ ticks.
-   - Log average tick time each second.
-
-**Verification Strategy:**
-```yaml
-Verification_Strategy:
-  Test_Type: integration + manual_steps
-  Test_Stack: cargo build + cargo run
-  Acceptance_Criteria:
-    - "cargo build succeeds with zero warnings"
-    - "cargo clippy -- -D warnings is clean"
-    - "cargo test passes all tests (existing + new)"
-    - "10K entities sustain 60 TPS for 10+ seconds"
-    - "Entities navigate via flow field visible in Debug Visualizer"
-    - "Interaction causes stat[0] to decrease (health bars turning red)"
-    - "Entities removed when stat[0] reaches 0 (visible in visualizer)"
-    - "Wave spawning adds entities periodically at map edges"
-  Suggested_Test_Commands:
-    - "cd micro-core && cargo build"
-    - "cd micro-core && cargo clippy -- -D warnings"
-    - "cd micro-core && cargo test"
-    - "cd micro-core && cargo run -- --entity-count 10000 --smoke-test"
-  Manual_Steps:
-    - "Run micro-core with default config, open debug-visualizer"
-    - "Observe swarm entities navigating toward defenders"
-    - "Observe health bars decreasing during proximity interaction"
-    - "Observe dead entities disappearing"
-    - "Observe wave spawning at map edges every 5 seconds"
-    - "Toggle faction 1 (Defender) to 'Brain' mode — verify they start following flow fields"
-    - "Toggle faction 0 (Swarm) to 'Static' — verify they revert to random drift"
-```
-
----
-
-## Phase 1 Refactoring Impact (File-Level Diff Summary)
-
-| File | Change | Touched By |
-|------|--------|------------|
-| `components/team.rs` | **DELETED** | T01 |
-| `components/faction.rs` | **NEW** — `FactionId(u32)` | T01 |
-| `components/stat_block.rs` | **NEW** — `StatBlock([f32; 8])` | T01 |
-| `components/flow_field_follower.rs` | **NEW** — marker | T06 |
-| `components/mod.rs` | Remove Team, add FactionId + StatBlock | T01, T06 |
-| `spatial/mod.rs` | **NEW** | T02 |
-| `spatial/hash_grid.rs` | **NEW** | T02 |
-| `pathfinding/mod.rs` | **NEW** | T03 |
-| `pathfinding/flow_field.rs` | **NEW** — FlowField + FlowFieldRegistry | T03 |
-| `rules/mod.rs` | **NEW** | T04 |
-| `rules/interaction.rs` | **NEW** | T04 |
-| `rules/navigation.rs` | **NEW** — NavigationRuleSet | T04 |
-| `rules/behavior.rs` | **NEW** — FactionBehaviorMode | T04 |
-| `rules/removal.rs` | **NEW** | T04 |
-| `systems/interaction.rs` | **NEW** | T05 |
-| `systems/removal.rs` | **NEW** | T05 |
-| `systems/flow_field_update.rs` | **NEW** | T06 |
-| `systems/movement.rs` | Modify — flow field + clamp | T06 |
-| `systems/spawning.rs` | Modify — FactionId + wave spawn | T01, T06 |
-| `systems/ws_sync.rs` | Modify — StatBlock + RemovalEvents | T01, T07 |
-| `systems/ws_command.rs` | Modify — FactionId + set_faction_mode | T01, T07 |
-| `systems/mod.rs` | Add new modules | T08 |
-| `bridges/ws_protocol.rs` | Modify — faction_id + stats + removed | T01, T07 |
-| `bridges/zmq_protocol.rs` | Modify — generic summary | T01 |
-| `bridges/zmq_bridge/systems.rs` | Modify — FactionId | T01 |
-| `config.rs` | Add Phase 2 config fields | T08 |
-| `lib.rs` | Add spatial, pathfinding, rules modules | T02, T03, T04 |
-| `main.rs` | Wire all new systems + resources | T08 |
-| `debug-visualizer/visualizer.js` | Adapter config + health bars + removal | T01, T07 |
-
----
-
-## Open Questions
-
-> [!NOTE]
-> **Flow Field Targeting: RESOLVED.** Adopted the `FlowFieldRegistry` + `NavigationRuleSet` architecture per user's design. Supports N-faction targeting with deduplication. Single-faction config fields removed.
-
-> [!NOTE]
-> **Defender Behavior: RESOLVED.** Added `FactionBehaviorMode` resource (Contract 10) with per-faction static/brain toggle. Default: faction 1 (defenders) starts in static mode. Debug Visualizer gets a per-faction toggle button. This enables testing flow fields independently per faction and prepares for multi-brain combat sessions in Phase 3 (one brain per faction, or one brain controlling multiple factions).
+### Modified Files
+| File | Changes |
+|------|---------|
+| `micro-core/src/lib.rs` | Register `terrain` and `visibility` modules |
+| `micro-core/src/main.rs` | Register TerrainGrid, FactionVisibility, VisionRadius; add visibility system; gate systems properly |
+| `micro-core/src/components.rs` | Add `VisionRadius` component |
+| `micro-core/src/pathfinding/flow_field.rs` | Add `cost_map: Option<&[u16]>` to `calculate()`, integer Dijkstra math |
+| `micro-core/src/systems/flow_field_update.rs` | Pass terrain obstacles + hard_costs |
+| `micro-core/src/systems/movement.rs` | Kinematic wall-sliding + soft_cost speed modifier |
+| `micro-core/src/systems/ws_command.rs` | Fibonacci spiral spawn, `set_terrain`, `clear_terrain`, `load_scenario`, `save_scenario`; NextEntityId fix |
+| `micro-core/src/systems/ws_sync.rs` | Add VisibilitySync @ 10 TPS |
+| `micro-core/src/bridges/ws_protocol.rs` | VisibilitySync (bit-packed), TerrainSync message types |
+| `micro-core/src/bridges/zmq_bridge/systems.rs` | FoW-filtered `build_state_snapshot()` — brain sees only visible enemies |
+| `micro-core/src/bridges/zmq_protocol.rs` | Extended `StateSnapshot` with explored/visible/terrain fields |
+| `debug-visualizer/index.html` | Spawn Tools, per-faction fog toggles, Terrain Editor panel, scenario save/load |
+| `debug-visualizer/visualizer.js` | Spawn controls + ghost circle, fog renderer (bit-unpack), paint mode + drag, terrain renderer, scenario I/O |
+| `debug-visualizer/style.css` | Brush toolbar, paint cursor, fog overlay, spawn ghost circle |
 
 ---
 
@@ -959,31 +746,33 @@ Verification_Strategy:
 
 ### Automated Tests
 ```bash
-# All unit tests
-cd micro-core && cargo test
+# Terrain
+cargo test terrain::tests::default_costs_are_100
+cargo test terrain::tests::wall_returns_max
+cargo test terrain::tests::hard_obstacles_filters_walls
+cargo test terrain::tests::oob_returns_wall
 
-# Lint gate
-cd micro-core && cargo clippy -- -D warnings
+# Visibility
+cargo test visibility::tests::bit_pack_set_get_roundtrip
+cargo test visibility::tests::cell_deduplication_merges_5000_entities
+cargo test visibility::tests::wall_blocks_vision
 
-# 10K entity stress test
-cd micro-core && cargo run -- --entity-count 10000 --smoke-test
+# Flow field
+cargo test flow_field::tests::cost_map_none_unchanged    # backward compat
+cargo test flow_field::tests::cost_map_200_doubles_chamfer
+cargo test flow_field::tests::cost_map_max_acts_as_wall
+
+# Spawn
+cargo test ws_command::tests::fibonacci_spiral_no_overlap
+
+# Integration
+cargo test --no-default-features  # Production compiles without telemetry
 ```
 
-### Manual Verification (Debug Visualizer)
-1. Open `debug-visualizer/index.html` while Micro-Core runs
-2. ✅ Entities colored by faction via adapter config (not hardcoded "swarm"/"defender")
-3. ✅ Swarm entities (faction 0) navigate toward defenders (faction 1) via flow field
-4. ✅ Health bars render above entities (green → red as stat[0] decreases)
-5. ✅ Entities in proximity interact — health (stat[0]) decreases
-6. ✅ Dead entities disappear with fade animation
-7. ✅ Wave spawning adds entities at map edges every 5 seconds
-8. ✅ 10K entities render without browser lag
-9. ✅ Per-faction behavior toggle works (Static ↔ Brain)
-
-### Performance Gate
-| Metric | Target |
-|--------|--------|
-| Tick Rate | 60 TPS sustained with 10K entities |
-| Avg Tick Time | < 16.6ms |
-| Spatial Grid Rebuild | < 2ms for 10K entities |
-| Flow Field Calculate | < 5ms for 50×50 grid |
+### Browser Testing
+1. **Mass Spawn:** Amount=500, spread=50 → Fibonacci spiral pattern, no overlap, no explosion
+2. **Fog of War:** Toggle Swarm fog → black overlay, vision circles stop at walls
+3. **Terrain Paint:** Draw wall line → flow field arrows route around → entities slide along walls
+4. **Pushable:** Paint pushable zone → entities slow to 50%, flow field slightly avoids
+5. **Scenario Save/Load:** Paint terrain + place units → Save → Reload page → Load → identical state
+6. **Setup→Run:** Fresh open → paused → paint → place units → Play → simulation runs

@@ -17,3 +17,20 @@ description: Only use when user request planning new feature, refactor or comple
 ## 3. Agent Isolation
 - Never assume sub-agents can read each other's minds or share real-time memory. They are completely isolated during execution.
 - All inter-agent communication happens through files on disk: task briefs, changelogs, and contracts in `implementation_plan.md`.
+
+## 4. Human Code is Concept, Not Truth
+
+> **"Humans are incredible at concepting. They are lazy at details."**
+
+When a human provides source code (inline, in messages, or in reference files):
+
+- **ADOPT the architectural idea** — the pattern, the algorithm choice, the data flow, the design rationale. These are almost always correct and deeply considered.
+- **DO NOT blindly copy-paste** — the human's code may contain typos, wrong variable names, incorrect API usage, missing edge cases, or outdated syntax for the target framework version.
+- **INDEPENDENTLY VERIFY** every line against:
+  1. The project's actual Cargo.toml / package.json dependencies and versions
+  2. The framework's real API (e.g., Bevy 0.18 method signatures)
+  3. Rust/TypeScript compiler rules and borrow semantics
+  4. Existing project contracts in `implementation_plan.md`
+  5. Any `.agents/knowledge/` lessons from prior sessions
+- **If the concept is sound but the code is wrong**, fix the implementation while preserving the architectural intent. Document what was corrected and why.
+- **If the concept itself is flawed** (e.g., suggests an O(N²) approach when O(N log N) exists), flag it for architectural review before implementing.

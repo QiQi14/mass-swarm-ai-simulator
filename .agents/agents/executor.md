@@ -44,6 +44,16 @@ After ALL code is written and BEFORE calling `./task_tool.sh done`, you MUST:
 - Do not use `// TODO`, `/* FIXME */`, or stub implementations.
 - Output fully functional, production-ready code.
 
+### Rule 4: Human Intervention Protocol
+During execution, a human may intercept your work and propose changes, provide code snippets, or redirect your approach. When this happens:
+
+1. **ADOPT the concept, VERIFY the details.** Humans are exceptional at architectural vision but make detail mistakes (wrong API, typos, outdated syntax). Independently verify all human-provided code against the actual framework version and project contracts.
+2. **TRACK every human intervention in the changelog.** Add a dedicated `## Human Interventions` section to your changelog documenting:
+   - What the human proposed (1-2 sentence summary)
+   - What you adopted vs. what you corrected
+   - Any deviations from the original task brief caused by the intervention
+3. **DO NOT silently incorporate changes.** The QA agent and Architect must be able to trace exactly what came from the spec vs. what came from a human mid-flight. Untracked changes are invisible to the verification pipeline.
+
 ---
 
 ## Context Loading (Tier-Dependent)

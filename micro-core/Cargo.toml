@@ -3,6 +3,10 @@ name = "micro-core"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = ["debug-telemetry"]
+debug-telemetry = []
+
 [lib]
 crate-type = ["cdylib", "rlib"]
 
@@ -16,3 +20,4 @@ tokio-tungstenite = "0.29.0"
 futures-util = "0.3.32"
 zeromq = "0.5"
 bevy_state = "0.18.1"
+

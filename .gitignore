@@ -1,47 +1,40 @@
+
+# (nothing to ignore — static HTML/JS, no build step)
 # ============================================================
+# Lock file (transient, per-machine)
 # Mass-Swarm AI Simulator — .gitignore
-# ============================================================
-
-# ── Rust / Micro-Core ────────────────────────────────────────
-micro-core/target/
-**/*.rs.bk
-
+# PyTorch / ONNX artifacts
+# Python venvs for CLI tools
+# ── Agent Framework Runtime Artifacts ────────────────────────
+# ── Debug Visualizer ─────────────────────────────────────────
+# ── IDE / OS ─────────────────────────────────────────────────
+# ── Misc ─────────────────────────────────────────────────────
 # ── Python / Macro-Brain ─────────────────────────────────────
-macro-brain/.venv/
-macro-brain/__pycache__/
-macro-brain/**/__pycache__/
+# ── Rust / Micro-Core ────────────────────────────────────────
+**/*.rs.bk
+*.iml
+*.log
+*.swo
+*.swp
+*.tmp
+*~
+.DS_Store
+.dev.pids
+.idea/
+.task_state.lock
+.venv_dispatch/
+.venv_task_tool/
+.vscode/
+Thumbs.db
+macro-brain/**/*.onnx
+macro-brain/**/*.pt
+macro-brain/**/*.pth
 macro-brain/**/*.pyc
 macro-brain/**/*.pyo
+macro-brain/**/__pycache__/
 macro-brain/*.egg-info/
 macro-brain/.pytest_cache/
 macro-brain/.ruff_cache/
-
-# PyTorch / ONNX artifacts
-macro-brain/**/*.pt
-macro-brain/**/*.onnx
-macro-brain/**/*.pth
-
-# ── Debug Visualizer ─────────────────────────────────────────
-# (nothing to ignore — static HTML/JS, no build step)
-
-# ── Agent Framework Runtime Artifacts ────────────────────────
-# Lock file (transient, per-machine)
-.task_state.lock
-
-# Python venvs for CLI tools
-.venv_dispatch/
-.venv_task_tool/
-
-# ── IDE / OS ─────────────────────────────────────────────────
-.DS_Store
-Thumbs.db
-*.swp
-*.swo
-*~
-.idea/
-.vscode/
-*.iml
-
-# ── Misc ─────────────────────────────────────────────────────
-*.log
-*.tmp
+macro-brain/.venv/
+macro-brain/__pycache__/
+micro-core/target/

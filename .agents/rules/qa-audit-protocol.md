@@ -52,3 +52,20 @@ The following is an **AUTOMATIC FAIL** for QA certification:
 - The `Verification_Strategy.Test_Stack` in the task brief references a specific testing framework from `stacks/`.
 - You MUST use the testing framework specified by the `Test_Stack`. Do not substitute with a different framework.
 - If no `Test_Stack` is specified or no matching stack exists in `stacks/`, you MUST **stop and ask the user** which testing framework/approach to use. Never guess.
+
+## 7. Human-Originated Code Scrutiny
+
+> **"Humans are incredible at concepting. They are lazy at details."**
+
+When deep-dive spec files (`implementation_plan_task_*.md`) contain human-provided source code:
+
+- **DO NOT** assume the code compiles, or that API calls match the actual framework version.
+- **VERIFY** that the Executor adapted the _architectural concept_ (algorithm, pattern, data flow) rather than blindly copy-pasting verbatim.
+- **CHECK** for common human-code mistakes:
+  1. Wrong method names or signatures for the framework version (e.g., deprecated Bevy 0.15 APIs used against Bevy 0.18)
+  2. Missing `use` imports or derive macros
+  3. Incorrect borrow semantics (e.g., `&self` vs `&mut self`)
+  4. Off-by-one errors in array indexing or loop bounds
+  5. Hardcoded values that should reference project constants
+- **If the Executor copy-pasted human code verbatim without verification**, and the code compiles and passes tests, this is acceptable. But if the code FAILS, flag the root cause as "unverified human-originated code" in the QA report.
+- **The gold standard**: The Executor understood the concept, verified the APIs, and produced working code — whether or not it matches the spec code character-for-character.

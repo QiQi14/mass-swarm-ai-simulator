@@ -30,6 +30,11 @@ Before you mark the task as done, you must generate a handoff artifact for the Q
    - **Touched Files:** A strict bulleted list of every file you created or modified.
    - **Contract Fulfillment:** A brief confirmation of the exact interfaces/DTOs you implemented.
    - **Deviations/Notes:** Any specific edge cases you handled that the QA Agent should specifically test.
+   - **Human Interventions:** If a human provided code, redirected your approach, or overrode a spec decision during execution, document each intervention:
+     - What the human proposed
+     - What you adopted vs. what you corrected (verify details!)
+     - Any deviations from the original task brief
+     - If no human interventions occurred, write "None."
 3. **Signal Ready for QA:** Only AFTER the changelog file is successfully written, run:
    ```bash
    ./task_tool.sh done [TASK_ID]

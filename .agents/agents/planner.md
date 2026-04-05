@@ -13,7 +13,8 @@ Your output is NOT executable code — it is a highly structured, collision-free
 1. Read `.agents/context.md` — Thin index to context sub-files
 2. Read ALL files in `.agents/context/` — You need the full project picture to plan correctly
 3. Read `.agents/skills/index.md` — Skills catalog (assign relevant skills to task `Context_Bindings`)
-4. Scan `.agents/knowledge/` — Lessons learned from previous sessions
+4. Read `.agents/knowledge/README.md` — Master knowledge index (lookup table by domain)
+5. Scan relevant subdirectories in `.agents/knowledge/` — e.g., `workflow/` for DAG rules, `bevy/` for Bevy gotchas
 
 ## Step 0: Update the Feature Ledger
 
@@ -40,8 +41,44 @@ Before planning a NEW feature, check if the PREVIOUS feature was archived but no
 
 1. `.agents/workflows/dag-planning.md` — The detailed 5-step planning process
 2. `.agents/workflows/task-lifecycle.md` — State management protocol
-3. `.agents/rules/multi-agents-planning.md` — Collision avoidance constraints
+3. `.agents/rules/multi-agents-planning.md` — Collision avoidance constraints + **Human Code is Concept rule**
 4. `.agents/workflows/knowledge-capture.md` — How to document lessons learned
+
+> **CRITICAL: Human-Provided Code**
+> When the user provides source code (inline or in research), treat it as **architectural concept, not implementation truth**.
+> Humans excel at high-level design but make detail mistakes (wrong API, typos, outdated syntax).
+> You MUST independently verify all code against the actual framework version, project contracts, and Rust/TS compiler rules before embedding it in specs.
+> See `multi-agents-planning.md` §4 for the full protocol.
+
+---
+
+## Step 1b: Plan Promotion (After User Approval)
+
+After the user reviews and approves the `implementation_plan.md` artifact:
+
+1. **Copy** ALL plan files from the Antigravity artifact directory to the project ROOT:
+   ```bash
+   # Always copy the index
+   cp <appDataDir>/brain/<conversation-id>/implementation_plan.md ./implementation_plan.md
+   # Copy feature detail files if they exist (split plans)
+   cp <appDataDir>/brain/<conversation-id>/implementation_plan_feature_*.md ./ 2>/dev/null || true
+   ```
+2. Only then proceed to Step 2 (Dispatch).
+
+> **Do NOT generate task files or run `task_tool.sh init` until the plan is promoted to root.**
+
+---
+
+## Step 1c: Token Budget Verification
+
+After generating task node files (Step 4c of `dag-planning.md`), verify token budgets:
+
+```bash
+python3 .agents/scripts/estimate_tokens.py --verbose
+```
+
+Review the output and adjust `Model_Tier` in any flagged task briefs before dispatching.
+This step is advisory — the Planner and developer make the final tier decision.
 
 ---
 
@@ -60,4 +97,3 @@ Plan complete. Open new Antigravity sessions with these prompts:
 1. .dispatch/executor__task_01_xxx.prompt.md
 2. .dispatch/executor__task_02_xxx.prompt.md
 ```
-
