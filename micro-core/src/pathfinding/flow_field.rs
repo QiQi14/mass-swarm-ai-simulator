@@ -104,18 +104,8 @@ impl FlowField {
         }
     }
 
-    /// Compute the flow field from goal positions, routing around obstacles.
-    ///
-    /// ## Phase 1: Integration Field (8-Connected Chamfer Dijkstra)
-    /// - Seeds all goal cells at cost 0 in a `BinaryHeap` (min-heap).
-    /// - Expands using Chamfer weights: ortho=10, diag=14.
-    /// - Anti-corner-cutting: diag blocked if either adjacent ortho is obstacle.
-    ///
-    /// ## Phase 2: Direction Field (Central Difference Gradient)
-    /// - For each cell, computes `dx = cost(left) - cost(right)`.
-    /// - Produces smooth 360° vectors (not 8-way snapping).
-    /// - OOB/obstacle neighbors use `current_cost` to push away from walls.
-    pub fn calculate(&mut self, goals: &[Vec2], obstacles: &[IVec2]) {
+    /// Compute the flow field from goal positions, routing around obstacles and terrain costs.
+    pub fn calculate(&mut self, goals: &[Vec2], obstacles: &[IVec2], cost_map: Option<&[u16]>) {
         // ── Phase 1: Integration Field (Chamfer Dijkstra) ──
         self.costs.iter_mut().for_each(|c| *c = u16::MAX);
 
@@ -161,7 +151,17 @@ impl FlowField {
                     }
                 }
 
-                let next_cost = cost.saturating_add(move_cost);
+                // ── NEW: Terrain cost integration (pure integer) ──
+                let terrain_penalty = cost_map
+                    .map(|cm| cm[self.cell_index(neighbor)])
+                    .unwrap_or(100);
+
+                // Absolute wall — skip entirely (never enters BFS queue)
+                if terrain_penalty == u16::MAX { continue; }
+
+                // Integer math: (10 × 200) / 100 = 20 (double cost for mud)
+                let effective_cost = (move_cost * terrain_penalty as u32) / 100;
+                let next_cost = cost.saturating_add(effective_cost);
                 let n_idx = self.cell_index(neighbor);
 
                 if next_cost < self.costs[n_idx] as u32 {
@@ -191,7 +191,12 @@ impl FlowField {
                 let get_cost = |nx: i32, ny: i32| -> u16 {
                     let n = IVec2::new(nx, ny);
                     if self.in_bounds(n) && !obstacle_set.contains(&n) {
-                        self.costs[self.cell_index(n)]
+                        let neighbor_cost = cost_map.map(|cm| cm[self.cell_index(n)]).unwrap_or(100);
+                        if neighbor_cost == u16::MAX {
+                            current_cost
+                        } else {
+                            self.costs[self.cell_index(n)]
+                        }
                     } else {
                         current_cost
                     }
@@ -261,7 +266,7 @@ mod tests {
         let mut ff = FlowField::new(5, 5, 1.0);
 
         // Act
-        ff.calculate(&[Vec2::new(2.5, 2.5)], &[]);
+        ff.calculate(&[Vec2::new(2.5, 2.5)], &[], None);
 
         // Assert — Goal cell: cost=0, direction=ZERO
         assert_eq!(ff.costs[2 * 5 + 2], 0, "Goal cell cost must be 0");
@@ -310,7 +315,7 @@ mod tests {
         let mut ff = FlowField::new(5, 5, 1.0);
 
         // Act
-        ff.calculate(&[Vec2::new(2.5, 2.5)], &[]);
+        ff.calculate(&[Vec2::new(2.5, 2.5)], &[], None);
 
         // Assert
         let dir = ff.sample(Vec2::new(0.5, 0.5));
@@ -331,7 +336,7 @@ mod tests {
         let mut ff = FlowField::new(10, 1, 1.0);
 
         // Act
-        ff.calculate(&[Vec2::new(0.5, 0.5), Vec2::new(9.5, 0.5)], &[]);
+        ff.calculate(&[Vec2::new(0.5, 0.5), Vec2::new(9.5, 0.5)], &[], None);
 
         // Assert
         let dir3 = ff.sample(Vec2::new(3.5, 0.5));
@@ -347,7 +352,7 @@ mod tests {
         let mut ff = FlowField::new(5, 5, 1.0);
 
         // Act
-        ff.calculate(&[Vec2::new(0.5, 0.5)], &[]);
+        ff.calculate(&[Vec2::new(0.5, 0.5)], &[], None);
 
         // Assert
         let dir = ff.sample(Vec2::new(4.5, 0.5));
@@ -372,7 +377,7 @@ mod tests {
         let mut ff = FlowField::new(5, 5, 1.0);
 
         // Act
-        ff.calculate(&[Vec2::new(2.5, 2.5)], &[]);
+        ff.calculate(&[Vec2::new(2.5, 2.5)], &[], None);
 
         // Assert
         assert_eq!(
@@ -388,7 +393,7 @@ mod tests {
         let mut ff = FlowField::new(5, 3, 1.0);
 
         // Act
-        ff.calculate(&[Vec2::new(4.5, 1.5)], &[IVec2::new(2, 1)]);
+        ff.calculate(&[Vec2::new(4.5, 1.5)], &[IVec2::new(2, 1)], None);
 
         // Assert — Obstacle cell should have MAX cost
         assert_eq!(ff.costs[1 * 5 + 2], u16::MAX, "Obstacle must have MAX cost");
@@ -423,7 +428,7 @@ mod tests {
         let mut ff = FlowField::new(50, 50, 1.0);
 
         // Act
-        ff.calculate(&[Vec2::new(25.0, 25.0)], &[]);
+        ff.calculate(&[Vec2::new(25.0, 25.0)], &[], None);
 
         // Assert
         assert_eq!(ff.costs[25 * 50 + 25], 0, "Goal must be cost 0");
@@ -436,5 +441,68 @@ mod tests {
             "Corner Chamfer cost should be ~350, got {}",
             corner
         );
+    }
+
+    #[test]
+    fn test_cost_map_none_backward_compatible() {
+        // Arrange
+        let mut ff1 = FlowField::new(5, 5, 1.0);
+        let mut ff2 = FlowField::new(5, 5, 1.0);
+
+        // Act
+        ff1.calculate(&[Vec2::new(2.5, 2.5)], &[], None);
+        ff2.calculate(&[Vec2::new(2.5, 2.5)], &[], Some(&vec![100; 25]));
+
+        // Assert
+        assert_eq!(ff1.costs, ff2.costs);
+        assert_eq!(ff1.directions, ff2.directions);
+    }
+
+    #[test]
+    fn test_cost_map_200_doubles_chamfer_cost() {
+        // Arrange
+        let mut ff = FlowField::new(3, 1, 1.0);
+        let costs = vec![100, 200, 100]; // Middle cell is mud (200)
+
+        // Act - Goal at right end
+        ff.calculate(&[Vec2::new(2.5, 0.5)], &[], Some(&costs));
+
+        // Assert
+        // Cell 2 (goal) = 0
+        // Cell 1 (mud) = 10 * 200 / 100 = 20
+        // Cell 0 = 20 + 10 * 100 / 100 = 30
+        assert_eq!(ff.costs[1], 20, "Mud cell should have cost 20");
+        assert_eq!(ff.costs[0], 30, "Clear cell should have cost 30");
+    }
+
+    #[test]
+    fn test_cost_map_max_acts_as_wall() {
+        // Arrange
+        let mut ff = FlowField::new(3, 1, 1.0);
+        let costs = vec![100, u16::MAX, 100]; // Middle cell is wall (MAX)
+
+        // Act
+        ff.calculate(&[Vec2::new(2.5, 0.5)], &[], Some(&costs));
+
+        // Assert
+        assert_eq!(ff.costs[1], u16::MAX, "Wall cell should have MAX cost");
+        assert_eq!(ff.costs[0], u16::MAX, "Cell blocked by wall should be unreachable");
+    }
+
+    #[test]
+    fn test_cost_map_125_slightly_increases_cost() {
+        // Arrange
+        let mut ff = FlowField::new(3, 1, 1.0);
+        let costs = vec![100, 125, 100]; // Middle cell is pushable (125)
+
+        // Act
+        ff.calculate(&[Vec2::new(2.5, 0.5)], &[], Some(&costs));
+
+        // Assert
+        // Cell 2 (goal) = 0
+        // Cell 1 = 10 * 125 / 100 = 12
+        // Cell 0 = 12 + 10 = 22
+        assert_eq!(ff.costs[1], 12);
+        assert_eq!(ff.costs[0], 22);
     }
 }

@@ -47,6 +47,7 @@ pub fn movement_system(
     nav_rules: Res<NavigationRuleSet>,
     behavior_mode: Res<FactionBehaviorMode>,
     config: Res<SimulationConfig>,
+    terrain: Res<crate::terrain::TerrainGrid>,
     mut query: Query<(Entity, &mut Position, &mut Velocity, &FactionId, &MovementConfig)>,
 ) {
     let start = telemetry.as_ref().map(|_| std::time::Instant::now());
@@ -106,9 +107,44 @@ pub fn movement_system(
         vel.dx = new_vel.x;
         vel.dy = new_vel.y;
 
-        // --- 4. KINEMATICS & CLAMPING ---
-        pos.x = (pos.x + vel.dx * dt).clamp(0.0, config.world_width);
-        pos.y = (pos.y + vel.dy * dt).clamp(0.0, config.world_height);
+        // --- 4. KINEMATICS, WALL SLIDING & CLAMPING ---
+        let world_to_cell = |x: f32, y: f32| -> IVec2 {
+            IVec2::new(
+                (x / terrain.cell_size).floor() as i32,
+                (y / terrain.cell_size).floor() as i32,
+            )
+        };
+
+        let mut next_x = pos.x + vel.dx * dt;
+        let mut next_y = pos.y + vel.dy * dt;
+
+        // Check X axis independently — allows sliding along walls
+        if terrain.get_hard_cost(world_to_cell(next_x, pos.y)) == u16::MAX {
+            vel.dx = 0.0;
+            next_x = pos.x;  // Blocked on X — entity slides vertically
+        }
+        // Check Y axis independently
+        if terrain.get_hard_cost(world_to_cell(pos.x, next_y)) == u16::MAX {
+            vel.dy = 0.0;
+            next_y = pos.y;  // Blocked on Y — entity slides horizontally
+        }
+
+        // Apply soft terrain speed modifier (AFTER wall check, so entity is in a valid cell)
+        let cell = world_to_cell(next_x, next_y);
+        let soft = terrain.get_soft_cost(cell) as f32 / 100.0;
+        let effective_speed = mc.max_speed * soft;
+
+        let speed_sq = vel.dx * vel.dx + vel.dy * vel.dy;
+        if speed_sq > effective_speed * effective_speed {
+            let limit_ratio = if speed_sq > 0.0 { effective_speed / speed_sq.sqrt() } else { 0.0 };
+            vel.dx *= limit_ratio;
+            vel.dy *= limit_ratio;
+            next_x = pos.x + vel.dx * dt;
+            next_y = pos.y + vel.dy * dt;
+        }
+
+        pos.x = next_x.clamp(0.0, config.world_width);
+        pos.y = next_y.clamp(0.0, config.world_height);
     });
     if let (Some(mut t), Some(s)) = (telemetry, start) {
         t.movement_us = s.elapsed().as_micros() as u32;
@@ -133,6 +169,7 @@ mod tests {
         mode.static_factions.insert(1);
         app.insert_resource(mode);
         app.insert_resource(SimulationConfig::default());
+        app.insert_resource(crate::terrain::TerrainGrid::new(50, 50, 20.0));
         app.add_systems(Update, movement_system);
         app
     }
@@ -255,5 +292,76 @@ mod tests {
 
         let pos = app.world().get::<Position>(entity).unwrap();
         assert_eq!(pos.x, 999.0, "Position should be unchanged because system skips it");
+    }
+
+    #[test]
+    fn test_wall_sliding_blocks_x_axis() {
+        let mut app = build_test_app();
+
+        // Put a wall at cell (3, 2). world positions: x=60-80, y=40-60
+        let mut terrain = app.world_mut().get_resource_mut::<crate::terrain::TerrainGrid>().unwrap();
+        terrain.set_cell(3, 2, u16::MAX, 100);
+
+        let entity = app.world_mut().spawn((
+            // Positioned right before the wall on X, moving Right + Down
+            Position { x: 59.0, y: 50.0 },
+            Velocity { dx: 100.0, dy: 10.0 },
+            FactionId(0),
+            MovementConfig::default(),
+        )).id();
+
+        app.update();
+
+        let vel = app.world().get::<Velocity>(entity).unwrap();
+        assert_eq!(vel.dx, 0.0, "Rightward movement should be blocked by wall");
+        assert!(vel.dy > 0.0, "Downward movement should be preserved (slides vertically)");
+    }
+
+    #[test]
+    fn test_wall_sliding_blocks_y_axis() {
+        let mut app = build_test_app();
+
+        // Put a wall at cell (2, 3). world positions: x=40-60, y=60-80
+        let mut terrain = app.world_mut().get_resource_mut::<crate::terrain::TerrainGrid>().unwrap();
+        terrain.set_cell(2, 3, u16::MAX, 100);
+
+        let entity = app.world_mut().spawn((
+            // Positioned right above the wall on Y, moving Right + Down
+            Position { x: 50.0, y: 59.0 },
+            Velocity { dx: 10.0, dy: 100.0 },
+            FactionId(0),
+            MovementConfig::default(),
+        )).id();
+
+        app.update();
+
+        let vel = app.world().get::<Velocity>(entity).unwrap();
+        assert_eq!(vel.dy, 0.0, "Downward movement should be blocked by wall");
+        assert!(vel.dx > 0.0, "Rightward movement should be preserved (slides horizontally)");
+    }
+
+    #[test]
+    fn test_soft_cost_reduces_speed() {
+        let mut app = build_test_app();
+
+        // Put mud at cell (2, 2) which reduces speed to 50%
+        let mut terrain = app.world_mut().get_resource_mut::<crate::terrain::TerrainGrid>().unwrap();
+        terrain.set_cell(2, 2, 100, 50); // 50 = half speed
+
+        let mut mc = MovementConfig::default();
+        mc.max_speed = 100.0;
+
+        let entity = app.world_mut().spawn((
+            Position { x: 50.0, y: 50.0 },
+            Velocity { dx: 200.0, dy: 0.0 }, // Try to move faster than max speed
+            FactionId(0),
+            mc,
+        )).id();
+
+        app.update();
+
+        let vel = app.world().get::<Velocity>(entity).unwrap();
+        let speed = (vel.dx * vel.dx + vel.dy * vel.dy).sqrt();
+        assert!((speed - 50.0).abs() < 1.0, "Entity in mud should have speed capped to 50, got {}", speed);
     }
 }

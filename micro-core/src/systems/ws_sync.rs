@@ -11,7 +11,11 @@ use bevy::prelude::*;
 use crate::components::{EntityId, FactionId, Position, StatBlock, Velocity};
 use crate::config::TickCounter;
 use crate::bridges::ws_protocol::{WsMessage, EntityState};
+#[cfg(feature = "debug-telemetry")]
+use crate::bridges::ws_protocol::VisibilitySync;
 use crate::rules::RemovalEvents;
+#[cfg(feature = "debug-telemetry")]
+use crate::visibility::FactionVisibility;
 use tokio::sync::broadcast::Sender;
 
 #[cfg(feature = "debug-telemetry")]
@@ -23,51 +27,91 @@ pub struct BroadcastSender(pub Sender<String>);
 
 /// Extracts entities that have moved and sends a state synchronization message
 /// to the async broadcast channel.
+///
+/// Every 60 ticks (~1 second), broadcasts a FULL snapshot of all entity positions.
+/// On all other ticks, broadcasts only entities whose Position changed (delta sync).
+/// This ensures late-connecting WS clients always get a complete picture.
 pub fn ws_sync_system(
-    query: Query<(&EntityId, &Position, &Velocity, &FactionId, &StatBlock), Changed<Position>>,
+    changed_query: Query<(&EntityId, &Position, &Velocity, &FactionId, &StatBlock), Changed<Position>>,
+    full_query: Query<(&EntityId, &Position, &Velocity, &FactionId, &StatBlock)>,
     tick: Res<TickCounter>,
     sender: Res<BroadcastSender>,
     mut removal_events: ResMut<RemovalEvents>,
+    #[cfg(feature = "debug-telemetry")]
+    fog_faction: Res<crate::systems::ws_command::ActiveFogFaction>,
+    #[cfg(feature = "debug-telemetry")]
+    visibility: Res<FactionVisibility>,
     #[cfg(feature = "debug-telemetry")]
     telemetry: Option<ResMut<PerfTelemetry>>,
 ) {
     #[cfg(feature = "debug-telemetry")]
     let start = telemetry.as_ref().map(|_| std::time::Instant::now());
 
+    // Every 60 ticks: full snapshot; otherwise delta only
+    let is_full_sync = tick.tick % 60 == 0;
+
     let mut moved = Vec::new();
-    for (id, pos, vel, faction, stat_block) in query.iter() {
-        moved.push(EntityState {
-            id: id.id,
-            x: pos.x,
-            y: pos.y,
-            dx: vel.dx,
-            dy: vel.dy,
-            faction_id: faction.0,
-            stats: stat_block.0.to_vec(),
-        });
+    if is_full_sync {
+        for (id, pos, vel, faction, stat_block) in full_query.iter() {
+            moved.push(EntityState {
+                id: id.id,
+                x: pos.x,
+                y: pos.y,
+                dx: vel.dx,
+                dy: vel.dy,
+                faction_id: faction.0,
+                stats: stat_block.0.to_vec(),
+            });
+        }
+    } else {
+        for (id, pos, vel, faction, stat_block) in changed_query.iter() {
+            moved.push(EntityState {
+                id: id.id,
+                x: pos.x,
+                y: pos.y,
+                dx: vel.dx,
+                dy: vel.dy,
+                faction_id: faction.0,
+                stats: stat_block.0.to_vec(),
+            });
+        }
     }
 
     let removed = removal_events.removed_ids.clone();
     removal_events.removed_ids.clear();
 
-    if !moved.is_empty() || !removed.is_empty() {
-        let msg = WsMessage::SyncDelta {
-            tick: tick.tick,
-            moved,
-            removed,
-            #[cfg(feature = "debug-telemetry")]
-            telemetry: telemetry.as_ref().map(|t| {
-                let mut snapshot = (*t).clone();
-                snapshot.entity_count = query.iter().count() as u32;
-                snapshot
-            }),
-        };
+    let msg = WsMessage::SyncDelta {
+        tick: tick.tick,
+        moved,
+        removed,
+        #[cfg(feature = "debug-telemetry")]
+        telemetry: telemetry.as_ref().map(|t| {
+            let mut snapshot = (*t).clone();
+            snapshot.entity_count = full_query.iter().count() as u32;
+            snapshot
+        }),
+        #[cfg(feature = "debug-telemetry")]
+        visibility: if tick.tick % 6 == 0 {
+            fog_faction.0.and_then(|fid| {
+                let explored = visibility.explored.get(&fid)?;
+                let visible = visibility.visible.get(&fid)?;
+                Some(VisibilitySync {
+                    faction_id: fid,
+                    grid_width: visibility.grid_width,
+                    grid_height: visibility.grid_height,
+                    explored: explored.clone(),
+                    visible: visible.clone(),
+                })
+            })
+        } else {
+            None
+        },
+    };
 
-        if let Ok(json_str) = serde_json::to_string(&msg) {
-            // Try to send to connected clients. If no clients exist,
-            // the channel returns an error, which we simply ignore.
-            let _ = sender.0.send(json_str);
-        }
+    if let Ok(json_str) = serde_json::to_string(&msg) {
+        // Try to send to connected clients. If no clients exist,
+        // the channel returns an error, which we simply ignore.
+        let _ = sender.0.send(json_str);
     }
 
     #[cfg(feature = "debug-telemetry")]
@@ -92,6 +136,10 @@ mod tests {
         app.insert_resource(BroadcastSender(tx));
         app.insert_resource(TickCounter { tick: 42 });
         app.init_resource::<crate::rules::RemovalEvents>();
+        #[cfg(feature = "debug-telemetry")]
+        app.init_resource::<crate::systems::ws_command::ActiveFogFaction>();
+        #[cfg(feature = "debug-telemetry")]
+        app.insert_resource(FactionVisibility::new(5, 5, 20.0));
         #[cfg(feature = "debug-telemetry")]
         app.init_resource::<crate::plugins::telemetry::PerfTelemetry>();
 

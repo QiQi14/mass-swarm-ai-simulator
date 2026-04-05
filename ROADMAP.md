@@ -9,7 +9,7 @@
 ```mermaid
 graph LR
     P1["Phase 1 ✅\nVertical Slice\n(Core + Bridges + Visualizer)"]
-    P2["Phase 2 ⬜\nCore Algorithms\n(Spatial, Pathfinding, Combat)"]
+    P2["Phase 2 ✅\nCore Algorithms\n(Spatial, Pathfinding, Combat)"]
     P3["Phase 3 ⬜\nMacro-Brain\n(Python RL)"]
     P4["Phase 4 ⬜\nIntegration\n& Scale"]
     P5["Phase 5 ⬜\nWeb Engine\nIntegration"]
@@ -20,6 +20,7 @@ graph LR
     P4 --> P5
 
     style P1 fill:#238636,stroke:#2ea043,color:#fff
+    style P2 fill:#238636,stroke:#2ea043,color:#fff
 ```
 
 > [!NOTE]
@@ -182,13 +183,24 @@ Prove the **"zero-gap engine integration"** thesis by consuming the Rust core an
 
 ## Phase Status
 
-| Phase | Status | Completed | Micro-Phases |
-|-------|--------|-----------|-------------|
-| **Phase 1** | ✅ Complete | 2026-04-04 | MP1 (ECS), MP2 (WS Bridge), MP3 (ZMQ Bridge), MP4 (Debug Visualizer) |
-| **Phase 2** | ⬜ Not Started | — | — |
-| **Phase 3** | ⬜ Not Started | — | — |
-| **Phase 4** | ⬜ Not Started | — | — |
-| **Phase 5** | ⬜ Not Started | — | — |
+| Phase | Status | Completed | Key Deliverables |
+|-------|--------|-----------|------------------|
+| **Phase 1** | ✅ Complete | 2026-04-04 | Bevy 0.18 ECS, WS/ZMQ bridges, Debug Visualizer, bidirectional commands |
+| **Phase 2** | ✅ Complete | 2026-04-05 | Spatial hash grid, Chamfer flow fields, Boids steering, FoW, terrain, 111 unit tests |
+| **Phase 3** | ⬜ Not Started | — | Python Gymnasium env, PPO training, ZMQ action vocabulary |
+| **Phase 4** | ⬜ Not Started | — | 10K scale test, serialization upgrade, full tri-node orchestration |
+| **Phase 5** | ⬜ Not Started | — | WASM compilation, ONNX export, Three.js 3D rendering |
+
+### Phase 2 Completion Notes
+
+Phase 2 was split into two implementation cycles:
+
+1. **Universal Core Algorithms** (Tasks 01–08): Context-agnostic refactor, spatial hash grid, flow field pathfinding, rule resources, interaction/removal systems, composite movement/spawning, IPC upgrades, integration stress test.
+
+2. **Debug Visualizer UX Refactor** (Tasks 09–15): Terrain grid, faction visibility, terrain-aware flow fields, visibility IPC, WS commands (Fibonacci spawn, terrain editing, scenario I/O), visualizer UI (spawn tools, fog renderer, paint mode), final integration.
+
+**Key bugs resolved during integration:** broadcast forwarder death, SimState physics freezing, `Changed<Position>` late-join, omniscient flow field, Play/Pause desync. All documented in `docs/study/`.
 
 > [!NOTE]
-> This roadmap was approved at the start of the project. Per-phase implementation plans are created via the `/planner` workflow and archived in `.agents/history/` after completion. See `features.md` for detailed per-feature records.
+> This roadmap was approved at the start of the project. Per-phase implementation plans are created via the `/planner` workflow and archived in `.agents/history/` after completion.
+

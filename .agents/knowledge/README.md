@@ -43,10 +43,11 @@ knowledge/
 |------|----------|---------|
 | `convention_rust_file_splitting.md` | medium | Split files >300 lines or with 3+ concerns; document rationale if choosing not to split |
 
-## `tooling/` — IDE & Build Tools (2 files)
+## `tooling/` — IDE & Build Tools (3 files)
 
 | File | Severity | Summary |
 |------|----------|---------|
+| `gotcha_heredoc_terminal_crash.md` | high | Never use heredocs in `run_command` — causes terminal zombie → session crash cascade. Use `write_to_file` instead. |
 | `tooling_stale_rust_analyzer_cache.md` | low | Stale `target/` fingerprints cause phantom errors in rust-analyzer — fix with `cargo clean` |
 | `tooling_testing_tmp_dir.md` | low | Use workspace-local temp dirs for test artifacts, not system `/tmp` |
 
@@ -58,6 +59,7 @@ knowledge/
 | `convention_strict_scope_and_changelog.md` | high | Executor must create changelog + stay within `Target_Files` scope — mandatory in dispatch template |
 | `convention_split_large_plans.md` | high | Split `implementation_plan.md` into index + per-feature detail files when >400 lines to avoid executor token truncation |
 | `gotcha_basic_tier_context_ignorance.md` | high | `basic` tier models skip `Context_Bindings` — inline critical rules in the task brief |
+| `gotcha_parallel_task_missing_resource.md` | medium | When a dependency isn't merged from a parallel task, locally stub it inside the target file and document it in the changelog |
 
 ---
 

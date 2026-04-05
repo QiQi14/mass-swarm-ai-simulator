@@ -46,6 +46,9 @@ pub enum WsMessage {
         #[cfg(feature = "debug-telemetry")]
         #[serde(skip_serializing_if = "Option::is_none")]
         telemetry: Option<PerfTelemetry>,
+        #[cfg(feature = "debug-telemetry")]
+        #[serde(skip_serializing_if = "Option::is_none")]
+        visibility: Option<VisibilitySync>,
     },
     /// Flow field vector data for debug visualization.
     /// Only compiled when `debug-telemetry` feature is enabled.
@@ -58,6 +61,16 @@ pub enum WsMessage {
         /// Flat array of [dx, dy] vectors, row-major order.
         vectors: Vec<[f32; 2]>,
     },
+}
+
+#[cfg(feature = "debug-telemetry")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VisibilitySync {
+    pub faction_id: u32,
+    pub grid_width: u32,
+    pub grid_height: u32,
+    pub explored: Vec<u32>,
+    pub visible: Vec<u32>,
 }
 
 /// Incoming command from the Debug Visualizer (Browser → Rust).

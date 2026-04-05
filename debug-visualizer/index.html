@@ -26,7 +26,7 @@
             
             <!-- Canvas instruction overlay (hidden on interaction) -->
             <div class="canvas-hint">
-                Click anywhere to spawn a swarm
+                Pan: drag · Zoom: scroll · Use sidebar tools to spawn, paint, or inspect
             </div>
         </main>
 
@@ -98,7 +98,7 @@
             <section class="panel-section">
                 <h2>Simulation Controls</h2>
                 <div class="controls-row">
-                    <button id="play-pause-btn" class="btn primary">Play</button>
+                    <button id="play-pause-btn" class="btn primary">Pause</button>
                     <!-- Small decorative visualization -->
                     <div class="pulse-ring"></div>
                 </div>
@@ -109,6 +109,57 @@
                         <span class="input-suffix">ticks</span>
                     </div>
                 </div>
+            </section>
+
+            <section class="panel-section">
+                <h2>Spawn Tools</h2>
+                <div class="spawn-controls">
+                    <div class="controls-row" style="margin-bottom: 8px;">
+                        <button id="spawn-mode-btn" class="btn secondary">🎯 Spawn Mode</button>
+                    </div>
+                    <div id="spawn-tools-body">
+                        <div class="spawn-row">
+                            <label class="spawn-label">Faction</label>
+                            <div class="faction-selector">
+                                <select id="spawn-faction" class="input-field"></select>
+                                <button id="add-faction-btn" class="btn icon-btn" title="Add faction">+</button>
+                                <button id="delete-faction-btn" class="btn icon-btn danger" title="Delete faction">−</button>
+                            </div>
+                        </div>
+                        <div class="spawn-row">
+                            <label class="spawn-label">Amount</label>
+                            <input type="range" id="spawn-amount-slider" min="1" max="500" value="50" class="slider">
+                            <input type="number" id="spawn-amount" class="input-field compact" value="50" min="1" max="10000">
+                        </div>
+                        <div class="spawn-row">
+                            <label class="spawn-label">Spread</label>
+                            <input type="range" id="spawn-spread-slider" min="0" max="200" value="30" class="slider">
+                            <input type="number" id="spawn-spread" class="input-field compact" value="30" min="0" max="400">
+                        </div>
+                    </div>
+                    <div id="spawn-hint" class="spawn-hint" style="display: none;">
+                        Click on the canvas to place units
+                    </div>
+                </div>
+            </section>
+
+            <section class="panel-section">
+                <h2>Terrain Editor</h2>
+                <div class="controls-row">
+                    <button id="paint-mode-btn" class="btn secondary">🖌 Paint Mode</button>
+                </div>
+                <div id="brush-tools" class="brush-toolbar" style="display: none;">
+                    <button class="brush-btn active" data-brush="wall">⬛ Wall</button>
+                    <button class="brush-btn" data-brush="mud">🟫 Mud</button>
+                    <button class="brush-btn" data-brush="pushable">🟧 Pushable</button>
+                    <button class="brush-btn" data-brush="clear">⬜ Clear</button>
+                </div>
+                <div class="controls-row" style="margin-top: 8px;">
+                    <button id="save-scenario-btn" class="btn secondary">💾 Save</button>
+                    <button id="load-scenario-btn" class="btn secondary">📂 Load</button>
+                    <input type="file" id="scenario-file-input" accept=".json" style="display:none">
+                </div>
+                <button id="clear-terrain-btn" class="btn secondary" style="margin-top:4px">🗑 Clear All Terrain</button>
             </section>
 
             <section class="panel-section">
@@ -139,11 +190,9 @@
                         <span class="control-indicator"></span>
                         <span class="control-label">Velocity Vectors</span>
                     </label>
-                    <label class="toggle-control">
-                        <input type="checkbox" id="toggle-fog">
-                        <span class="control-indicator"></span>
-                        <span class="control-label">Fog of War</span>
-                    </label>
+                    <div id="fog-toggles-container">
+                        <!-- Populated dynamically -->
+                    </div>
                 </div>
             </section>
 

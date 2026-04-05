@@ -17,6 +17,8 @@ use crate::bridges::zmq_protocol::{
 };
 use crate::components::{EntityId, FactionId, Position, StatBlock};
 use crate::config::{SimulationConfig, TickCounter};
+use crate::visibility::FactionVisibility;
+use crate::terrain::TerrainGrid;
 
 /// Builds a StateSnapshot from the current ECS state.
 ///
@@ -31,10 +33,16 @@ fn build_state_snapshot(
     tick: &TickCounter,
     sim_config: &SimulationConfig,
     query: &Query<(&EntityId, &Position, &FactionId, &StatBlock)>,
+    visibility: &FactionVisibility,
+    terrain: &TerrainGrid,
+    brain_faction: u32,
 ) -> StateSnapshot {
     let mut faction_counts = std::collections::HashMap::new();
     let mut faction_sum_stats: std::collections::HashMap<u32, Vec<f32>> = std::collections::HashMap::new();
     let mut entities = Vec::new();
+
+    let vis_grid = visibility.visible.get(&brain_faction);
+    let exp_grid = visibility.explored.get(&brain_faction);
 
     for (eid, pos, faction, stat_block) in query.iter() {
         let count = faction_counts.entry(faction.0).or_insert(0);
@@ -45,13 +53,29 @@ fn build_state_snapshot(
             sums[i] += val;
         }
 
-        entities.push(EntitySnapshot {
-            id: eid.id,
-            x: pos.x,
-            y: pos.y,
-            faction_id: faction.0,
-            stats: stat_block.0.to_vec(),
-        });
+        let mut is_visible = false;
+        if faction.0 == brain_faction {
+            is_visible = true;
+        } else if let Some(vg) = vis_grid {
+            let cx = (pos.x / visibility.cell_size).floor() as i32;
+            let cy = (pos.y / visibility.cell_size).floor() as i32;
+            if cx >= 0 && cx < visibility.grid_width as i32 && cy >= 0 && cy < visibility.grid_height as i32 {
+                let cell_idx = (cy as u32 * visibility.grid_width + cx as u32) as usize;
+                if FactionVisibility::get_bit(vg, cell_idx) {
+                    is_visible = true;
+                }
+            }
+        }
+
+        if is_visible {
+            entities.push(EntitySnapshot {
+                id: eid.id,
+                x: pos.x,
+                y: pos.y,
+                faction_id: faction.0,
+                stats: stat_block.0.to_vec(),
+            });
+        }
     }
 
     let mut faction_avg_stats: std::collections::HashMap<u32, Vec<f32>> = std::collections::HashMap::new();
@@ -74,6 +98,13 @@ fn build_state_snapshot(
             faction_counts,
             faction_avg_stats,
         },
+        explored: exp_grid.cloned(),
+        visible: vis_grid.cloned(),
+        terrain_hard: terrain.hard_costs.clone(),
+        terrain_soft: terrain.soft_costs.clone(),
+        terrain_grid_w: terrain.width,
+        terrain_grid_h: terrain.height,
+        terrain_cell_size: terrain.cell_size,
     }
 }
 
@@ -95,6 +126,8 @@ pub(super) fn ai_trigger_system(
     config: Res<AiBridgeConfig>,
     sim_config: Res<SimulationConfig>,
     channels: Res<AiBridgeChannels>,
+    visibility: Res<FactionVisibility>,
+    terrain: Res<TerrainGrid>,
     query: Query<(&EntityId, &Position, &FactionId, &StatBlock)>,
     mut next_state: ResMut<NextState<SimState>>,
 ) {
@@ -102,7 +135,8 @@ pub(super) fn ai_trigger_system(
         return;
     }
 
-    let snapshot = build_state_snapshot(&tick, &sim_config, &query);
+    // Default macro-brain runs for faction 0
+    let snapshot = build_state_snapshot(&tick, &sim_config, &query, &visibility, &terrain, 0);
     let json = serde_json::to_string(&snapshot).unwrap();
 
     // try_send is non-blocking. If the channel is full (previous request
@@ -118,31 +152,40 @@ pub(super) fn ai_trigger_system(
 /// `try_recv()` so other systems (tick counter, WS sync) keep running.
 /// On response (real or fallback HOLD), transitions back to `Running`.
 ///
-/// # Arguments
-/// * `channels` - Channel from background ZMQ thread
-/// * `next_state` - State transition handle
+/// Falls back to `Running` after 200ms even if the background thread
+/// hasn't responded yet, preventing the simulation from freezing
+/// when no Python AI is connected.
 pub(super) fn ai_poll_system(
     channels: Res<AiBridgeChannels>,
     mut next_state: ResMut<NextState<SimState>>,
+    mut waiting_since: Local<Option<std::time::Instant>>,
 ) {
+    // Track when we entered WaitingForAI
+    let start = *waiting_since.get_or_insert_with(std::time::Instant::now);
+
     match channels.action_rx.lock().unwrap().try_recv() {
         Ok(reply_json) => {
             match serde_json::from_str::<MacroAction>(&reply_json) {
                 Ok(action) => {
                     println!("[AI Bridge] Received action: {} (tick resume)", action.action);
-                    // Phase 3 Macro-Brain: apply the action to ECS will happen later
                 }
                 Err(e) => {
                     eprintln!("[AI Bridge] Failed to parse macro action: {}", e);
                 }
             }
+            *waiting_since = None;
             next_state.set(SimState::Running);
         }
         Err(mpsc::TryRecvError::Empty) => {
-            // Still waiting — do nothing, system will run again next tick
+            // Timeout: fall back to Running after 200ms to keep sim responsive
+            if start.elapsed() > std::time::Duration::from_millis(200) {
+                *waiting_since = None;
+                next_state.set(SimState::Running);
+            }
         }
         Err(mpsc::TryRecvError::Disconnected) => {
             eprintln!("[AI Bridge] Background thread disconnected!");
+            *waiting_since = None;
             next_state.set(SimState::Running);
         }
     }
@@ -175,6 +218,8 @@ mod tests {
         });
         app.insert_resource(SimulationConfig::default());
         app.insert_resource(TickCounter { tick: 15 }); // Not divisible by 30
+        app.insert_resource(FactionVisibility::new(5, 5, 20.0));
+        app.insert_resource(TerrainGrid::new(5, 5, 20.0));
 
         app.add_systems(Update, ai_trigger_system.run_if(in_state(SimState::Running)));
 
@@ -213,6 +258,8 @@ mod tests {
         });
         app.insert_resource(SimulationConfig::default());
         app.insert_resource(TickCounter { tick: 30 }); // Divisible by 30
+        app.insert_resource(FactionVisibility::new(5, 5, 20.0));
+        app.insert_resource(TerrainGrid::new(5, 5, 20.0));
 
         app.add_systems(Update, ai_trigger_system.run_if(in_state(SimState::Running)));
 
@@ -230,5 +277,88 @@ mod tests {
         // Assert
         let state = app.world().get_resource::<State<SimState>>().unwrap();
         assert_eq!(state.get(), &SimState::WaitingForAI, "Should transition to WaitingForAI");
+    }
+
+    #[derive(Resource)]
+    struct CapturedSnapshot(Option<StateSnapshot>);
+
+    fn capture_snapshot_system(
+        tick: Res<TickCounter>,
+        sim_config: Res<SimulationConfig>,
+        visibility: Res<FactionVisibility>,
+        terrain: Res<TerrainGrid>,
+        query: Query<(&EntityId, &Position, &FactionId, &StatBlock)>,
+        mut captured: ResMut<CapturedSnapshot>,
+    ) {
+        captured.0 = Some(build_state_snapshot(&tick, &sim_config, &query, &visibility, &terrain, 0));
+    }
+
+    #[test]
+    fn test_snapshot_always_includes_own_entities() {
+        let mut app = App::new();
+        app.insert_resource(SimulationConfig::default());
+        app.insert_resource(TickCounter { tick: 30 });
+        let mut vis = FactionVisibility::new(5, 5, 20.0);
+        vis.ensure_faction(0);
+        // Fog is black (no visible cells)
+        app.insert_resource(vis);
+        app.insert_resource(TerrainGrid::new(5, 5, 20.0));
+        app.insert_resource(CapturedSnapshot(None));
+
+        app.add_systems(Update, capture_snapshot_system);
+
+        app.world_mut().spawn((
+            EntityId { id: 10 },
+            Position { x: 10.0, y: 10.0 }, // Faction 0
+            FactionId(0),
+            StatBlock::default(),
+        ));
+
+        app.update();
+
+        let snap = app.world().resource::<CapturedSnapshot>().0.as_ref().unwrap();
+        assert_eq!(snap.entities.len(), 1, "Should include own entity even if invisible in fog");
+        assert_eq!(snap.entities[0].id, 10);
+    }
+
+    #[test]
+    fn test_snapshot_filters_enemies_by_fog() {
+        let mut app = App::new();
+        app.insert_resource(SimulationConfig::default());
+        app.insert_resource(TickCounter { tick: 30 });
+        let mut vis = FactionVisibility::new(5, 5, 20.0);
+        vis.ensure_faction(0);
+        
+        // Enemy 1 at (0,0) - make visible
+        let vg = vis.visible.get_mut(&0).unwrap();
+        FactionVisibility::set_bit(vg, 0); // cell (0,0) is visible
+        
+        app.insert_resource(vis);
+        app.insert_resource(TerrainGrid::new(5, 5, 20.0));
+        app.insert_resource(CapturedSnapshot(None));
+
+        app.add_systems(Update, capture_snapshot_system);
+
+        // Enemy in visible cell
+        app.world_mut().spawn((
+            EntityId { id: 20 },
+            Position { x: 10.0, y: 10.0 }, // Cell (0,0)
+            FactionId(1), // Enemy
+            StatBlock::default(),
+        ));
+
+        // Enemy in fog cell
+        app.world_mut().spawn((
+            EntityId { id: 21 },
+            Position { x: 90.0, y: 90.0 }, // Cell (4,4)
+            FactionId(1), // Enemy
+            StatBlock::default(),
+        ));
+
+        app.update();
+
+        let snap = app.world().resource::<CapturedSnapshot>().0.as_ref().unwrap();
+        assert_eq!(snap.entities.len(), 1, "Should only include visible enemies");
+        assert_eq!(snap.entities[0].id, 20, "Should include enemy at visible cell");
     }
 }

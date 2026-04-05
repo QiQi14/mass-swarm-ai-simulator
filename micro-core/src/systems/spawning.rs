@@ -12,7 +12,7 @@
 
 use bevy::prelude::*;
 use rand::Rng;
-use crate::components::{EntityId, FactionId, NextEntityId, Position, StatBlock, Velocity, MovementConfig};
+use crate::components::{EntityId, FactionId, NextEntityId, Position, StatBlock, Velocity, MovementConfig, VisionRadius};
 use crate::config::{SimulationConfig, TickCounter};
 
 /// Startup system: spawns `initial_entity_count` entities with random
@@ -38,7 +38,7 @@ pub fn initial_spawn_system(
         // Tick up ID counter for sequential identifiers
         next_id.0 += 1;
 
-        let mut entity_cmd = commands.spawn((
+        commands.spawn((
             entity_id,
             Position {
                 x: rng.random_range(0.0..config.world_width),
@@ -50,11 +50,9 @@ pub fn initial_spawn_system(
             },
             faction,
             StatBlock::with_defaults(&[(0, 1.0)]),
+            VisionRadius::default(),
+            MovementConfig::default(),
         ));
-        
-        if faction.0 == config.wave_spawn_faction {
-            entity_cmd.insert(MovementConfig::default());
-        }
     }
 }
 
@@ -87,6 +85,7 @@ pub fn wave_spawn_system(
             FactionId(config.wave_spawn_faction),
             StatBlock::with_defaults(&config.wave_spawn_stat_defaults),
             MovementConfig::default(),
+            VisionRadius::default(),
         ));
     }
 }

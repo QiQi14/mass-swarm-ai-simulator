@@ -15,18 +15,32 @@ pub async fn start_server(
 
     let clients_clone = clients.clone();
     tokio::spawn(async move {
-        while let Ok(msg) = rx.recv().await {
-            let mut clients_lock = clients_clone.lock().await;
-            let mut to_remove = Vec::new();
-            
-            for (i, sink) in clients_lock.iter_mut().enumerate() {
-                if sink.send(Message::Text(msg.clone().into())).await.is_err() {
-                    to_remove.push(i);
+        loop {
+            match rx.recv().await {
+                Ok(msg) => {
+                    let mut clients_lock = clients_clone.lock().await;
+                    let mut to_remove = Vec::new();
+                    
+                    for (i, sink) in clients_lock.iter_mut().enumerate() {
+                        if sink.send(Message::Text(msg.clone().into())).await.is_err() {
+                            to_remove.push(i);
+                        }
+                    }
+                    
+                    for i in to_remove.into_iter().rev() {
+                        let _ = clients_lock.remove(i);
+                    }
                 }
-            }
-            
-            for i in to_remove.into_iter().rev() {
-                let _ = clients_lock.remove(i);
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                    // Buffer overflow — skip lost messages, keep running.
+                    // This happens when no WS clients are connected yet.
+                    eprintln!("[WS Server] Skipped {} lagged messages", n);
+                    continue;
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                    // Sender dropped — simulation shut down
+                    break;
+                }
             }
         }
     });

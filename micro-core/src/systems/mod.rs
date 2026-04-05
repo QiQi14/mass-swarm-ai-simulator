@@ -18,6 +18,7 @@ pub mod movement;
 pub mod spawning;
 pub mod ws_sync;
 pub mod ws_command;
+pub mod visibility;
 
 use bevy::prelude::*;
 use crate::config::TickCounter;
@@ -28,6 +29,7 @@ pub use flow_field_update::flow_field_update_system;
 pub use movement::movement_system;
 pub use spawning::{initial_spawn_system, wave_spawn_system};
 pub use ws_sync::{BroadcastSender, ws_sync_system};
+pub use visibility::visibility_update_system;
 
 /// Increments the global tick counter each frame.
 ///

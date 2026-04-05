@@ -57,6 +57,18 @@ pub struct StateSnapshot {
     pub world_size: WorldSize,
     pub entities: Vec<EntitySnapshot>,
     pub summary: SummarySnapshot,
+    pub explored: Option<Vec<u32>>,
+    pub visible: Option<Vec<u32>>,
+    #[serde(default)]
+    pub terrain_hard: Vec<u16>,
+    #[serde(default)]
+    pub terrain_soft: Vec<u16>,
+    #[serde(default)]
+    pub terrain_grid_w: u32,
+    #[serde(default)]
+    pub terrain_grid_h: u32,
+    #[serde(default)]
+    pub terrain_cell_size: f32,
 }
 
 /// Macro action received from Python → Rust via ZMQ REP.
@@ -98,6 +110,13 @@ mod tests {
                 faction_counts: std::collections::HashMap::from([(0, 5000), (1, 200)]),
                 faction_avg_stats: std::collections::HashMap::from([(0, vec![0.72, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]), (1, vec![0.91, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])]),
             },
+            explored: Some(vec![1, 2, 3]),
+            visible: Some(vec![4, 5, 6]),
+            terrain_hard: vec![100],
+            terrain_soft: vec![100],
+            terrain_grid_w: 1,
+            terrain_grid_h: 1,
+            terrain_cell_size: 20.0,
         };
 
         // Act
@@ -120,6 +139,13 @@ mod tests {
                 faction_counts: std::collections::HashMap::new(),
                 faction_avg_stats: std::collections::HashMap::new(),
             },
+            explored: None,
+            visible: None,
+            terrain_hard: vec![],
+            terrain_soft: vec![],
+            terrain_grid_w: 0,
+            terrain_grid_h: 0,
+            terrain_cell_size: 0.0,
         };
 
         // Act
