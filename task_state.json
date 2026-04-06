@@ -1,86 +1,129 @@
 {
-  "feature": "Debug Visualizer UX Refactor",
-  "global_status": "COMPLETE",
-  "total_tasks": 7,
-  "created_at": "2026-04-04T18:00:03+00:00",
-  "updated_at": "2026-04-05T15:39:56.081828+00:00",
+  "feature": "Phase 3: Multi-Master Arbitration & RL Training",
+  "global_status": "PENDING",
+  "total_tasks": 12,
+  "created_at": "2026-04-06T06:13:28+00:00",
+  "updated_at": "2026-04-06T06:13:28+00:00",
   "tasks": [
     {
-      "task_id": "task_09_terrain_grid",
-      "status": "COMPLETE",
+      "task_id": "task_01_macro_directive_protocol",
+      "status": "PENDING",
       "phase": "",
-      "source_file": "tasks_pending/task_09_terrain_grid.md",
+      "source_file": "tasks_pending/task_01_macro_directive_protocol.md",
       "fail_reason": null,
       "started_at": null,
-      "completed_at": "2026-04-04T18:07:35+00:00",
-      "failed_at": null,
-      "verified_at": "2026-04-04T18:12:49+00:00"
+      "completed_at": null,
+      "failed_at": null
     },
     {
-      "task_id": "task_10_faction_visibility",
-      "status": "COMPLETE",
+      "task_id": "task_02_phase3_resources",
+      "status": "PENDING",
       "phase": "",
-      "source_file": "tasks_pending/task_10_faction_visibility.md",
+      "source_file": "tasks_pending/task_02_phase3_resources.md",
       "fail_reason": null,
       "started_at": null,
-      "completed_at": "2026-04-04T18:08:08+00:00",
-      "failed_at": null,
-      "verified_at": "2026-04-04T18:12:51+00:00"
+      "completed_at": null,
+      "failed_at": null
     },
     {
-      "task_id": "task_11_terrain_flow_movement",
-      "status": "COMPLETE",
+      "task_id": "task_03_state_vectorizer",
+      "status": "PENDING",
       "phase": "",
-      "source_file": "tasks_pending/task_11_terrain_flow_movement.md",
+      "source_file": "tasks_pending/task_03_state_vectorizer.md",
       "fail_reason": null,
       "started_at": null,
-      "completed_at": "2026-04-05T07:15:15+00:00",
-      "failed_at": null,
-      "verified_at": "2026-04-05T07:50:00+00:00"
+      "completed_at": null,
+      "failed_at": null
     },
     {
-      "task_id": "task_12_visibility_ipc",
-      "status": "COMPLETE",
+      "task_id": "task_04_python_scaffold",
+      "status": "PENDING",
       "phase": "",
-      "source_file": "tasks_pending/task_12_visibility_ipc.md",
+      "source_file": "tasks_pending/task_04_python_scaffold.md",
       "fail_reason": null,
       "started_at": null,
-      "completed_at": "2026-04-05T07:36:46+00:00",
-      "failed_at": null,
-      "verified_at": "2026-04-05T07:50:00+00:00"
+      "completed_at": null,
+      "failed_at": null
     },
     {
-      "task_id": "task_13_ws_commands",
-      "status": "COMPLETE",
+      "task_id": "task_05_directive_executor",
+      "status": "PENDING",
       "phase": "",
-      "source_file": "tasks_pending/task_13_ws_commands.md",
+      "source_file": "tasks_pending/task_05_directive_executor.md",
       "fail_reason": null,
       "started_at": null,
-      "completed_at": "2026-04-05T07:30:06+00:00",
-      "failed_at": null,
-      "verified_at": "2026-04-05T07:41:31+00:00"
+      "completed_at": null,
+      "failed_at": null
     },
     {
-      "task_id": "task_14_visualizer_ui",
-      "status": "COMPLETE",
+      "task_id": "task_06_swarm_env",
+      "status": "PENDING",
       "phase": "",
-      "source_file": "tasks_pending/task_14_visualizer_ui.md",
+      "source_file": "tasks_pending/task_06_swarm_env.md",
       "fail_reason": null,
       "started_at": null,
-      "completed_at": "2026-04-05T07:55:54+00:00",
-      "failed_at": null,
-      "verified_at": "2026-04-05T08:02:16+00:00"
+      "completed_at": null,
+      "failed_at": null
     },
     {
-      "task_id": "task_15_integration",
-      "status": "COMPLETE",
+      "task_id": "task_07_zmq_protocol_upgrade",
+      "status": "PENDING",
       "phase": "",
-      "source_file": "tasks_pending/task_15_integration.md",
+      "source_file": "tasks_pending/task_07_zmq_protocol_upgrade.md",
       "fail_reason": null,
       "started_at": null,
-      "completed_at": "2026-04-05T15:39:56.081656+00:00",
-      "failed_at": null,
-      "verified_at": "2026-04-05T15:39:56.081656+00:00"
+      "completed_at": null,
+      "failed_at": null
+    },
+    {
+      "task_id": "task_08_ppo_training",
+      "status": "PENDING",
+      "phase": "",
+      "source_file": "tasks_pending/task_08_ppo_training.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": null,
+      "failed_at": null
+    },
+    {
+      "task_id": "task_09_reward_shaping",
+      "status": "PENDING",
+      "phase": "",
+      "source_file": "tasks_pending/task_09_reward_shaping.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": null,
+      "failed_at": null
+    },
+    {
+      "task_id": "task_10_integration_smoke_test",
+      "status": "PENDING",
+      "phase": "",
+      "source_file": "tasks_pending/task_10_integration_smoke_test.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": null,
+      "failed_at": null
+    },
+    {
+      "task_id": "task_11_ws_protocol_phase3",
+      "status": "PENDING",
+      "phase": "",
+      "source_file": "tasks_pending/task_11_ws_protocol_phase3.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": null,
+      "failed_at": null
+    },
+    {
+      "task_id": "task_12_visualizer_phase3",
+      "status": "PENDING",
+      "phase": "",
+      "source_file": "tasks_pending/task_12_visualizer_phase3.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": null,
+      "failed_at": null
     }
   ]
 }

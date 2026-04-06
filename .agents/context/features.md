@@ -57,3 +57,23 @@ Browser-based debug dashboard (`debug-visualizer/`) with real-time entity render
 
 **Key files:** `debug-visualizer/index.html`, `debug-visualizer/style.css`, `debug-visualizer/visualizer.js`, `micro-core/src/systems/ws_command.rs`, `micro-core/src/bridges/ws_server.rs`
 **Depends on:** Phase 1 MP1, Phase 1 MP2, Phase 1 MP3
+
+---
+
+### Phase 2 Cycle 1: Universal Core Algorithms (Tasks 01–08)
+**Completed:** 2026-04-04 | **Archive:** `.agents/history/20260404_234812_phase_2_universal_core_algorithms/`
+
+Context-agnostic refactor of all ECS components (FactionId replaces Team, StatBlock replaces Health). Spatial hash grid O(1) neighbor queries, Chamfer Dijkstra flow fields with FlowFieldRegistry, rule resources (InteractionRuleSet, NavigationRuleSet, RemovalRuleSet, FactionBehaviorMode), interaction/removal systems with zero-allocation disjoint queries, composite movement (flow field + Boids separation + wall-sliding), Fibonacci spiral spawning, IPC upgrades (ZmqBridgePlugin with SimState machine), integration stress test at 10K entities.
+
+**Key files:** `micro-core/src/components/`, `micro-core/src/spatial/`, `micro-core/src/pathfinding/flow_field.rs`, `micro-core/src/rules/`, `micro-core/src/systems/`, `micro-core/src/bridges/zmq_bridge/`
+**Depends on:** Phase 1
+
+---
+
+### Phase 2 Cycle 2: Debug Visualizer UX Refactor (Tasks 09–15)
+**Completed:** 2026-04-05 | **Archive:** `.agents/history/20260405_223900_phase_2_debug_visualizer_ux_refactor/`
+
+TerrainGrid resource with inverted integer cost model (hard costs for pathfinding, soft costs for movement speed). FactionVisibility resource with bit-packed fog of war (explored/visible grids per faction, wall-aware BFS). Terrain-aware flow field integration. Visibility IPC (WS streams + ZMQ filtering by fog). WS commands: Fibonacci wave spawning, batch terrain editing, scenario persistence, fog faction toggling. Visualizer UI: spawn tools, terrain paint mode, fog renderer. Final integration with SimState gating fixes.
+
+**Key files:** `micro-core/src/terrain.rs`, `micro-core/src/visibility.rs`, `micro-core/src/systems/visibility.rs`, `micro-core/src/systems/flow_field_update.rs`, `debug-visualizer/visualizer.js`
+**Depends on:** Phase 2 Cycle 1
