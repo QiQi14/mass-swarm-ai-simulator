@@ -12,7 +12,7 @@ use crate::components::{EntityId, FactionId, Position, StatBlock, Velocity};
 use crate::config::TickCounter;
 use crate::bridges::ws_protocol::{WsMessage, EntityState};
 #[cfg(feature = "debug-telemetry")]
-use crate::bridges::ws_protocol::VisibilitySync;
+use crate::bridges::ws_protocol::{VisibilitySync, ZoneModifierSync, MlBrainSync, AggroMaskSync};
 use crate::rules::RemovalEvents;
 #[cfg(feature = "debug-telemetry")]
 use crate::visibility::FactionVisibility;
@@ -31,6 +31,7 @@ pub struct BroadcastSender(pub Sender<String>);
 /// Every 60 ticks (~1 second), broadcasts a FULL snapshot of all entity positions.
 /// On all other ticks, broadcasts only entities whose Position changed (delta sync).
 /// This ensures late-connecting WS clients always get a complete picture.
+#[allow(clippy::too_many_arguments)]
 pub fn ws_sync_system(
     changed_query: Query<(&EntityId, &Position, &Velocity, &FactionId, &StatBlock), Changed<Position>>,
     full_query: Query<(&EntityId, &Position, &Velocity, &FactionId, &StatBlock)>,
@@ -43,12 +44,22 @@ pub fn ws_sync_system(
     visibility: Res<FactionVisibility>,
     #[cfg(feature = "debug-telemetry")]
     telemetry: Option<ResMut<PerfTelemetry>>,
+    #[cfg(feature = "debug-telemetry")]
+    active_zones: Option<Res<crate::config::ActiveZoneModifiers>>,
+    #[cfg(feature = "debug-telemetry")]
+    active_sub_factions_res: Option<Res<crate::config::ActiveSubFactions>>,
+    #[cfg(feature = "debug-telemetry")]
+    aggro_masks_res: Option<Res<crate::config::AggroMaskRegistry>>,
+    #[cfg(feature = "debug-telemetry")]
+    intervention_tracker: Option<Res<crate::config::InterventionTracker>>,
+    #[cfg(feature = "debug-telemetry")]
+    config: Option<Res<crate::config::SimulationConfig>>,
 ) {
     #[cfg(feature = "debug-telemetry")]
     let start = telemetry.as_ref().map(|_| std::time::Instant::now());
 
     // Every 60 ticks: full snapshot; otherwise delta only
-    let is_full_sync = tick.tick % 60 == 0;
+    let is_full_sync = tick.tick.is_multiple_of(60);
 
     let mut moved = Vec::new();
     if is_full_sync {
@@ -91,7 +102,7 @@ pub fn ws_sync_system(
             snapshot
         }),
         #[cfg(feature = "debug-telemetry")]
-        visibility: if tick.tick % 6 == 0 {
+        visibility: if tick.tick.is_multiple_of(6) {
             fog_faction.0.and_then(|fid| {
                 let explored = visibility.explored.get(&fid)?;
                 let visible = visibility.visible.get(&fid)?;
@@ -103,6 +114,63 @@ pub fn ws_sync_system(
                     visible: visible.clone(),
                 })
             })
+        } else {
+            None
+        },
+        #[cfg(feature = "debug-telemetry")]
+        zone_modifiers: if tick.tick.is_multiple_of(6) {
+            active_zones.as_ref().map(|z| z.zones.iter().map(|zone| ZoneModifierSync {
+                target_faction: zone.target_faction,
+                x: zone.x,
+                y: zone.y,
+                radius: zone.radius,
+                cost_modifier: zone.cost_modifier,
+                ticks_remaining: zone.ticks_remaining,
+            }).collect())
+        } else {
+            None
+        },
+        #[cfg(feature = "debug-telemetry")]
+        active_sub_factions: if tick.tick.is_multiple_of(6) {
+            active_sub_factions_res.as_ref().map(|sf| sf.factions.clone())
+        } else {
+            None
+        },
+        #[cfg(feature = "debug-telemetry")]
+        aggro_masks: if tick.tick.is_multiple_of(6) {
+            aggro_masks_res.as_ref().map(|m| {
+                let mut masks = std::collections::HashMap::new();
+                for (&(src, tgt), &allowed) in &m.masks {
+                    masks.insert(format!("{}_{}", src, tgt), allowed);
+                }
+                AggroMaskSync { masks }
+            })
+        } else {
+            None
+        },
+        #[cfg(feature = "debug-telemetry")]
+        ml_brain: if tick.tick.is_multiple_of(6) {
+            intervention_tracker.as_ref().map(|tracker| MlBrainSync {
+                intervention_active: tracker.active,
+            })
+        } else {
+            None
+        },
+        #[cfg(feature = "debug-telemetry")]
+        density_heatmap: if tick.tick.is_multiple_of(6) {
+            if let Some(cfg) = &config {
+                let grid_w = (cfg.world_width / cfg.flow_field_cell_size).ceil() as u32;
+                let grid_h = (cfg.world_height / cfg.flow_field_cell_size).ceil() as u32;
+                let mut entities = Vec::new();
+                for (_, pos, _, faction, _) in full_query.iter() {
+                    entities.push((pos.x, pos.y, faction.0));
+                }
+                Some(crate::systems::state_vectorizer::build_density_maps(
+                    &entities, grid_w, grid_h, cfg.flow_field_cell_size, crate::systems::state_vectorizer::DEFAULT_MAX_DENSITY
+                ))
+            } else {
+                None
+            }
         } else {
             None
         },

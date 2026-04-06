@@ -20,6 +20,7 @@ pub mod movement_config;
 pub mod stat_block;
 pub mod velocity;
 pub mod vision_radius;
+pub mod engine_override;
 
 pub use entity_id::{EntityId, NextEntityId};
 pub use faction::FactionId;
@@ -28,3 +29,4 @@ pub use position::Position;
 pub use stat_block::{StatBlock, MAX_STATS};
 pub use velocity::Velocity;
 pub use vision_radius::VisionRadius;
+pub use engine_override::EngineOverride;

@@ -14,7 +14,7 @@
 use bevy::prelude::*;
 
 use micro_core::components::NextEntityId;
-use micro_core::config::{SimulationConfig, TickCounter, SimPaused, SimSpeed, SimStepRemaining};
+use micro_core::config::{SimulationConfig, TickCounter, SimPaused, SimSpeed, SimStepRemaining, ActiveZoneModifiers, InterventionTracker, FactionSpeedBuffs, AggroMaskRegistry, ActiveSubFactions};
 use micro_core::bridges::zmq_bridge::ZmqBridgePlugin;
 use micro_core::rules::{RemovalEvents, FactionBehaviorMode, NavigationRuleSet, InteractionRuleSet, RemovalRuleSet};
 use micro_core::spatial::SpatialHashGrid;
@@ -22,6 +22,8 @@ use micro_core::pathfinding::FlowFieldRegistry;
 use micro_core::terrain::TerrainGrid;
 use micro_core::visibility::FactionVisibility;
 use micro_core::systems::{initial_spawn_system, movement_system, tick_counter_system, visibility_update_system, ws_command::WsCommandReceiver, ws_command::ws_command_system, ws_command::step_tick_system, ws_command::ActiveFogFaction};
+use micro_core::systems::directive_executor::{LatestDirective, directive_executor_system, zone_tick_system, speed_buff_tick_system};
+use micro_core::systems::engine_override::engine_override_system;
 
 /// Maximum ticks before auto-exit in smoke test mode.
 /// Set to 0 or remove this system for "run forever" mode.
@@ -84,6 +86,13 @@ fn main() {
         .insert_resource(TerrainGrid::new(grid_w, grid_h, cell_size))
         .insert_resource(FactionVisibility::new(grid_w, grid_h, cell_size))
         .init_resource::<ActiveFogFaction>()
+        // Phase 3 resources — required by directive_executor, flow_field_update, movement, zmq_bridge
+        .init_resource::<ActiveZoneModifiers>()
+        .init_resource::<InterventionTracker>()
+        .init_resource::<FactionSpeedBuffs>()
+        .init_resource::<AggroMaskRegistry>()
+        .init_resource::<ActiveSubFactions>()
+        .init_resource::<LatestDirective>()
         .insert_resource(micro_core::systems::ws_sync::BroadcastSender(tx))
         .insert_resource(WsCommandReceiver(std::sync::Mutex::new(ws_cmd_rx)))
         // Startup systems (run once)
@@ -98,6 +107,14 @@ fn main() {
             micro_core::systems::removal::removal_system,
             movement_system,
         ).chain().run_if(|paused: Res<SimPaused>, step: Res<SimStepRemaining>| !paused.0 || step.0 > 0))
+        .add_systems(Update, (
+            directive_executor_system,
+            zone_tick_system,
+            speed_buff_tick_system,
+        ).chain().run_if(|paused: Res<SimPaused>, step: Res<SimStepRemaining>| !paused.0 || step.0 > 0).before(movement_system))
+        .add_systems(Update, engine_override_system
+            .after(movement_system)
+            .run_if(|paused: Res<SimPaused>, step: Res<SimStepRemaining>| !paused.0 || step.0 > 0))
         // Always-running systems (work while paused for terrain painting and fog preview)
         .add_systems(Update, (
             tick_counter_system,

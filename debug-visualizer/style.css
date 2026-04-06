@@ -678,3 +678,100 @@ canvas.spawn-mode { cursor: cell; }
     color: white !important;
     box-shadow: 0 0 12px rgba(59, 130, 246, 0.4);
 }
+
+/* ==========================================================================
+   Task 12 Phase 3 Visualizer UI
+   ========================================================================== */
+
+/* ML Brain Status */
+.ml-status .stat-box { margin-bottom: 4px; }
+.ml-status .small { font-size: 11px; color: var(--text-muted); }
+
+/* Zone Type Selector */
+.zone-type-selector {
+    display: flex;
+    gap: 4px;
+    flex: 1;
+}
+.zone-type-btn {
+    flex: 1;
+    padding: 6px;
+    font-size: 11px;
+    background: var(--bg-dark);
+    border: 1px solid var(--border-color);
+    color: var(--text-main);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.zone-type-btn:hover { background: var(--bg-input); }
+.zone-type-btn.active[data-type="attract"] {
+    background: rgba(59, 130, 246, 0.2);
+    border-color: #3b82f6;
+    color: white;
+}
+.zone-type-btn.active[data-type="repel"] {
+    background: rgba(239, 68, 68, 0.2);
+    border-color: #ef4444;
+    color: white;
+}
+
+/* Sub-Faction List */
+.sub-faction-list {
+    margin-top: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.sub-faction-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 8px;
+    background: var(--bg-dark);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+}
+.sub-faction-item .merge-btn {
+    padding: 2px 6px;
+    font-size: 10px;
+}
+
+/* Aggro Mask Grid */
+.aggro-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+    gap: 4px;
+}
+.aggro-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 6px;
+    background: var(--bg-dark);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+.aggro-cell:hover {
+    background: var(--bg-input);
+}
+.aggro-cell.combat-on {
+    border-color: rgba(239, 68, 68, 0.5);
+    background: rgba(239, 68, 68, 0.1);
+}
+.aggro-cell.combat-off {
+    border-color: rgba(34, 197, 94, 0.5);
+    background: rgba(34, 197, 94, 0.1);
+}
+.aggro-label {
+    font-size: 10px;
+    color: var(--text-muted);
+}
+.aggro-icon {
+    font-size: 14px;
+}
+

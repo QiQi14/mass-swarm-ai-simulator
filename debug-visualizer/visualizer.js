@@ -58,7 +58,20 @@ let showGrid = document.getElementById("toggle-grid").checked;
 let showSpatialGrid = document.getElementById("toggle-spatial-grid").checked;
 let showFlowField = document.getElementById("toggle-flow-field").checked;
 let showVelocity = document.getElementById("toggle-velocity").checked;
+let showDensityHeatmap = document.getElementById("toggle-density-heatmap").checked;
+let showZoneModifiers = document.getElementById("toggle-zone-modifiers").checked;
+let showOverrideMarkers = document.getElementById("toggle-override-markers").checked;
 let showFog = false; // Adjusted via dynamic toggles
+
+// Phase 3 state
+let zoneModifiers = null;
+let activeSubFactions = [];
+let aggroMasks = [];
+let densityHeatmap = null;
+let mlBrainStatus = null;
+let zoneMode = false;
+let splitMode = false;
+let activeZoneType = 'attract';
 
 // Telemetry
 let lastTickTime = performance.now();
@@ -92,7 +105,29 @@ const toggleGrid = document.getElementById("toggle-grid");
 const toggleSpatialGrid = document.getElementById("toggle-spatial-grid");
 const toggleFlowField = document.getElementById("toggle-flow-field");
 const toggleVelocity = document.getElementById("toggle-velocity");
+const toggleDensityHeatmap = document.getElementById("toggle-density-heatmap");
+const toggleZoneModifiers = document.getElementById("toggle-zone-modifiers");
+const toggleOverrideMarkers = document.getElementById("toggle-override-markers");
 const fogTogglesContainer = document.getElementById("fog-toggles-container");
+
+// Phase 3 UI Elements
+const zoneModeBtn = document.getElementById("zone-mode-btn");
+const zoneTools = document.getElementById("zone-tools");
+const zoneHint = document.getElementById("zone-hint");
+const zoneFaction = document.getElementById("zone-faction");
+const zoneRadiusSlider = document.getElementById("zone-radius-slider");
+const zoneRadius = document.getElementById("zone-radius");
+const zoneIntensitySlider = document.getElementById("zone-intensity-slider");
+const zoneIntensity = document.getElementById("zone-intensity");
+const zoneDuration = document.getElementById("zone-duration");
+const zoneTypeBtns = document.querySelectorAll(".zone-type-btn");
+
+const splitModeBtn = document.getElementById("split-mode-btn");
+const splitTools = document.getElementById("split-tools");
+const splitHint = document.getElementById("split-hint");
+const splitSourceFaction = document.getElementById("split-source-faction");
+const splitPctSlider = document.getElementById("split-pct-slider");
+const splitPct = document.getElementById("split-pct");
 
 const spawnFaction = document.getElementById("spawn-faction");
 const spawnAmountSlider = document.getElementById("spawn-amount-slider");
@@ -246,6 +281,20 @@ function connectWebSocket() {
                     fogExplored = new Uint32Array(msg.visibility.explored);
                     fogVisible = new Uint32Array(msg.visibility.visible);
                 }
+                if (msg.zone_modifiers !== undefined) zoneModifiers = msg.zone_modifiers;
+                if (msg.active_sub_factions !== undefined) {
+                    activeSubFactions = msg.active_sub_factions;
+                    updateLegend(activeSubFactions);
+                }
+                if (msg.aggro_masks !== undefined) {
+                    aggroMasks = msg.aggro_masks;
+                    updateAggroGrid(aggroMasks, Object.keys(ADAPTER_CONFIG.factions));
+                }
+                if (msg.ml_brain !== undefined) {
+                    mlBrainStatus = msg.ml_brain;
+                    updateMlBrainPanel(mlBrainStatus);
+                }
+                if (msg.density_heatmap !== undefined) densityHeatmap = msg.density_heatmap;
             } else if (msg.type === "FlowFieldSync") {
                 handleFlowFieldSync(msg);
             } else if (msg.type === "scenario_data") {
@@ -398,6 +447,46 @@ window.addEventListener("mouseup", (e) => {
             } else {
                 showToast('Not connected to server', 'error');
             }
+        } else if (zoneMode) {
+            // --- ZONE MODE: Place zone modifier ---
+            const faction_id = parseInt(zoneFaction.value);
+            if (isNaN(faction_id)) {
+                showToast('Select a faction first', 'warn');
+                isDragging = false;
+                return;
+            }
+            const ok = sendCommand("place_zone_modifier", {
+                target_faction: faction_id,
+                x: wx,
+                y: wy,
+                radius: parseFloat(zoneRadius.value) || 100,
+                cost_modifier: (activeZoneType === 'attract' ? -1 : 1) * (parseFloat(zoneIntensity.value) || 50),
+                duration_ticks: parseInt(zoneDuration.value) || 300
+            });
+            if (ok) showToast('Placed zone modifier', 'success');
+        } else if (splitMode) {
+            // --- SPLIT MODE: Split faction ---
+            const source_faction = parseInt(splitSourceFaction.value);
+            if (isNaN(source_faction)) {
+                showToast('Select a source faction', 'warn');
+                isDragging = false;
+                return;
+            }
+            let new_sub_faction = (source_faction + 1) * 100;
+            while(activeSubFactions && activeSubFactions.includes(new_sub_faction)) new_sub_faction++;
+
+            const ok = sendCommand("split_faction", {
+                source_faction,
+                new_sub_faction,
+                percentage: (parseFloat(splitPct.value) || 30) / 100.0,
+                epicenter_x: wx,
+                epicenter_y: wy
+            });
+            if (ok) {
+                showToast(`Split command sent (epicenter: ${Math.round(wx)}, ${Math.round(wy)})`, 'success');
+                // Auto exit mode
+                splitModeBtn.click();
+            }
         } else {
             // --- SELECT MODE: Click selects nearest entity ---
             let bestDist = Infinity;
@@ -488,31 +577,94 @@ toggleGrid.onchange = (e) => { showGrid = e.target.checked; drawBackground(); };
 toggleSpatialGrid.onchange = (e) => { showSpatialGrid = e.target.checked; drawBackground(); };
 toggleFlowField.onchange = (e) => { showFlowField = e.target.checked; drawBackground(); };
 toggleVelocity.onchange = (e) => { showVelocity = e.target.checked; };
+toggleDensityHeatmap.onchange = (e) => { showDensityHeatmap = e.target.checked; };
+toggleZoneModifiers.onchange = (e) => { showZoneModifiers = e.target.checked; };
+toggleOverrideMarkers.onchange = (e) => { showOverrideMarkers = e.target.checked; };
 
 // Sync range and number inputs
 spawnAmountSlider.oninput = (e) => spawnAmount.value = e.target.value;
 spawnAmount.oninput = (e) => spawnAmountSlider.value = e.target.value;
 spawnSpreadSlider.oninput = (e) => spawnSpread.value = e.target.value;
 spawnSpread.oninput = (e) => spawnSpreadSlider.value = e.target.value;
+zoneRadiusSlider.oninput = (e) => zoneRadius.value = e.target.value;
+zoneRadius.oninput = (e) => zoneRadiusSlider.value = e.target.value;
+zoneIntensitySlider.oninput = (e) => zoneIntensity.value = e.target.value;
+zoneIntensity.oninput = (e) => zoneIntensitySlider.value = e.target.value;
+splitPctSlider.oninput = (e) => splitPct.value = e.target.value;
+splitPct.oninput = (e) => splitPctSlider.value = e.target.value;
+
+function getFactionColor(factionId) {
+    if (ADAPTER_CONFIG.factions[factionId]) return ADAPTER_CONFIG.factions[factionId].color;
+    // Sub-factions: derive from parent with hue rotation
+    const parent = factionId < 100 ? factionId : Math.floor(factionId / 100) - 1;
+    const offset = (factionId % 100) * 30; // 30° hue shift per sub-faction
+    const base = parent === 0 ? 220 : 0; // Blue base or Red base
+    return `hsl(${(base + offset) % 360}, 70%, 55%)`;
+}
+
+function clearModes() {
+    spawnMode = false;
+    spawnModeBtn.classList.remove('active');
+    spawnHint.style.display = 'none';
+    canvasEntities.classList.remove('spawn-mode');
+    
+    zoneMode = false;
+    zoneModeBtn.classList.remove('active');
+    zoneTools.style.display = 'none';
+    zoneHint.style.display = 'none';
+    
+    splitMode = false;
+    splitModeBtn.classList.remove('active');
+    splitTools.style.display = 'none';
+    splitHint.style.display = 'none';
+    
+    paintMode = false;
+    paintModeBtn.classList.remove('active');
+    brushTools.style.display = 'none';
+    bgCanvas.classList.remove('paint-mode');
+    canvasEntities.classList.remove('paint-mode');
+}
 
 // Spawn mode toggle
 spawnModeBtn.onclick = () => {
-    if (paintMode) {
-        // Disable paint mode first
-        paintMode = false;
-        paintModeBtn.classList.remove('active');
-        brushTools.style.display = 'none';
-        bgCanvas.classList.remove('paint-mode');
-        canvasEntities.classList.remove('paint-mode');
-    }
-    spawnMode = !spawnMode;
+    const wasSpawn = spawnMode;
+    clearModes();
+    spawnMode = !wasSpawn;
     spawnModeBtn.classList.toggle('active', spawnMode);
     spawnHint.style.display = spawnMode ? 'block' : 'none';
     canvasEntities.classList.toggle('spawn-mode', spawnMode);
-    if (spawnMode) {
-        showToast('Spawn mode ON — click canvas to place units', 'info');
-    }
+    if (spawnMode) showToast('Spawn mode ON', 'info');
 };
+
+zoneModeBtn.onclick = () => {
+    const wasZone = zoneMode;
+    clearModes();
+    zoneMode = !wasZone;
+    zoneModeBtn.classList.toggle('active', zoneMode);
+    zoneTools.style.display = zoneMode ? 'block' : 'none';
+    zoneHint.style.display = zoneMode ? 'block' : 'none';
+    if (zoneMode) showToast('Zone Place mode ON', 'info');
+};
+
+zoneTypeBtns.forEach(btn => {
+    btn.onclick = () => {
+        zoneTypeBtns.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        activeZoneType = btn.dataset.type;
+    };
+});
+
+splitModeBtn.onclick = () => {
+    const wasSplit = splitMode;
+    clearModes();
+    splitMode = !wasSplit;
+    splitModeBtn.classList.toggle('active', splitMode);
+    splitTools.style.display = splitMode ? 'block' : 'none';
+    splitHint.style.display = splitMode ? 'block' : 'none';
+    canvasEntities.classList.toggle('spawn-mode', splitMode); // crosshair
+    if (splitMode) showToast('Split mode ON — click to set epicenter', 'info');
+};
+
 
 // Faction management
 addFactionBtn.onclick = () => {
@@ -540,14 +692,9 @@ deleteFactionBtn.onclick = () => {
 
 // Terrain UI logic
 paintModeBtn.onclick = () => {
-    if (spawnMode) {
-        // Disable spawn mode first
-        spawnMode = false;
-        spawnModeBtn.classList.remove('active');
-        spawnHint.style.display = 'none';
-        canvasEntities.classList.remove('spawn-mode');
-    }
-    paintMode = !paintMode;
+    const wasPaint = paintMode;
+    clearModes();
+    paintMode = !wasPaint;
     paintModeBtn.classList.toggle('active', paintMode);
     brushTools.style.display = paintMode ? 'flex' : 'none';
     bgCanvas.classList.toggle('paint-mode', paintMode);
@@ -645,6 +792,16 @@ function initFactionToggles() {
         opt.value = factionId;
         opt.textContent = config.name;
         spawnFaction.appendChild(opt);
+
+        const zOpt = document.createElement('option');
+        zOpt.value = factionId;
+        zOpt.textContent = config.name;
+        zoneFaction.appendChild(zOpt);
+
+        const sOpt = document.createElement('option');
+        sOpt.value = factionId;
+        sOpt.textContent = config.name;
+        splitSourceFaction.appendChild(sOpt);
 
         // -- Faction Behavior Toggles --
         const btn = document.createElement('button');
@@ -972,13 +1129,74 @@ function drawEntities() {
         ctx.stroke();
     }
 
+    // Draw density heatmap
+    if (showDensityHeatmap && densityHeatmap) {
+        for (let y = 0; y < GRID_H; y++) {
+            for (let x = 0; x < GRID_W; x++) {
+                const value = densityHeatmap[y * GRID_W + x];
+                if (value < 0.01) continue; // Skip empty cells
+    
+                const worldX = x * TERRAIN_CELL_SIZE;
+                const worldY = y * TERRAIN_CELL_SIZE;
+                const [screenX, screenY] = worldToCanvas(worldX, worldY);
+                const screenSize = TERRAIN_CELL_SIZE * scale;
+    
+                // Heat gradient: transparent → yellow → orange → red
+                const alpha = Math.min(value * 0.6, 0.6);
+                const hue = 60 - value * 60; // 60=yellow → 0=red
+                ctx.fillStyle = `hsla(${hue}, 100%, 50%, ${alpha})`;
+                ctx.fillRect(screenX, screenY, screenSize + 1, screenSize + 1);
+            }
+        }
+    }
+
+    // Draw zone modifiers
+    if (showZoneModifiers && zoneModifiers) {
+        for (const zone of zoneModifiers) {
+            const [screenX, screenY] = worldToCanvas(zone.x, zone.y);
+            const screenR = zone.radius * scale;
+    
+            ctx.beginPath();
+            ctx.arc(screenX, screenY, screenR, 0, Math.PI * 2);
+    
+            if (zone.cost_modifier < 0) {
+                // Attract: blue glow with pulsing alpha
+                const pulse = 0.3 + 0.2 * Math.sin(Date.now() / 300);
+                ctx.fillStyle = `rgba(59, 130, 246, ${pulse})`;
+                ctx.strokeStyle = 'rgba(59, 130, 246, 0.7)';
+            } else {
+                // Repel: red glow
+                const pulse = 0.3 + 0.2 * Math.sin(Date.now() / 300);
+                ctx.fillStyle = `rgba(239, 68, 68, ${pulse})`;
+                ctx.strokeStyle = 'rgba(239, 68, 68, 0.7)';
+            }
+    
+            ctx.fill();
+            ctx.setLineDash([4, 4]);
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            ctx.setLineDash([]);
+    
+            // Label: cost modifier + remaining ticks
+            ctx.fillStyle = '#fff';
+            ctx.font = '11px Inter';
+            ctx.textAlign = 'center';
+            ctx.fillText(
+                `${zone.cost_modifier > 0 ? '+' : ''}${zone.cost_modifier} (${zone.ticks_remaining}t)`,
+                screenX, screenY
+            );
+        }
+    }
+
     // Draw Factions
-    for (const factionId in ADAPTER_CONFIG.factions) {
-        const config = ADAPTER_CONFIG.factions[factionId];
-        ctx.fillStyle = config.color;
+    const activeFactionsSet = new Set();
+    for (const ent of entities.values()) activeFactionsSet.add(ent.faction_id);
+    
+    for (const factionId of activeFactionsSet) {
+        ctx.fillStyle = getFactionColor(factionId);
         ctx.beginPath();
         for (const ent of entities.values()) {
-            if (ent.faction_id === parseInt(factionId)) {
+            if (ent.faction_id === factionId) {
                 const [cx, cy] = worldToCanvas(ent.x, ent.y);
                 if (cx >= cullLeft && cx <= cullRight && cy >= cullTop && cy <= cullBottom) {
                     ctx.moveTo(cx + radius, cy);
@@ -987,6 +1205,32 @@ function drawEntities() {
             }
         }
         ctx.fill();
+    }
+
+    // EngineOverride Extracted drawing
+    if (showOverrideMarkers) {
+        for (const ent of entities.values()) {
+            // Assume the rust backend may send this indirectly via velocity ignoring typical flow field
+            // But if it's not present, we will fallback to a default marker if we detect an override manually
+            // We need to implement marker drawing around entities.
+            // Wait, we don't know who has override purely from EntityState unless added to `stats`.
+            // The instructions refer to `has_override`. For now we rely on a hypothetical field `has_override`.
+            if (ent.has_override) {
+                const t = Date.now() / 200;
+                const [cx, cy] = worldToCanvas(ent.x, ent.y);
+                if (cx >= cullLeft && cx <= cullRight && cy >= cullTop && cy <= cullBottom) {
+                    ctx.strokeStyle = `rgba(255, 215, 0, ${0.5 + 0.5 * Math.sin(t)})`;
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(cx, cy - 6 * scale);
+                    ctx.lineTo(cx + 6 * scale, cy);
+                    ctx.lineTo(cx, cy + 6 * scale);
+                    ctx.lineTo(cx - 6 * scale, cy);
+                    ctx.closePath();
+                    ctx.stroke();
+                }
+            }
+        }
     }
 
     drawHealthBars(ctx, cullLeft, cullRight, cullTop, cullBottom);
@@ -1035,6 +1279,137 @@ function drawEntities() {
         ctx.moveTo(cx, cy - ch); ctx.lineTo(cx, cy + ch);
         ctx.stroke();
         ctx.globalAlpha = 1.0;
+    }
+
+    // Ghost Split Center (split mode)
+    if (splitMode && mouseWorldX !== null && mouseWorldY !== null && !isDragging) {
+        const pct = parseInt(splitPct.value) || 30;
+        const fName = splitSourceFaction.options[splitSourceFaction.selectedIndex]?.text || "Faction";
+        const [cx, cy] = worldToCanvas(mouseWorldX, mouseWorldY);
+        
+        ctx.strokeStyle = "#fff";
+        ctx.globalAlpha = 0.8;
+        ctx.lineWidth = 1;
+        const ch = 10;
+        ctx.beginPath();
+        ctx.moveTo(cx - ch, cy); ctx.lineTo(cx + ch, cy);
+        ctx.moveTo(cx, cy - ch); ctx.lineTo(cx, cy + ch);
+        ctx.stroke();
+        
+        ctx.fillStyle = "#fff";
+        ctx.font = '11px Inter';
+        ctx.textAlign = 'left';
+        ctx.fillText(`${pct}% of ${fName}`, cx + 15, cy + 4);
+        ctx.globalAlpha = 1.0;
+    }
+
+    // Ghost Zone Center (zone mode)
+    if (zoneMode && mouseWorldX !== null && mouseWorldY !== null && !isDragging) {
+        const [cx, cy] = worldToCanvas(mouseWorldX, mouseWorldY);
+        const screenR = (parseFloat(zoneRadius.value) || 100) * scale;
+        
+        if (activeZoneType === 'attract') {
+            ctx.fillStyle = `rgba(59, 130, 246, 0.2)`;
+            ctx.strokeStyle = `rgba(59, 130, 246, 0.6)`;
+        } else {
+            ctx.fillStyle = `rgba(239, 68, 68, 0.2)`;
+            ctx.strokeStyle = `rgba(239, 68, 68, 0.6)`;
+        }
+        
+        ctx.beginPath();
+        ctx.arc(cx, cy, screenR, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.setLineDash([4, 4]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+    }
+}
+
+function updateMlBrainPanel(mlBrain) {
+    if (!mlBrain) return;
+
+    const pythonEl = document.getElementById('ml-python-status');
+    const interventionEl = document.getElementById('ml-intervention');
+    const directiveEl = document.getElementById('ml-last-directive');
+
+    if (pythonEl) {
+        pythonEl.textContent = mlBrain.python_connected ? '🟢 Connected' : '🔴 Disconnected';
+        pythonEl.style.color = mlBrain.python_connected ? '#22c55e' : '#ef4444';
+    }
+
+    if (interventionEl) {
+        interventionEl.textContent = mlBrain.intervention_active ? '⚠️ Active' : '✅ Normal';
+        interventionEl.style.color = mlBrain.intervention_active ? '#f59e0b' : '#22c55e';
+    }
+
+    if (directiveEl && mlBrain.last_directive) {
+        try {
+            const d = JSON.parse(mlBrain.last_directive);
+            let summary = d.directive || 'Hold';
+            if (d.directive === 'SplitFaction') {
+                summary = `Split ${Math.round(d.percentage * 100)}% to ${d.new_sub_faction}`;
+            } else if (d.directive === 'SetZoneModifier') {
+                summary = `${d.cost_modifier < 0 ? 'Attract' : 'Repel'} at (${Math.round(d.x)}, ${Math.round(d.y)})`;
+            } else if (d.directive === 'UpdateNavigation') {
+                summary = `Nav ${d.follower_faction} to ${d.target.type}`;
+            }
+            directiveEl.textContent = summary;
+        } catch {
+            directiveEl.textContent = '—';
+        }
+    }
+}
+
+function updateAggroGrid(aggroMasks, activeFactionsIds) {
+    const container = document.getElementById('aggro-mask-grid');
+    if (!container) return;
+    container.innerHTML = '';
+
+    for (const mask of aggroMasks) {
+        const cell = document.createElement('div');
+        cell.className = `aggro-cell ${mask.allow_combat ? 'combat-on' : 'combat-off'}`;
+        cell.innerHTML = `
+            <span class="aggro-label">${mask.source_faction}→${mask.target_faction}</span>
+            <span class="aggro-icon">${mask.allow_combat ? '⚔️' : '🛡️'}</span>
+        `;
+        cell.onclick = () => sendCommand('set_aggro_mask', {
+            source_faction: mask.source_faction,
+            target_faction: mask.target_faction,
+            allow_combat: !mask.allow_combat,
+        });
+        container.appendChild(cell);
+    }
+}
+
+function updateLegend(activeSubFactions) {
+    const legend = document.getElementById('legend-list');
+    if (!legend) return;
+    // Keep base factions, remove old sub-faction entries
+    legend.querySelectorAll('.legend-sub').forEach(el => el.remove());
+
+    for (const sf of (activeSubFactions || [])) {
+        const item = document.createElement('div');
+        item.className = 'legend-item legend-sub';
+        item.innerHTML = `
+            <span class="color-swatch" style="background: ${getFactionColor(sf)};"></span>
+            <span>Sub-Faction ${sf}</span>
+        `;
+        legend.appendChild(item);
+    }
+    
+    const sflist = document.getElementById('sub-faction-list');
+    if (sflist) {
+        sflist.innerHTML = '';
+        for (const sf of (activeSubFactions || [])) {
+            const fi = document.createElement('div');
+            fi.className = 'sub-faction-item';
+            const parent = sf < 100 ? sf : Math.floor(sf / 100) - 1;
+            fi.innerHTML = `
+                <span style="color: ${getFactionColor(sf)}">Sub Faction ${sf}</span>
+                <button class="btn secondary merge-btn" onclick="sendCommand('merge_faction', { source_faction: ${sf}, target_faction: ${parent} })">Merge to ${parent}</button>
+            `;
+            sflist.appendChild(fi);
+        }
     }
 }
 

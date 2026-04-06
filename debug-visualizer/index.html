@@ -95,6 +95,24 @@
                 <button id="insp-deselect" class="btn secondary" style="margin-top: 10px;">Deselect</button>
             </section>
 
+            <section class="panel-section ml-status">
+                <h2>🧠 ML Brain</h2>
+                <div class="stats-grid">
+                    <div class="stat-box">
+                        <span class="stat-label">Python</span>
+                        <span id="ml-python-status" class="stat-value mono">—</span>
+                    </div>
+                    <div class="stat-box">
+                        <span class="stat-label">Intervention</span>
+                        <span id="ml-intervention" class="stat-value mono">—</span>
+                    </div>
+                    <div class="stat-box full-width">
+                        <span class="stat-label">Last Directive</span>
+                        <span id="ml-last-directive" class="stat-value mono small">—</span>
+                    </div>
+                </div>
+            </section>
+
             <section class="panel-section">
                 <h2>Simulation Controls</h2>
                 <div class="controls-row">
@@ -163,6 +181,75 @@
             </section>
 
             <section class="panel-section">
+                <h2>🧲 Zone Modifiers</h2>
+                <div class="controls-row">
+                    <button id="zone-mode-btn" class="btn secondary">🧲 Place Zone</button>
+                </div>
+                <div id="zone-tools" style="display: none;">
+                    <div class="spawn-row">
+                        <label class="spawn-label">Type</label>
+                        <div class="zone-type-selector">
+                            <button class="zone-type-btn active" data-type="attract">🔵 Attract</button>
+                            <button class="zone-type-btn" data-type="repel">🔴 Repel</button>
+                        </div>
+                    </div>
+                    <div class="spawn-row">
+                        <label class="spawn-label">Faction</label>
+                        <select id="zone-faction" class="input-field"></select>
+                    </div>
+                    <div class="spawn-row">
+                        <label class="spawn-label">Radius</label>
+                        <input type="range" id="zone-radius-slider" min="20" max="300" value="100" class="slider">
+                        <input type="number" id="zone-radius" class="input-field compact" value="100">
+                    </div>
+                    <div class="spawn-row">
+                        <label class="spawn-label">Intensity</label>
+                        <input type="range" id="zone-intensity-slider" min="10" max="200" value="50" class="slider">
+                        <input type="number" id="zone-intensity" class="input-field compact" value="50">
+                    </div>
+                    <div class="spawn-row">
+                        <label class="spawn-label">Duration</label>
+                        <input type="number" id="zone-duration" class="input-field" value="300" min="1" max="3600">
+                        <span class="input-suffix">ticks</span>
+                    </div>
+                </div>
+                <div id="zone-hint" class="spawn-hint" style="display: none;">
+                    Click on canvas to place zone modifier
+                </div>
+            </section>
+
+            <section class="panel-section">
+                <h2>✂️ Faction Splitter</h2>
+                <div class="controls-row">
+                    <button id="split-mode-btn" class="btn secondary">✂️ Split Mode</button>
+                </div>
+                <div id="split-tools" style="display: none;">
+                    <div class="spawn-row">
+                        <label class="spawn-label">Source</label>
+                        <select id="split-source-faction" class="input-field"></select>
+                    </div>
+                    <div class="spawn-row">
+                        <label class="spawn-label">Split %</label>
+                        <input type="range" id="split-pct-slider" min="5" max="80" value="30" class="slider">
+                        <input type="number" id="split-pct" class="input-field compact" value="30">
+                    </div>
+                </div>
+                <div id="split-hint" class="spawn-hint" style="display: none;">
+                    Click on canvas to set epicenter
+                </div>
+                <div id="sub-faction-list" class="sub-faction-list">
+                    <!-- Populated dynamically from active_sub_factions -->
+                </div>
+            </section>
+
+            <section class="panel-section">
+                <h2>🛡️ Aggro Masks</h2>
+                <div id="aggro-mask-grid" class="aggro-grid">
+                    <!-- Populated dynamically: matrix of faction pairs -->
+                </div>
+            </section>
+
+            <section class="panel-section">
                 <h2>Faction Behavior</h2>
                 <div id="faction-toggles"></div>
             </section>
@@ -190,6 +277,21 @@
                         <span class="control-indicator"></span>
                         <span class="control-label">Velocity Vectors</span>
                     </label>
+                    <label class="toggle-control">
+                        <input type="checkbox" id="toggle-density-heatmap">
+                        <span class="control-indicator"></span>
+                        <span class="control-label">Density Heatmap</span>
+                    </label>
+                    <label class="toggle-control">
+                        <input type="checkbox" id="toggle-zone-modifiers" checked>
+                        <span class="control-indicator"></span>
+                        <span class="control-label">Zone Modifiers</span>
+                    </label>
+                    <label class="toggle-control">
+                        <input type="checkbox" id="toggle-override-markers">
+                        <span class="control-indicator"></span>
+                        <span class="control-label">Engine Overrides</span>
+                    </label>
                     <div id="fog-toggles-container">
                         <!-- Populated dynamically -->
                     </div>
@@ -198,15 +300,17 @@
 
             <section class="panel-section">
                 <h2>Legend</h2>
-                <div class="legend-list">
+                <div class="legend-list" id="legend-list">
+                    <!-- Base factions (always shown) -->
                     <div class="legend-item">
                         <span class="color-swatch swarm-color"></span>
-                        <span>Swarm Units</span>
+                        <span>Faction 0 (Swarm)</span>
                     </div>
                     <div class="legend-item">
                         <span class="color-swatch defender-color"></span>
-                        <span>Defender Units</span>
+                        <span>Faction 1 (Defenders)</span>
                     </div>
+                    <!-- Sub-factions added dynamically -->
                 </div>
             </section>
         </aside>

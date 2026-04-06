@@ -15,12 +15,14 @@
 //! - `crate::config::SimulationConfig`
 
 use bevy::prelude::*;
-use bevy::platform::collections::HashMap;
+
 use crate::components::{Position, Velocity, FactionId, MovementConfig};
 use crate::spatial::SpatialHashGrid;
 use crate::pathfinding::FlowFieldRegistry;
 use crate::rules::{NavigationRuleSet, FactionBehaviorMode};
 use crate::config::SimulationConfig;
+use crate::config::FactionSpeedBuffs;
+use crate::components::EngineOverride;
 
 /// Multi-threaded movement with Composite Steering.
 ///
@@ -40,6 +42,7 @@ use crate::config::SimulationConfig;
 /// system in the legacy path. The integration task (T08) should handle
 /// which movement system runs for which entities.
 #[allow(clippy::collapsible_if)]
+#[allow(clippy::too_many_arguments)]
 pub fn movement_system(
     telemetry: Option<ResMut<crate::plugins::telemetry::PerfTelemetry>>,
     grid: Res<SpatialHashGrid>,
@@ -48,28 +51,35 @@ pub fn movement_system(
     behavior_mode: Res<FactionBehaviorMode>,
     config: Res<SimulationConfig>,
     terrain: Res<crate::terrain::TerrainGrid>,
-    mut query: Query<(Entity, &mut Position, &mut Velocity, &FactionId, &MovementConfig)>,
+    speed_buffs: Res<FactionSpeedBuffs>,
+    mut query: Query<(Entity, &mut Position, &mut Velocity, &FactionId, &MovementConfig), Without<EngineOverride>>,
 ) {
     let start = telemetry.as_ref().map(|_| std::time::Instant::now());
     let dt = 1.0 / 60.0;
-
-    // Cache follower→target mapping (small allocation, rules count is tiny)
-    let follow_map: HashMap<u32, u32> = nav_rules.rules.iter()
-        .map(|r| (r.follower_faction, r.target_faction))
-        .collect();
 
     // PARALLEL ITERATOR: distribute across CPU cores
     query.par_iter_mut().for_each(|(entity, mut pos, mut vel, faction, mc)| {
         let current_pos = Vec2::new(pos.x, pos.y);
 
-        // --- 1. MACRO PUSH: Flow Field ---
+        // --- 1. MACRO PUSH: Flow Field or Waypoint ---
         let mut macro_dir = Vec2::ZERO;
 
         // Only sample flow field if faction is NOT in static mode
         if !behavior_mode.static_factions.contains(&faction.0) {
-            if let Some(&target_faction) = follow_map.get(&faction.0) {
-                if let Some(field) = registry.fields.get(&target_faction) {
-                    macro_dir = field.sample(current_pos);
+            if let Some(rule) = nav_rules.rules.iter().find(|r| r.follower_faction == faction.0) {
+                match &rule.target {
+                    crate::bridges::zmq_protocol::NavigationTarget::Faction { faction_id } => {
+                        if let Some(field) = registry.fields.get(faction_id) {
+                            macro_dir = field.sample(current_pos);
+                        }
+                    }
+                    crate::bridges::zmq_protocol::NavigationTarget::Waypoint { x, y } => {
+                        let waypoint = Vec2::new(*x, *y);
+                        let diff = waypoint - current_pos;
+                        if diff.length_squared() > 1.0 {
+                            macro_dir = diff.normalize();
+                        }
+                    }
                 }
             }
         }
@@ -132,7 +142,8 @@ pub fn movement_system(
         // Apply soft terrain speed modifier (AFTER wall check, so entity is in a valid cell)
         let cell = world_to_cell(next_x, next_y);
         let soft = terrain.get_soft_cost(cell) as f32 / 100.0;
-        let effective_speed = mc.max_speed * soft;
+        let speed_mult = speed_buffs.buffs.get(&faction.0).map(|(m, _)| *m).unwrap_or(1.0);
+        let effective_speed = mc.max_speed * soft * speed_mult;
 
         let speed_sq = vel.dx * vel.dx + vel.dy * vel.dy;
         if speed_sq > effective_speed * effective_speed {
@@ -156,7 +167,6 @@ pub fn movement_system(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rules::NavigationRule;
     use crate::pathfinding::FlowField;
 
     fn build_test_app() -> App {
@@ -169,6 +179,7 @@ mod tests {
         mode.static_factions.insert(1);
         app.insert_resource(mode);
         app.insert_resource(SimulationConfig::default());
+        app.insert_resource(FactionSpeedBuffs::default());
         app.insert_resource(crate::terrain::TerrainGrid::new(50, 50, 20.0));
         app.add_systems(Update, movement_system);
         app
@@ -179,7 +190,10 @@ mod tests {
         let mut app = build_test_app();
         
         let mut nav = app.world_mut().get_resource_mut::<NavigationRuleSet>().unwrap();
-        nav.rules.push(NavigationRule { follower_faction: 0, target_faction: 1 });
+        nav.rules.push(crate::rules::NavigationRule { 
+            follower_faction: 0, 
+            target: crate::bridges::zmq_protocol::NavigationTarget::Faction { faction_id: 1 } 
+        });
         
         let mut reg = app.world_mut().get_resource_mut::<FlowFieldRegistry>().unwrap();
         let mut field = FlowField::new(10, 10, 20.0);
@@ -205,7 +219,10 @@ mod tests {
         let mut app = build_test_app();
         
         let mut nav = app.world_mut().get_resource_mut::<NavigationRuleSet>().unwrap();
-        nav.rules.push(NavigationRule { follower_faction: 1, target_faction: 0 }); // 1 is static
+        nav.rules.push(crate::rules::NavigationRule { 
+            follower_faction: 1, 
+            target: crate::bridges::zmq_protocol::NavigationTarget::Faction { faction_id: 0 } 
+        }); // 1 is static
         
         let mut reg = app.world_mut().get_resource_mut::<FlowFieldRegistry>().unwrap();
         let mut field = FlowField::new(10, 10, 20.0);

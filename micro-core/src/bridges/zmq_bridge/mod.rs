@@ -10,13 +10,15 @@
 //! - `systems`  — Bevy ECS systems (`ai_trigger_system`, `ai_poll_system`)
 //!
 //! ## Ownership
-//! - **Task:** task_07_zmq_bridge_plugin
+//! - **Task:** task_07_zmq_protocol_upgrade
 //! - **Contract:** implementation_plan.md → Proposed Changes → 3. Rust System Layer
 
 use bevy::prelude::*;
 use bevy_state::app::AppExtStates;
 use bevy_state::prelude::*;
 use std::sync::{mpsc, Mutex};
+
+use crate::systems::directive_executor::LatestDirective;
 
 pub mod config;
 mod io_loop;
@@ -27,8 +29,8 @@ pub use config::{AiBridgeChannels, AiBridgeConfig, SimState};
 /// Bevy plugin that initializes the ZMQ AI bridge.
 ///
 /// Spawns a background thread with a tokio runtime for async ZMQ I/O.
-/// Registers `SimState`, `AiBridgeConfig`, `AiBridgeChannels`, and
-/// the trigger/poll systems.
+/// Registers `SimState`, `AiBridgeConfig`, `AiBridgeChannels`,
+/// `LatestDirective`, and the trigger/poll systems.
 pub struct ZmqBridgePlugin;
 
 impl Plugin for ZmqBridgePlugin {
@@ -43,6 +45,9 @@ impl Plugin for ZmqBridgePlugin {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(io_loop::zmq_io_loop(state_rx, action_tx, timeout_secs));
         });
+
+        // LatestDirective bridges ai_poll_system (writes) → directive_executor_system (reads)
+        app.init_resource::<LatestDirective>();
 
         app.init_state::<SimState>()
             .insert_resource(config)

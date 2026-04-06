@@ -8,6 +8,7 @@
 
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
+use crate::bridges::zmq_protocol::NavigationTarget;
 
 /// Config-driven navigation matrix. The flow_field_update_system reads this
 /// to decide which flow fields to calculate and which factions use them.
@@ -21,8 +22,8 @@ pub struct NavigationRuleSet {
 pub struct NavigationRule {
     /// Faction ID of entities that will follow the flow field.
     pub follower_faction: u32,
-    /// Faction ID of entities used as goals (flow field converges on them).
-    pub target_faction: u32,
+    /// Navigation target, replacing direct target_faction.
+    pub target: NavigationTarget,
 }
 
 impl Default for NavigationRuleSet {
@@ -31,7 +32,7 @@ impl Default for NavigationRuleSet {
         Self {
             rules: vec![NavigationRule {
                 follower_faction: 0,
-                target_faction: 1,
+                target: NavigationTarget::Faction { faction_id: 1 },
             }],
         }
     }
@@ -46,7 +47,7 @@ mod tests {
         let ruleset = NavigationRuleSet::default();
         assert_eq!(ruleset.rules.len(), 1);
         assert_eq!(ruleset.rules[0].follower_faction, 0);
-        assert_eq!(ruleset.rules[0].target_faction, 1);
+        assert_eq!(ruleset.rules[0].target, NavigationTarget::Faction { faction_id: 1 });
     }
 
     #[test]

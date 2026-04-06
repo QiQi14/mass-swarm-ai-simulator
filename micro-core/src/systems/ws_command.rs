@@ -16,8 +16,10 @@ use std::sync::{mpsc, Mutex};
 use rand::Rng;
 
 use crate::bridges::ws_protocol::WsCommand;
-use crate::components::{EntityId, FactionId, NextEntityId, Position, StatBlock, Velocity, VisionRadius, MovementConfig};
-use crate::config::{SimPaused, SimSpeed, SimStepRemaining, SimulationConfig};
+use crate::bridges::zmq_protocol::MacroDirective;
+use crate::components::{EntityId, FactionId, NextEntityId, Position, StatBlock, Velocity, VisionRadius, MovementConfig, EngineOverride};
+use crate::config::{SimPaused, SimSpeed, SimStepRemaining, SimulationConfig, ActiveZoneModifiers, ZoneModifier, AggroMaskRegistry};
+use crate::systems::directive_executor::LatestDirective;
 use crate::rules::FactionBehaviorMode;
 use crate::terrain::TerrainGrid;
 use crate::systems::ws_sync::BroadcastSender;
@@ -32,6 +34,7 @@ pub struct WsCommandReceiver(pub Mutex<mpsc::Receiver<String>>);
 
 /// Processes incoming WebSocket commands and updates simulation state accordingly.
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::collapsible_if)]
 pub fn ws_command_system(
     receiver: Res<WsCommandReceiver>,
     mut commands: Commands,
@@ -46,6 +49,9 @@ pub fn ws_command_system(
     mut active_fog: Option<ResMut<ActiveFogFaction>>,
     sender: Option<Res<BroadcastSender>>,
     mut removal_events: ResMut<crate::rules::RemovalEvents>,
+    mut active_zones: Option<ResMut<ActiveZoneModifiers>>,
+    mut latest_directive: Option<ResMut<LatestDirective>>,
+    mut aggro_masks: Option<ResMut<AggroMaskRegistry>>,
 ) {
     let Ok(rx) = receiver.0.lock() else { return; };
     while let Ok(json) = rx.try_recv() {
@@ -245,12 +251,121 @@ pub fn ws_command_system(
                 }
                 "set_fog_faction" => {
                     if let Some(ref mut af) = active_fog {
-                        if cmd.params.get("faction_id").map_or(true, |v| v.is_null()) {
+                        if cmd.params.get("faction_id").is_none_or(|v| v.is_null()) {
                             af.0 = None;
                             println!("[WS Command] set_fog_faction: disable");
                         } else if let Some(fid) = cmd.params.get("faction_id").and_then(|v| v.as_u64()) {
                             af.0 = Some(fid as u32);
                             println!("[WS Command] set_fog_faction: {}", fid);
+                        }
+                    }
+                }
+                "place_zone_modifier" => {
+                    if let Some(ref mut zones) = active_zones {
+                        if let (Some(target_faction), Some(x), Some(y), Some(radius), Some(cost_modifier), Some(ticks)) = (
+                            cmd.params.get("target_faction").and_then(|v| v.as_u64()),
+                            cmd.params.get("x").and_then(|v| v.as_f64()),
+                            cmd.params.get("y").and_then(|v| v.as_f64()),
+                            cmd.params.get("radius").and_then(|v| v.as_f64()),
+                            cmd.params.get("cost_modifier").and_then(|v| v.as_f64()),
+                            cmd.params.get("ticks").and_then(|v| v.as_u64())
+                        ) {
+                            zones.zones.push(ZoneModifier {
+                                target_faction: target_faction as u32,
+                                x: x as f32,
+                                y: y as f32,
+                                radius: radius as f32,
+                                cost_modifier: cost_modifier as f32,
+                                ticks_remaining: ticks as u32,
+                            });
+                            println!("[WS Command] Placed ZoneModifier at ({}, {}) cost {}", x, y, cost_modifier);
+                        }
+                    }
+                }
+                "split_faction" => {
+                    if let Some(ref mut ld) = latest_directive {
+                        if let (Some(source), Some(target), Some(pct), Some(ex), Some(ey)) = (
+                            cmd.params.get("source_faction").and_then(|v| v.as_u64()),
+                            cmd.params.get("new_sub_faction").and_then(|v| v.as_u64()),
+                            cmd.params.get("percentage").and_then(|v| v.as_f64()),
+                            cmd.params.get("epicenter_x").and_then(|v| v.as_f64()),
+                            cmd.params.get("epicenter_y").and_then(|v| v.as_f64())
+                        ) {
+                            ld.directive = Some(MacroDirective::SplitFaction {
+                                source_faction: source as u32,
+                                new_sub_faction: target as u32,
+                                percentage: pct as f32,
+                                epicenter: [ex as f32, ey as f32],
+                            });
+                            println!("[WS Command] Sent SplitFaction");
+                        }
+                    }
+                }
+                "merge_faction" => {
+                    if let Some(ref mut ld) = latest_directive {
+                        if let (Some(source), Some(target)) = (
+                            cmd.params.get("source_faction").and_then(|v| v.as_u64()),
+                            cmd.params.get("target_faction").and_then(|v| v.as_u64())
+                        ) {
+                            ld.directive = Some(MacroDirective::MergeFaction {
+                                source_faction: source as u32,
+                                target_faction: target as u32,
+                            });
+                            println!("[WS Command] Sent MergeFaction");
+                        }
+                    }
+                }
+                "set_aggro_mask" => {
+                    if let Some(ref mut am) = aggro_masks {
+                        if let (Some(source), Some(target), Some(allow)) = (
+                            cmd.params.get("source_faction").and_then(|v| v.as_u64()),
+                            cmd.params.get("target_faction").and_then(|v| v.as_u64()),
+                            cmd.params.get("allow_combat").and_then(|v| v.as_bool())
+                        ) {
+                            am.masks.insert((source as u32, target as u32), allow);
+                            println!("[WS Command] SetAggroMask {} -> {} = {}", source, target, allow);
+                        }
+                    }
+                }
+                "inject_directive" => {
+                    if let Some(ref mut ld) = latest_directive {
+                        if let Some(dir_val) = cmd.params.get("directive") {
+                            if let Ok(dir) = serde_json::from_value::<MacroDirective>(dir_val.clone()) {
+                                ld.directive = Some(dir);
+                                println!("[WS Command] Injected Raw MacroDirective");
+                            } else {
+                                eprintln!("[WS Command] Failed to parse MacroDirective");
+                            }
+                        }
+                    }
+                }
+                "set_engine_override" => {
+                    if let (Some(entity_id), Some(vx), Some(vy), Some(ticks)) = (
+                        cmd.params.get("entity_id").and_then(|v| v.as_u64()),
+                        cmd.params.get("vx").and_then(|v| v.as_f64()),
+                        cmd.params.get("vy").and_then(|v| v.as_f64()),
+                        cmd.params.get("ticks").and_then(|v| v.as_u64())
+                    ) {
+                        for (entity, eid, _, _, _, _) in faction_query.iter() {
+                            if eid.id == entity_id as u32 {
+                                commands.entity(entity).insert(EngineOverride {
+                                    forced_velocity: Vec2::new(vx as f32, vy as f32),
+                                    ticks_remaining: if ticks > 0 { Some(ticks as u32) } else { None },
+                                });
+                                println!("[WS Command] Set EngineOverride on {}", entity_id);
+                                break;
+                            }
+                        }
+                    }
+                }
+                "clear_engine_override" => {
+                    if let Some(entity_id) = cmd.params.get("entity_id").and_then(|v| v.as_u64()) {
+                        for (entity, eid, _, _, _, _) in faction_query.iter() {
+                            if eid.id == entity_id as u32 {
+                                commands.entity(entity).remove::<EngineOverride>();
+                                println!("[WS Command] Cleared EngineOverride on {}", entity_id);
+                                break;
+                            }
                         }
                     }
                 }

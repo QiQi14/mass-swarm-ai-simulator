@@ -33,6 +33,7 @@ pub struct EntityState {
 /// Root message type for server-to-client broadcasts.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
+#[allow(clippy::large_enum_variant)]
 pub enum WsMessage {
     /// Delta-sync update containing entities that moved in this tick.
     SyncDelta {
@@ -49,6 +50,21 @@ pub enum WsMessage {
         #[cfg(feature = "debug-telemetry")]
         #[serde(skip_serializing_if = "Option::is_none")]
         visibility: Option<VisibilitySync>,
+        #[cfg(feature = "debug-telemetry")]
+        #[serde(skip_serializing_if = "Option::is_none")]
+        zone_modifiers: Option<Vec<ZoneModifierSync>>,
+        #[cfg(feature = "debug-telemetry")]
+        #[serde(skip_serializing_if = "Option::is_none")]
+        active_sub_factions: Option<Vec<u32>>,
+        #[cfg(feature = "debug-telemetry")]
+        #[serde(skip_serializing_if = "Option::is_none")]
+        aggro_masks: Option<AggroMaskSync>,
+        #[cfg(feature = "debug-telemetry")]
+        #[serde(skip_serializing_if = "Option::is_none")]
+        ml_brain: Option<MlBrainSync>,
+        #[cfg(feature = "debug-telemetry")]
+        #[serde(skip_serializing_if = "Option::is_none")]
+        density_heatmap: Option<std::collections::HashMap<u32, Vec<f32>>>,
     },
     /// Flow field vector data for debug visualization.
     /// Only compiled when `debug-telemetry` feature is enabled.
@@ -81,4 +97,27 @@ pub struct WsCommand {
     pub cmd: String,
     #[serde(default)]
     pub params: serde_json::Value,
+}
+
+#[cfg(feature = "debug-telemetry")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ZoneModifierSync {
+    pub target_faction: u32,
+    pub x: f32,
+    pub y: f32,
+    pub radius: f32,
+    pub cost_modifier: f32,
+    pub ticks_remaining: u32,
+}
+
+#[cfg(feature = "debug-telemetry")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MlBrainSync {
+    pub intervention_active: bool,
+}
+
+#[cfg(feature = "debug-telemetry")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AggroMaskSync {
+    pub masks: std::collections::HashMap<String, bool>,
 }

@@ -40,6 +40,7 @@ pub fn interaction_system(
     telemetry: Option<ResMut<crate::plugins::telemetry::PerfTelemetry>>,
     grid: Res<SpatialHashGrid>,
     rules: Res<InteractionRuleSet>,
+    aggro: Res<crate::config::AggroMaskRegistry>,
     // Query 1: Purely immutable spatial data.
     // Safe to iterate AND random-access simultaneously (multiple &self borrows).
     q_ro: Query<(Entity, &Position, &FactionId)>,
@@ -62,6 +63,12 @@ pub fn interaction_system(
         for rule in &rules.rules {
             // Only process rules where this entity is the source faction
             if rule.source_faction != source_faction.0 {
+                continue;
+            }
+
+            // "The Blinders" — SetAggroMask can disable combat between
+            // specific faction pairs (e.g., flanking unit ignores frontline)
+            if !aggro.is_combat_allowed(rule.source_faction, rule.target_faction) {
                 continue;
             }
 
@@ -109,6 +116,7 @@ mod tests {
         let mut app = App::new();
         app.insert_resource(SpatialHashGrid::new(20.0));
         app.insert_resource(InteractionRuleSet { rules: vec![] });
+        app.insert_resource(crate::config::AggroMaskRegistry::default());
         app.add_systems(Update, interaction_system);
         app
     }

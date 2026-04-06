@@ -19,6 +19,9 @@ pub mod spawning;
 pub mod ws_sync;
 pub mod ws_command;
 pub mod visibility;
+pub mod directive_executor;
+pub mod state_vectorizer;
+pub mod engine_override;
 
 use bevy::prelude::*;
 use crate::config::TickCounter;
@@ -30,6 +33,8 @@ pub use movement::movement_system;
 pub use spawning::{initial_spawn_system, wave_spawn_system};
 pub use ws_sync::{BroadcastSender, ws_sync_system};
 pub use visibility::visibility_update_system;
+pub use directive_executor::{directive_executor_system, speed_buff_tick_system, zone_tick_system};
+pub use engine_override::engine_override_system;
 
 /// Increments the global tick counter each frame.
 ///

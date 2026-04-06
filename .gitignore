@@ -26,6 +26,7 @@
 .venv_task_tool/
 .vscode/
 Thumbs.db
+__pycache__/
 macro-brain/**/*.onnx
 macro-brain/**/*.pt
 macro-brain/**/*.pth
@@ -37,4 +38,7 @@ macro-brain/.pytest_cache/
 macro-brain/.ruff_cache/
 macro-brain/.venv/
 macro-brain/__pycache__/
+macro-brain/checkpoints/
+macro-brain/tb_logs/
+macro-brain/venv/
 micro-core/target/
