@@ -77,3 +77,43 @@ TerrainGrid resource with inverted integer cost model (hard costs for pathfindin
 
 **Key files:** `micro-core/src/terrain.rs`, `micro-core/src/visibility.rs`, `micro-core/src/systems/visibility.rs`, `micro-core/src/systems/flow_field_update.rs`, `debug-visualizer/visualizer.js`
 **Depends on:** Phase 2 Cycle 1
+
+---
+
+### Phase 3: Multi-Master Arbitration & RL Training
+**Completed:** 2026-04-06 | **Archive:** `.agents/history/20260406_181600_phase_3_multi_master_arbitration_rl_training/`
+
+Multi-Master Arbitration pattern with 3 authority tiers (Engine > AI > Rules). `MacroDirective` enum for 8 strategic actions over ZMQ. `SwarmEnv` Gymnasium environment with `MaskablePPO` (sb3-contrib) training pipeline. 5-stage curriculum with mastery-based transitions, demotion safety net, and progressive action masking. Frenzy is a dual speed+damage buff with cooldown. 8 safety patches (Vaporization Guard, Moses Effect, Ghost State, f32 Sort Panic, Pacifist Flank, Dynamic Epicenter, Sub-Faction Desync, ZMQ Deadlock Guard).
+
+**Key files:** `micro-core/src/bridges/zmq_protocol.rs`, `micro-core/src/systems/directive_executor.rs`, `micro-core/src/config.rs`, `macro-brain/src/env/swarm_env.py`, `macro-brain/src/training/curriculum.py`, `macro-brain/src/training/callbacks.py`, `macro-brain/src/env/rewards.py`
+**Depends on:** Phase 2
+
+---
+
+### Decouple Game Mechanics (Context-Agnostic Refactor)
+**Completed:** 2026-04-07 | **Archive:** `.agents/history/20260407_133007_decouple_game_mechanics/`
+
+Refactored FactionId from string-based "swarm"/"defender" to numeric u32. Health replaced with anonymous StatBlock[8]. All game semantics (combat rules, removal thresholds, navigation targets) moved to config-driven rule resources loaded at runtime via the GameProfile JSON contract. Micro-Core now has zero knowledge of what games it runs.
+
+**Key files:** `micro-core/src/components/faction.rs`, `micro-core/src/components/stat_block.rs`, `micro-core/src/rules/`, `macro-brain/src/config/game_profile.py`, `macro-brain/src/config/definitions.py`
+**Depends on:** Phase 3
+
+---
+
+### File Splitting Refactor (Maintainability)
+**Completed:** 2026-04-07 | **Archive:** `.agents/history/20260407_150245_unnamed_feature/`
+
+Split all oversized source files to comply with 300-line convention. Rust: zmq_bridge/systems.rs (1098→3 files), zmq_protocol.rs (562→directory), directive_executor.rs (507→directory), config.rs (301→directory), flow_field_update.rs safety extraction. Python: game_profile.py definitions extraction, swarm_env.py actions extraction, curriculum.py callbacks split. JS/CSS: draw.js, controls.js, style.css all split into modular directories. Doc tests migrated for pure functions.
+
+**Key files:** `micro-core/src/bridges/zmq_bridge/`, `micro-core/src/bridges/zmq_protocol/`, `micro-core/src/systems/directive_executor/`, `micro-core/src/config/`, `debug-visualizer/js/`, `debug-visualizer/css/`
+**Depends on:** Decouple Game Mechanics
+
+---
+
+### Contextless Audit & Debug Visualizer Contract
+**Completed:** 2026-04-07 | **Archive:** `.agents/history/20260407_172000_contextless_audit_debug_visualizer/`
+
+Finalized decouple refactoring by removing hardcoded legacy fallback logic (navigation bidirectional chase and stat HP defaults) from Micro-Core. Spawning configurable via `SimulationConfig`. Python `GameProfile` now constructs rule sets dynamically during ZMQ resets. Debug visualizer extended with an 'Algorithm Test' panel (Presets, Manual Rules overriding via WS commands) for standalone UI testing minus Python logic.
+
+**Key files:** `micro-core/src/rules/navigation.rs`, `micro-core/src/config/simulation.rs`, `micro-core/src/bridges/zmq_bridge/reset.rs`, `macro-brain/src/config/game_profile.py`, `debug-visualizer/js/controls/algorithm-test.js`
+**Depends on:** File Splitting Refactor

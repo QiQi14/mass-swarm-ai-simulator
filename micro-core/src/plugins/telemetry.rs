@@ -14,10 +14,10 @@
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use crate::bridges::ws_protocol::WsMessage;
 use crate::config::{SimulationConfig, TickCounter};
 use crate::pathfinding::flow_field::FlowFieldRegistry;
 use crate::systems::ws_sync::BroadcastSender;
-use crate::bridges::ws_protocol::WsMessage;
 
 /// Accumulated per-tick performance metrics.
 /// Inserted as a Bevy Resource ONLY by TelemetryPlugin.
@@ -59,7 +59,7 @@ pub fn flow_field_broadcast_system(
         let grid_h = field.height;
 
         let mut vectors = Vec::with_capacity((grid_w * grid_h) as usize);
-        
+
         for y in 0..grid_h {
             for x in 0..grid_w {
                 let wx = x as f32 * field.cell_size + field.cell_size / 2.0;

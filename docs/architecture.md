@@ -42,12 +42,12 @@ The system is a **Tri-Node Decoupled Architecture** — three independent OS pro
 **Role:** The strategic "director" that evaluates the global battlefield and issues high-level commands.
 
 - Wraps the Rust simulation as a standard `gymnasium.Env` via ZeroMQ
-- Trains using PPO (Proximal Policy Optimization) via Ray RLlib
+- Trains using PPO (Proximal Policy Optimization) via Stable-Baselines3 `MaskablePPO`
 - Receives compressed state every N ticks (≈2 Hz), **not** every frame
 - Issues macro-actions: `FLANK_LEFT`, `TRIGGER_FRENZY`, `RETREAT`, etc.
 - Trained model exports to ONNX for production deployment
 
-**Why Python?** The entire ML ecosystem (PyTorch, Ray, Gymnasium) is Python-native. We use Python strictly for training — the trained model is exported to ONNX and runs natively in the game engine.
+**Why Python?** The entire ML ecosystem (PyTorch, SB3, Gymnasium) is Python-native. We use Python strictly for training — the trained model is exported to ONNX and runs natively in the game engine.
 
 ### Debug Visualizer (Browser / HTML5 Canvas)
 

@@ -1,0 +1,190 @@
+/* ── Panel Chrome & Data Display ──────────────────────────────
+   Headers, sections, stats grid, legend, inspector, sparklines.
+   Interactive controls live in controls.css.
+────────────────────────────────────────────────────────────── */
+
+.panel-header {
+    padding: 24px 20px;
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.panel-header h1 {
+    font-size: 20px;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: -0.5px;
+    margin-bottom: 4px;
+}
+
+.panel-header h1 span {
+    color: var(--accent-primary);
+}
+
+.version-badge {
+    background-color: var(--accent-secondary);
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    font-family: var(--font-mono);
+}
+
+.panel-section {
+    padding: 20px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.panel-section:last-child {
+    border-bottom: none;
+}
+
+.panel-section h2 {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: var(--text-dim);
+    margin-bottom: 16px;
+    font-weight: 600;
+}
+
+/* ── Stats Grid ──────────────────────────── */
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.stat-box {
+    background-color: var(--bg-dark);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.stat-box.full-width {
+    grid-column: span 2;
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.stat-label {
+    font-size: 11px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.stat-value {
+    font-size: 18px;
+    font-weight: 600;
+    color: #fff;
+}
+
+.stat-value.mono {
+    font-family: var(--font-mono);
+}
+
+.stat-box.swarm { border-top: 2px solid var(--color-swarm); }
+.stat-box.defender { border-top: 2px solid var(--color-defender); }
+.stat-box.swarm .stat-value { color: var(--color-swarm); }
+.stat-box.defender .stat-value { color: var(--color-defender); }
+
+.stat-with-graph { display: flex; align-items: center; gap: 6px; }
+.sparkline { height: 24px; opacity: 0.8; }
+
+/* ── Legend ───────────────────────────────── */
+
+.legend-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 14px;
+    color: var(--text-main);
+}
+
+.color-swatch {
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    display: inline-block;
+}
+
+.swarm-color {
+    background-color: var(--color-swarm);
+    box-shadow: 0 0 6px rgba(244, 63, 94, 0.5);
+}
+
+.defender-color {
+    background-color: var(--color-defender);
+    box-shadow: 0 0 6px rgba(16, 185, 129, 0.5);
+}
+
+/* ── Inspector ───────────────────────────── */
+
+.inspector-grid {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 4px 12px;
+}
+.inspector-label { color: var(--text-muted); font-size: 0.75rem; }
+.inspector-value { font-size: 0.85rem; }
+
+/* ── Performance Bars ────────────────────── */
+
+.perf-bar-chart { display: flex; flex-direction: column; gap: 4px; }
+.perf-bar-row { display: flex; align-items: center; gap: 8px; }
+.perf-bar-label { width: 80px; font-size: 0.7rem; color: var(--text-muted); }
+.perf-bar-track { flex: 1; height: 12px; background: var(--border-color); border-radius: 6px; overflow: hidden; }
+.perf-bar-fill { height: 100%; border-radius: 6px; }
+.perf-bar-fill.green { background: #30d158; }
+.perf-bar-fill.yellow { background: #ffd60a; }
+.perf-bar-fill.red { background: #ff453a; }
+.perf-bar-value { width: 50px; text-align: right; font-size: 0.7rem; font-family: var(--font-mono); }
+
+/* ── Modal ────────────────────────────── */
+
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.modal-content {
+    background-color: var(--bg-panel);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: 24px;
+    width: 320px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+}
+
+.modal-content h3 {
+    margin-top: 0;
+    font-size: 16px;
+    color: var(--text-main);
+}

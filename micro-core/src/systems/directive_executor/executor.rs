@@ -1,0 +1,221 @@
+//! # Directive Executor
+//!
+//! Processes `MacroDirective` commands from the Python macro-brain.
+//! Maps directives to ECS state mutations (navigation, buffs, retreats, splits).
+//!
+//! ## SAFETY INVARIANTS (v3 Patches)
+//! 1. VAPORIZATION GUARD: directive.take() — consume once, never re-execute
+//! 2. GHOST STATE CLEANUP: MergeFaction purges ALL registry entries for dissolved faction
+//! 3. QUICKSELECT: SplitFaction uses select_nth_unstable_by (O(N), f32-safe)
+
+use crate::bridges::zmq_protocol::{MacroDirective, NavigationTarget};
+use crate::components::{FactionId, Position};
+use crate::config::{
+    ActiveBuffGroup, ActiveModifier, ActiveSubFactions, ActiveZoneModifiers, AggroMaskRegistry,
+    FactionBuffs, ZoneModifier,
+};
+use crate::rules::{NavigationRule, NavigationRuleSet};
+use bevy::prelude::*;
+
+/// Holds the most recently received MacroDirective.
+/// Set by ai_poll_system, consumed by directive_executor_system.
+#[derive(Resource, Debug, Default)]
+pub struct LatestDirective {
+    pub directive: Option<MacroDirective>,
+    /// Tick when the last directive was received from Python.
+    /// Used by ws_sync to determine python_connected status.
+    pub last_received_tick: u64,
+    /// JSON string of the last directive (for visualizer display).
+    pub last_directive_json: Option<String>,
+}
+
+/// Applies the latest MacroDirective to the ECS world.
+///
+/// ## PATCH 1: Vaporization Guard
+/// Uses `latest.directive.take()` to consume the directive.
+pub fn directive_executor_system(
+    mut latest: ResMut<LatestDirective>,
+    mut nav_rules: ResMut<NavigationRuleSet>,
+    mut buffs: ResMut<FactionBuffs>,
+    mut zones: ResMut<ActiveZoneModifiers>,
+    mut aggro: ResMut<AggroMaskRegistry>,
+    mut sub_factions: ResMut<ActiveSubFactions>,
+    mut faction_query: Query<(Entity, &Position, &mut FactionId)>,
+) {
+    let Some(directive) = latest.directive.take() else {
+        return;
+    };
+
+    match directive {
+        MacroDirective::Hold => { /* no-op */ }
+
+        MacroDirective::UpdateNavigation {
+            follower_faction,
+            target,
+        } => {
+            if let Some(rule) = nav_rules
+                .rules
+                .iter_mut()
+                .find(|r| r.follower_faction == follower_faction)
+            {
+                rule.target = target;
+            } else {
+                nav_rules.rules.push(NavigationRule {
+                    follower_faction,
+                    target,
+                });
+            }
+        }
+
+        MacroDirective::ActivateBuff {
+            faction,
+            modifiers,
+            duration_ticks,
+            targets,
+        } => {
+            // Cooldown check
+            if buffs.cooldowns.contains_key(&faction) {
+                return;
+            }
+            let active_mods: Vec<ActiveModifier> = modifiers
+                .iter()
+                .map(|m| ActiveModifier {
+                    stat_index: m.stat_index,
+                    modifier_type: match m.modifier_type {
+                        crate::bridges::zmq_protocol::ModifierType::Multiplier => {
+                            crate::config::ModifierType::Multiplier
+                        }
+                        crate::bridges::zmq_protocol::ModifierType::FlatAdd => {
+                            crate::config::ModifierType::FlatAdd
+                        }
+                    },
+                    value: m.value,
+                })
+                .collect();
+            let group = ActiveBuffGroup {
+                modifiers: active_mods,
+                remaining_ticks: duration_ticks,
+                targets,
+            };
+            // Append to existing groups (faction may have multiple active buff groups)
+            buffs.buffs.entry(faction).or_default().push(group);
+        }
+
+        MacroDirective::Retreat {
+            faction,
+            retreat_x,
+            retreat_y,
+        } => {
+            let target = NavigationTarget::Waypoint {
+                x: retreat_x,
+                y: retreat_y,
+            };
+            if let Some(rule) = nav_rules
+                .rules
+                .iter_mut()
+                .find(|r| r.follower_faction == faction)
+            {
+                rule.target = target;
+            } else {
+                nav_rules.rules.push(NavigationRule {
+                    follower_faction: faction,
+                    target,
+                });
+            }
+        }
+
+        MacroDirective::SetZoneModifier {
+            target_faction,
+            x,
+            y,
+            radius,
+            cost_modifier,
+        } => {
+            zones.zones.push(ZoneModifier {
+                target_faction,
+                x,
+                y,
+                radius,
+                cost_modifier,
+                ticks_remaining: 120, // ~2 seconds at 60 TPS
+            });
+        }
+
+        MacroDirective::SplitFaction {
+            source_faction,
+            new_sub_faction,
+            percentage,
+            epicenter,
+        } => {
+            let epi_vec = Vec2::new(epicenter[0], epicenter[1]);
+
+            let mut candidates: Vec<(Entity, f32)> = faction_query
+                .iter()
+                .filter(|(_, _, f)| f.0 == source_faction)
+                .map(|(entity, pos, _)| {
+                    let dist_sq = Vec2::new(pos.x, pos.y).distance_squared(epi_vec);
+                    (entity, dist_sq)
+                })
+                .collect();
+
+            let split_count = ((candidates.len() as f32) * percentage).round() as usize;
+            if split_count == 0 || split_count > candidates.len() {
+                return;
+            }
+
+            if split_count < candidates.len() {
+                candidates.select_nth_unstable_by(split_count - 1, |a, b| {
+                    a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)
+                });
+            }
+
+            for candidate in candidates.iter().take(split_count) {
+                if let Ok((_, _, mut faction)) = faction_query.get_mut(candidate.0) {
+                    faction.0 = new_sub_faction;
+                }
+            }
+
+            if !sub_factions.factions.contains(&new_sub_faction) {
+                sub_factions.factions.push(new_sub_faction);
+            }
+        }
+
+        MacroDirective::MergeFaction {
+            source_faction,
+            target_faction,
+        } => {
+            for (_, _, mut faction) in faction_query.iter_mut() {
+                if faction.0 == source_faction {
+                    faction.0 = target_faction;
+                }
+            }
+
+            sub_factions.factions.retain(|&f| f != source_faction);
+            nav_rules
+                .rules
+                .retain(|r| r.follower_faction != source_faction);
+            zones.zones.retain(|z| z.target_faction != source_faction);
+            buffs.buffs.remove(&source_faction);
+            aggro
+                .masks
+                .retain(|&(s, t), _| s != source_faction && t != source_faction);
+        }
+
+        MacroDirective::SetAggroMask {
+            source_faction,
+            target_faction,
+            allow_combat,
+        } => {
+            aggro
+                .masks
+                .insert((source_faction, target_faction), allow_combat);
+            aggro
+                .masks
+                .insert((target_faction, source_faction), allow_combat);
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "executor_tests.rs"]
+mod tests;

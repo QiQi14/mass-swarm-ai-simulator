@@ -7,8 +7,12 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css">
-</head>
+    <link rel="stylesheet" href="css/variables.css">
+    <link rel="stylesheet" href="css/layout.css">
+    <link rel="stylesheet" href="css/panels.css">
+    <link rel="stylesheet" href="css/controls.css">
+    <link rel="stylesheet" href="css/canvas.css">
+    <link rel="stylesheet" href="css/animations.css"></head>
 <body>
     <div class="app-container">
         <!-- Main Canvas Area -->
@@ -157,6 +161,74 @@
                     </div>
                     <div id="spawn-hint" class="spawn-hint" style="display: none;">
                         Click on the canvas to place units
+                    </div>
+                </div>
+            </section>
+
+            <section class="panel-section">
+                <h2>Algorithm Test</h2>
+                <div class="spawn-controls">
+                    <div class="spawn-row">
+                        <label class="spawn-label">Preset</label>
+                        <select id="preset-select" class="input-field"></select>
+                    </div>
+                    <p id="preset-description" class="canvas-hint" style="margin: 4px 0 8px 0; display: block; font-size: 0.8em; text-align: left;"></p>
+                    <div class="controls-row" style="margin-bottom: 8px;">
+                        <button id="load-preset-btn" class="btn primary" style="width: 100%;">Load Preset</button>
+                    </div>
+
+                    <div class="controls-row" style="margin-top: 12px; margin-bottom: 8px;">
+                        <button id="toggle-manual-test-btn" class="btn secondary" style="width: 100%;">🔧 Manual Controls</button>
+                    </div>
+                    
+                    <div id="manual-test-controls" style="display: none; flex-direction: column; gap: 8px;">
+                        <div style="border-left: 2px solid var(--border-color); padding-left: 8px;">
+                            <div class="spawn-row">
+                                <label class="spawn-label">Nav</label>
+                                <input type="number" id="nav-follower" class="input-field compact" placeholder="Faction" min="0">
+                            </div>
+                            <div class="spawn-row">
+                                <select id="nav-target-type" class="input-field compact">
+                                    <option value="Faction">Faction</option>
+                                    <option value="Waypoint">Waypoint</option>
+                                </select>
+                                <input type="text" id="nav-target-val" class="input-field" placeholder="ID or X,Y">
+                            </div>
+                            <button id="apply-nav-btn" class="btn secondary" style="width: 100%; margin-top:4px;">Apply Nav Rule</button>
+                        </div>
+                        
+                        <div style="border-left: 2px solid var(--border-color); padding-left: 8px;">
+                            <div class="spawn-row">
+                                <label class="spawn-label">Interact</label>
+                                <input type="number" id="int-src" class="input-field compact" placeholder="Src" min="0">
+                                <input type="number" id="int-tgt" class="input-field compact" placeholder="Tgt" min="0">
+                            </div>
+                            <div class="spawn-row">
+                                <label class="spawn-label">Range</label>
+                                <input type="number" id="int-range" class="input-field compact" placeholder="Range" step="0.5">
+                            </div>
+                            <div class="spawn-row">
+                                <label class="spawn-label">Stat/Δ</label>
+                                <input type="number" id="int-stat" class="input-field compact" placeholder="Stat" min="0">
+                                <input type="number" id="int-delta" class="input-field compact" placeholder="Delta">
+                            </div>
+                            <button id="apply-int-btn" class="btn secondary" style="width: 100%; margin-top:4px;">Apply Interact Rule</button>
+                        </div>
+
+                        <div style="border-left: 2px solid var(--border-color); padding-left: 8px;">
+                            <div class="spawn-row">
+                                <label class="spawn-label">Remove</label>
+                                <input type="number" id="rem-stat" class="input-field compact" placeholder="Stat" min="0">
+                            </div>
+                            <div class="spawn-row">
+                                <select id="rem-cond" class="input-field compact">
+                                    <option value="LessThanEqual">&le;</option>
+                                    <option value="GreaterThanEqual">&ge;</option>
+                                </select>
+                                <input type="number" id="rem-thresh" class="input-field compact" placeholder="Threshold">
+                            </div>
+                            <button id="apply-rem-btn" class="btn secondary" style="width: 100%; margin-top:4px;">Apply Removal Rule</button>
+                        </div>
                     </div>
                 </div>
             </section>
@@ -316,7 +388,19 @@
         </aside>
     </div>
 
-    <!-- The actual visualization logic -->
-    <script src="visualizer.js"></script>
+    <!-- Add Faction Modal -->
+    <div id="add-faction-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-content">
+            <h3>Add Faction</h3>
+            <input type="text" id="add-faction-input" class="input-field" placeholder="Faction name" autocomplete="off">
+            <div class="controls-row" style="margin-top: 10px; justify-content: flex-end; gap: 8px;">
+                <button id="add-faction-cancel" class="btn secondary">Cancel</button>
+                <button id="add-faction-confirm" class="btn primary">Add</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- The actual visualization logic (ES modules) -->
+    <script type="module" src="js/main.js"></script>
 </body>
 </html>

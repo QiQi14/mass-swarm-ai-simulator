@@ -8,7 +8,7 @@ import json
 
 from src.env.swarm_env import SwarmEnv
 from src.env.spaces import (
-    ACTION_HOLD, ACTION_UPDATE_NAV, ACTION_FRENZY, ACTION_RETREAT,
+    ACTION_HOLD, ACTION_UPDATE_NAV, ACTION_ACTIVATE_BUFF, ACTION_RETREAT,
     ACTION_ZONE_MODIFIER, ACTION_SPLIT_FACTION, ACTION_MERGE_FACTION,
     ACTION_SET_AGGRO_MASK, GRID_WIDTH, GRID_HEIGHT
 )
@@ -33,24 +33,31 @@ def test_action_to_directive_update_nav(mock_env):
         "target": {"type": "Faction", "faction_id": mock_env.enemy_faction},
     }
 
-def test_action_to_directive_frenzy(mock_env):
-    directive = mock_env._action_to_directive(ACTION_FRENZY)
+def test_action_to_directive_activate_buff(mock_env):
+    directive = mock_env._action_to_directive(ACTION_ACTIVATE_BUFF)
     assert directive == {
         "type": "macro_directive",
-        "directive": "TriggerFrenzy",
+        "directive": "ActivateBuff",
         "faction": mock_env.brain_faction,
-        "speed_multiplier": 1.5,
-        "duration_ticks": 120,
+        "modifiers": [
+            {"stat_index": 1, "modifier_type": "Multiplier", "value": 1.5},
+            {"stat_index": 2, "modifier_type": "Multiplier", "value": 1.5}
+        ],
+        "duration_ticks": 60,
+        "targets": []
     }
 
 def test_action_to_directive_retreat(mock_env):
+    # With no snapshot, both centroids = (500,500) → overlap fallback: dx=1, dy=0
+    # retreat_x = clamp(500 + 200, 50, 950) = 700.0
+    # retreat_y = clamp(500 + 0, 50, 950)   = 500.0
     directive = mock_env._action_to_directive(ACTION_RETREAT)
     assert directive == {
         "type": "macro_directive",
         "directive": "Retreat",
         "faction": mock_env.brain_faction,
-        "retreat_x": 50.0,
-        "retreat_y": 50.0,
+        "retreat_x": 700.0,
+        "retreat_y": 500.0,
     }
 
 @patch.object(SwarmEnv, "_get_density_centroid")
@@ -127,7 +134,7 @@ def test_patch6_dynamic_epicenter_uses_centroid(mock_env):
 def test_patch7_sub_factions_from_snapshot(mock_env):
     """Regression test for P7: sub-factions from ground truth"""
     mock_env._last_snapshot = {"active_sub_factions": [101, 105]}
-    mock_env._socket.recv_string.return_value = json.dumps({"active_sub_factions": [101, 105], "summary": {}, "density_maps": {}})
+    mock_env._socket.recv_string.return_value = json.dumps({"type": "state_snapshot", "active_sub_factions": [101, 105], "summary": {}, "density_maps": {}})
     mock_env.step(ACTION_HOLD)
     assert mock_env._active_sub_factions == [101, 105]
 
@@ -161,8 +168,9 @@ def test_patch8_intervention_swallowing(mock_env):
     
     # Mock recv_string to return intervention first, then normal tick
     mock_env._socket.recv_string.side_effect = [
-        json.dumps({"tick": 1, "intervention_active": True}),
-        json.dumps({"tick": 2, "intervention_active": False, "summary": {}, "density_maps": {}})
+        json.dumps({"type": "state_snapshot", "tick": 0, "summary": {}, "density_maps": {}}),
+        json.dumps({"tick": 1, "type": "intervention", "intervention_active": True}),
+        json.dumps({"tick": 2, "type": "state_snapshot", "intervention_active": False, "summary": {}, "density_maps": {}})
     ]
     
     mock_env.step(ACTION_HOLD)
@@ -183,4 +191,4 @@ def test_patch8_zmq_timeout_truncates(mock_env):
     
     assert truncated is True
     assert terminated is False
-    assert info == {"error": "ZMQ_TIMEOUT"}
+    assert info == {"zmq_timeout": True}

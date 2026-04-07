@@ -40,8 +40,19 @@ mod tests {
         let deserialized: Position = serde_json::from_str(&json).unwrap();
 
         // Assert
-        assert!((original.x - deserialized.x).abs() < f32::EPSILON, "x should match after roundtrip, got {}", deserialized.x);
-        assert!((original.y - deserialized.y).abs() < f32::EPSILON, "y should match after roundtrip, got {}", deserialized.y);
-        assert_eq!(original, deserialized, "Position should be equal after JSON roundtrip");
+        assert!(
+            (original.x - deserialized.x).abs() < f32::EPSILON,
+            "x should match after roundtrip, got {}",
+            deserialized.x
+        );
+        assert!(
+            (original.y - deserialized.y).abs() < f32::EPSILON,
+            "y should match after roundtrip, got {}",
+            deserialized.y
+        );
+        assert_eq!(
+            original, deserialized,
+            "Position should be equal after JSON roundtrip"
+        );
     }
 }

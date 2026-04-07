@@ -22,11 +22,12 @@ pub struct FactionBehaviorMode {
 }
 
 impl Default for FactionBehaviorMode {
-    /// Swarm demo default: faction 1 (defenders) starts in static mode.
+    /// Default: all factions use flow field navigation (brain-driven).
+    /// The debug visualizer can toggle individual factions to static mode.
     fn default() -> Self {
-        let mut static_factions = HashSet::new();
-        static_factions.insert(1);
-        Self { static_factions }
+        Self {
+            static_factions: HashSet::new(),
+        }
     }
 }
 
@@ -37,7 +38,9 @@ mod tests {
     #[test]
     fn test_faction_behavior_mode_default() {
         let mode = FactionBehaviorMode::default();
-        assert!(mode.static_factions.contains(&1));
-        assert!(!mode.static_factions.contains(&0));
+        assert!(
+            mode.static_factions.is_empty(),
+            "Default should have no static factions"
+        );
     }
 }

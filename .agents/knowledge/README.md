@@ -27,15 +27,17 @@ knowledge/
 
 ---
 
-## `bevy/` — Bevy Engine Gotchas (10 files)
+## `bevy/` — Bevy Engine Gotchas (12 files)
 
 | File | Severity | Summary |
 |------|----------|---------|
 | `architecture_bevy_mpsc_receiver_sync.md` | high | `mpsc::Receiver` needs `Mutex` wrapper to satisfy Bevy `Resource` `Sync` requirement |
+| `gotcha_bevy_16_parameter_limit.md` | medium | Group parameters into tuples when a Bevy system needs more than 16 attributes |
 | `architecture_engine_override_ws_sync_gap.md` | low | `EntityState` WS protocol does not include `has_override` — visualizer marker won't activate until field is added |
 | `convention_flowfield_fog_of_war.md` | medium | Flow field goals must be filtered by follower faction's visible cells for fog-of-war |
 | `deprecation_bevy_18_features.md` | high | Bevy 0.18 removed `bevy_log` and `bevy_winit` — use `default-features = false` |
 | `gotcha_bevy_018_test_query.md` | high | Bevy 0.18 removed `Query::get_single` — use `query.single()` instead |
+| `gotcha_bevy_hashmap_import.md` | medium | Use `bevy::utils::HashMap` not `std::collections::HashMap` for deterministic iteration in Bevy systems |
 | `gotcha_bevy_schedule_runner_macos.md` | high | `ScheduleRunnerPlugin` on macOS causes 40% TPS degradation — use custom runner |
 | `gotcha_bevy_state_unit_tests.md` | high | Must add `StatesPlugin` and call `app.update()` twice for state transitions in tests |
 | `gotcha_broadcast_lagged_kills_forwarder.md` | medium | Broadcast channel `Lagged` error kills the forwarder task — must handle gracefully |
@@ -66,12 +68,14 @@ knowledge/
 | `gotcha_basic_tier_context_ignorance.md` | high | `basic` tier models skip `Context_Bindings` — inline critical rules in the task brief |
 | `gotcha_never_manually_archive_tasks.md` | critical | **NEVER** manually `mv` task files — always use `./task_tool.sh complete` → auto-archive. Manual moves lose audit trail and skip state validation. |
 | `gotcha_parallel_task_missing_resource.md` | medium | When a dependency isn't merged from a parallel task, locally stub it inside the target file and document it in the changelog |
+| `gotcha_strict_scope_vs_file_size.md` | high | **Conflict:** Strict Scope rule prevents executors from creating files to meet file size limits. Planner must pre-authorize extra files, or Executor must stop & ask. |
 
-## `python/` — Python Gotchas (2 files)
+## `python/` — Python Gotchas (3 files)
 
 | File | Severity | Summary |
 |------|----------|---------|
 | `gotcha_hyphen_module_name.md` | medium | `macro-brain` directory hyphen prevents Python module imports — must use `PYTHONPATH=.` and `from src.*` imports |
+| `gotcha_pytest_zmq_mock_missing_keys.md` | high | ZMQ mocked while-loops will freeze pytest without exact loop-terminating keys (e.g. `{"type": "state_snapshot"}`) |
 | `gotcha_terrain_payload_format_mismatch.md` | ~~high~~ RESOLVED | ~~Python `generate_random_terrain` returns `{"costs"}` but Rust `TerrainPayload` expects `{"hard_costs", "soft_costs", "cell_size"}`~~ — FIXED: generator now returns `{hard_costs, soft_costs, width, height, cell_size}` |
 
 ---

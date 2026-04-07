@@ -52,10 +52,13 @@ mod tests {
     fn test_stat_block_default_is_zeros() {
         // Arrange & Act
         let block = StatBlock::default();
-        
+
         // Assert
         for &val in &block.0 {
-            assert!((val - 0.0).abs() < f32::EPSILON, "Default stat should be 0.0");
+            assert!(
+                (val - 0.0).abs() < f32::EPSILON,
+                "Default stat should be 0.0"
+            );
         }
     }
 
@@ -63,23 +66,26 @@ mod tests {
     fn test_stat_block_with_defaults() {
         // Arrange & Act
         let block = StatBlock::with_defaults(&[(0, 1.0), (3, 5.5)]);
-        
+
         // Assert
         assert!((block.0[0] - 1.0).abs() < f32::EPSILON);
         assert!((block.0[1] - 0.0).abs() < f32::EPSILON);
         assert!((block.0[3] - 5.5).abs() < f32::EPSILON);
     }
-    
+
     #[test]
     fn test_stat_block_serde_roundtrip() {
         // Arrange
         let original = StatBlock::with_defaults(&[(0, 0.5)]);
-        
+
         // Act
         let json = serde_json::to_string(&original).unwrap();
         let deserialized: StatBlock = serde_json::from_str(&json).unwrap();
-        
+
         // Assert
-        assert_eq!(original, deserialized, "StatBlock should survive JSON roundtrip");
+        assert_eq!(
+            original, deserialized,
+            "StatBlock should survive JSON roundtrip"
+        );
     }
 }

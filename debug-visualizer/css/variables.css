@@ -1,0 +1,42 @@
+:root {
+    /* Color Palette */
+    --bg-dark: #090a0f;
+    --bg-panel: #141722;
+    --bg-panel-hover: #1c202d;
+    --bg-input: #0f121a;
+
+    --text-main: #e2e8f0;
+    --text-muted: #94a3b8;
+    --text-dim: #475569;
+
+    --border-color: #293042;
+    --border-light: #3b445e;
+
+    --accent-primary: #3b82f6;
+    --accent-primary-hover: #2563eb;
+    --accent-secondary: #334155;
+    --accent-secondary-hover: #475569;
+
+    /* Entity Colors */
+    --color-swarm: #f43f5e;     /* Rose red */
+    --color-defender: #10b981;  /* Emerald green */
+
+    /* Status Colors */
+    --status-connected: #10b981;
+    --status-disconnected: #f43f5e;
+    --status-reconnecting: #f59e0b;
+
+    /* Typography */
+    --font-ui: 'Inter', system-ui, -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', 'Courier New', monospace;
+
+    /* Sizing */
+    --sidebar-width: 340px;
+    --radius-sm: 4px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+
+    /* Shadows */
+    --shadow-panel: 0 4px 20px rgba(0, 0, 0, 0.4);
+    --shadow-glow: 0 0 15px rgba(59, 130, 246, 0.3);
+}

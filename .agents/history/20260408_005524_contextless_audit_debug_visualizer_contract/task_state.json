@@ -1,0 +1,86 @@
+{
+  "feature": "Contextless Audit + Debug Visualizer Contract",
+  "global_status": "ALL_COMPLETE",
+  "total_tasks": 7,
+  "created_at": "2026-04-07T16:43:35+00:00",
+  "updated_at": "2026-04-07T17:55:24+00:00",
+  "tasks": [
+    {
+      "task_id": "task_a1_navigation_rules_payload",
+      "status": "COMPLETE",
+      "phase": "",
+      "source_file": "tasks_pending/task_a1_navigation_rules_payload.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-07T17:39:43+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-07T17:55:24+00:00"
+    },
+    {
+      "task_id": "task_a2_nav_ruleset_default_empty",
+      "status": "COMPLETE",
+      "phase": "",
+      "source_file": "tasks_pending/task_a2_nav_ruleset_default_empty.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-07T16:49:29+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-07T17:13:17+00:00"
+    },
+    {
+      "task_id": "task_a3_python_nav_rules",
+      "status": "COMPLETE",
+      "phase": "",
+      "source_file": "tasks_pending/task_a3_python_nav_rules.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-07T17:47:38+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-07T17:55:24+00:00"
+    },
+    {
+      "task_id": "task_a4_configurable_spawning",
+      "status": "COMPLETE",
+      "phase": "",
+      "source_file": "tasks_pending/task_a4_configurable_spawning.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-07T16:50:09+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-07T17:13:17+00:00"
+    },
+    {
+      "task_id": "task_a5_remove_stat_fallback",
+      "status": "COMPLETE",
+      "phase": "",
+      "source_file": "tasks_pending/task_a5_remove_stat_fallback.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-07T16:55:24+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-07T17:13:17+00:00"
+    },
+    {
+      "task_id": "task_b1_ws_rule_commands",
+      "status": "COMPLETE",
+      "phase": "",
+      "source_file": "tasks_pending/task_b1_ws_rule_commands.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-07T17:39:26+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-07T17:55:24+00:00"
+    },
+    {
+      "task_id": "task_b2_debug_test_panel",
+      "status": "COMPLETE",
+      "phase": "",
+      "source_file": "tasks_pending/task_b2_debug_test_panel.md",
+      "fail_reason": null,
+      "started_at": "2026-04-07T17:23:05+00:00",
+      "completed_at": "2026-04-07T17:23:11+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-07T17:23:11+00:00"
+    }
+  ]
+}

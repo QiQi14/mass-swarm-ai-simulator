@@ -58,6 +58,9 @@ mod tests {
         let deserialized: EntityId = serde_json::from_str(&json).unwrap();
 
         // Assert
-        assert_eq!(original, deserialized, "EntityId should be equal after JSON roundtrip");
+        assert_eq!(
+            original, deserialized,
+            "EntityId should be equal after JSON roundtrip"
+        );
     }
 }

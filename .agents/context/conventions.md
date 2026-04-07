@@ -59,6 +59,75 @@
 - **Health:** Normalized `0.0` to `1.0`
 - **Team values:** `"swarm"` or `"defender"` (lowercase string in JSON)
 
+## File Organization & Module Splitting
+
+> Applies to ALL languages in this project: Rust, Python, JavaScript.
+
+### When to Split
+
+A source file **MUST** be split when it meets **ANY** of:
+
+| Trigger | Threshold |
+|---------|-----------|
+| Lines (excluding tests) | **> 300 lines** |
+| Distinct concerns | **3+ concerns** (e.g., data types + I/O + business logic) |
+| Parallel agent collision | Multiple agents need different parts of the same file |
+
+### When NOT to Split
+
+A file **MAY** remain as a single module when:
+- It is under 300 lines
+- All items are tightly coupled (single class/system + its helpers + its tests)
+- Splitting would create modules with only 1-2 items each
+
+### If Not Splitting: Document Why
+
+If a file exceeds 300 lines but you choose NOT to split, add a rationale at the top:
+
+**Rust:**
+```rust
+//! This module is intentionally kept as a single file because [reason].
+```
+
+**Python:**
+```python
+# NOTE: This module exceeds 300 lines but is not split because [reason].
+```
+
+**JavaScript:**
+```javascript
+// NOTE: This file exceeds 300 lines but is not split because [reason].
+```
+
+### Language-Specific Split Patterns
+
+**Rust:** Use submodule directories with `mod.rs` re-exports. See `rust-code-standards` skill → Part 4 for concrete patterns.
+
+**Python:** Use packages (`__init__.py` + focused modules). Example:
+```
+config/
+├── __init__.py         # from .game_profile import GameProfile, ...
+├── game_profile.py     # GameProfile class + loader
+├── dataclasses.py      # MovementConfigDef, AbilitiesDef, etc.
+└── serializers.py      # Payload serialization helpers
+```
+
+**JavaScript:** Use ES module files with a barrel `index.js`. Example:
+```
+visualizer/
+├── index.js            // import/export barrel
+├── canvas.js           // Canvas rendering logic
+├── websocket.js        // WS connection + message handling
+├── ui-panels.js        // DOM panel management
+└── state.js            // Client-side state tracking
+```
+
+### Planning Implications
+
+When the Planner creates a task that will produce a file with 3+ concerns:
+1. **Pre-split** — Define the submodule structure in the task brief
+2. OR **Document** — Add a note: "Single file acceptable because [reason]"
+
 ## Project-Specific Patterns
 - **Bevy headless mode:** Always use `MinimalPlugins` + `ScheduleRunnerPlugin` — never `DefaultPlugins`
 - **Tick-based simulation:** All game logic operates on discrete ticks (60 TPS), not wall-clock time

@@ -1,25 +1,44 @@
+"""Exploit-Proof Zero-Sum Reward Function.
+
+All reward weights are read from the GameProfile's RewardWeights contract.
+No hardcoded constants — swap the profile to change the reward landscape.
+
+Design principles:
+1. NO free reward for existing (kills Coward Policy)
+2. Large terminal bonuses for win/loss
+3. Per-step reward only from combat (kills, deaths)
+4. Time pressure forces engagement
+5. Surplus survival bonus on win
+
+Gradient guarantee: Clean Win > Bloody Win > Timeout > Loss
+
+## Exploit Mitigations
+- Drip-Feed: No engagement bonus — kills/deaths are the only combat currency
+- Pyrrhic Timeout: Win has flat base ensuring any win > timeout
+- Coward: Time pressure makes idling net-negative
+"""
+
+from __future__ import annotations
+
 import numpy as np
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from src.config.definitions import RewardWeights
+
 
 def flanking_bonus(
     own_density: np.ndarray,
     sub_faction_density: np.ndarray,
     enemy_density: np.ndarray,
-    max_engage_radius: float = 15.0,  # Grid cells (~300 world units at 20px/cell)
+    max_engage_radius: float = 15.0,
 ) -> float:
     """Detect and reward flanking maneuvers with combat proximity guard.
 
     ## PATCH 5: Pacifist Flank Exploit Prevention
-    The original implementation only checked projection geometry, not distance.
-    An RL agent would exploit this by sending a sub-faction to the map corner,
-    aligned with the projection axis, earning infinite flanking points while
-    completely out of combat range.
-
-    ## Fix
     1. Distance cutoff: sub-faction centroid must be within max_engage_radius
        of enemy centroid (in grid cells).
     2. Distance attenuation: reward decays linearly as distance increases.
-       A flank at point-blank range gets full bonus; a flank at the edge
-       of engage range gets near-zero bonus.
 
     Returns 0.0-1.0 (bonus only, never negative).
     """
@@ -39,20 +58,13 @@ def flanking_bonus(
     if main_c is None or sub_c is None or enemy_c is None:
         return 0.0
 
-    # ═══════════════════════════════════════════════════════════════
-    # PATCH 5a: Combat Proximity Check
-    # Sub-faction MUST be within engagement range of the enemy.
-    # Without this, the agent parks the sub-faction at the map corner
-    # and collects free flanking points forever.
-    # ═══════════════════════════════════════════════════════════════
     dist_sub_to_enemy = (
         (sub_c[0] - enemy_c[0])**2 + (sub_c[1] - enemy_c[1])**2
     )**0.5
 
     if dist_sub_to_enemy > max_engage_radius:
-        return 0.0  # Too far away — no flanking credit
+        return 0.0
 
-    # Vector projection (existing logic)
     main_to_enemy = (enemy_c[0] - main_c[0], enemy_c[1] - main_c[1])
     main_to_sub = (sub_c[0] - main_c[0], sub_c[1] - main_c[1])
 
@@ -69,13 +81,6 @@ def flanking_bonus(
         projection_ratio = dot / (main_to_enemy_len**2)
         if projection_ratio > 1.0:
             raw_bonus = min(projection_ratio - 1.0, 1.0)
-
-            # ═══════════════════════════════════════════════════════
-            # PATCH 5b: Distance Attenuation
-            # Reward decays linearly with distance to enemy.
-            # At dist=0: full bonus. At dist=max_engage_radius: zero.
-            # This prevents "barely in range" passive flanking.
-            # ═══════════════════════════════════════════════════════
             proximity_multiplier = max(
                 0.0,
                 (max_engage_radius - dist_sub_to_enemy) / max_engage_radius
@@ -88,83 +93,68 @@ def flanking_bonus(
 def compute_shaped_reward(
     snapshot: dict,
     prev_snapshot: dict | None,
-    brain_faction: int = 0,
-    enemy_faction: int = 1,
-    weights: dict | None = None,
+    brain_faction: int,
+    enemy_faction: int,
+    reward_weights: RewardWeights | None = None,
+    starting_entities: float = 50.0,
 ) -> float:
-    """Compute shaped reward from state transition."""
-    w = weights or {
-        "survival": 0.25,
-        "kill": 0.25,
-        "territory": 0.15,
-        "health": 0.15,
-        "flanking": 0.20,
-    }
+    """Exploit-proof zero-sum reward function.
 
-    survival = 0.0
-    kill = 0.0
-    territory = 0.0
-    health_delta = 0.0
+    Args:
+        snapshot: Current state snapshot from Rust.
+        prev_snapshot: Previous state snapshot (None on first step).
+        brain_faction: Faction ID controlled by the RL agent.
+        enemy_faction: Faction ID of the bot opponent.
+        reward_weights: Weights from the game profile. Uses defaults if None.
+        starting_entities: Initial entity count per faction (from profile).
+
+    Returns:
+        Shaped reward for this step.
+    """
+    # Lazily import to avoid circular dependency
+    if reward_weights is None:
+        from src.config.definitions import RewardWeights
+        reward_weights = RewardWeights(
+            time_penalty_per_step=-0.01,
+            kill_reward=0.05,
+            death_penalty=-0.03,
+            win_terminal=10.0,
+            loss_terminal=-10.0,
+            survival_bonus_multiplier=5.0,
+        )
 
     own_key = str(brain_faction)
     enemy_key = str(enemy_faction)
+    reward = 0.0
 
-    # 1. Survival & Kill & Health Delta
+    # ── 1. TIME PRESSURE (Anti-Coward) ────────────────────────
+    reward += reward_weights.time_penalty_per_step
+
     if prev_snapshot is not None:
-        prev_summary = prev_snapshot.get("summary", {})
-        curr_summary = snapshot.get("summary", {})
-        
-        prev_counts = prev_summary.get("faction_counts", {})
-        curr_counts = curr_summary.get("faction_counts", {})
+        prev_counts = prev_snapshot.get("summary", {}).get("faction_counts", {})
+        curr_counts = snapshot.get("summary", {}).get("faction_counts", {})
 
-        prev_own = prev_counts.get(own_key, 0)
-        curr_own = curr_counts.get(own_key, 0)
-        prev_enemy = prev_counts.get(enemy_key, 0)
-        curr_enemy = curr_counts.get(enemy_key, 0)
+        prev_own = prev_counts.get(own_key, prev_counts.get(int(own_key), 0))
+        curr_own = curr_counts.get(own_key, curr_counts.get(int(own_key), 0))
+        prev_enemy = prev_counts.get(enemy_key, prev_counts.get(int(enemy_key), 0))
+        curr_enemy = curr_counts.get(enemy_key, curr_counts.get(int(enemy_key), 0))
 
-        # Reward staying alive
-        if curr_own > 0:
-            survival = 1.0
-        
-        # Reward eliminating enemies
-        if prev_enemy > curr_enemy:
-            # normalized roughly assuming small step decrements
-            kill = min(float(prev_enemy - curr_enemy) / 10.0, 1.0)
-            
-        # Health delta
-        prev_avg = prev_summary.get("faction_avg_stats", {})
-        curr_avg = curr_summary.get("faction_avg_stats", {})
-        
-        prev_h = prev_avg.get(own_key, [0.0])[0] if own_key in prev_avg else 0.0
-        curr_h = curr_avg.get(own_key, [0.0])[0] if own_key in curr_avg else 0.0
-        
-        health_delta = max(min(float(curr_h - prev_h) / 10.0, 1.0), -1.0)
+        # ── 2. COMBAT TRADING (Aggression Incentive) ──────────
+        enemies_killed = max(0, prev_enemy - curr_enemy)
+        own_lost = max(0, prev_own - curr_own)
 
-    # 2. Territory
-    density_maps = snapshot.get("density_maps", {})
-    if own_key in density_maps:
-        arr = np.array(density_maps[own_key])
-        territory = min(float(np.count_nonzero(arr > 0.01)) / (50.0 * 50.0), 1.0)
+        reward += enemies_killed * reward_weights.kill_reward
+        reward += own_lost * reward_weights.death_penalty  # death_penalty is negative
 
-    # 3. Flanking bonus (uses patched version with proximity guard)
-    flank = 0.0
-    sub_factions = snapshot.get("active_sub_factions", [])
+        # ── 3. TERMINAL: WIN ─────────────────────────────────
+        if curr_enemy == 0 and curr_own > 0:
+            survival_ratio = curr_own / starting_entities
+            reward += reward_weights.win_terminal + (
+                reward_weights.survival_bonus_multiplier * survival_ratio
+            )
 
-    if own_key in density_maps and enemy_key in density_maps and sub_factions:
-        own_grid = np.array(density_maps[own_key]).reshape(50, 50)
-        enemy_grid = np.array(density_maps[enemy_key]).reshape(50, 50)
+        # ── 4. TERMINAL: LOSS ─────────────────────────────────
+        elif curr_own == 0 and prev_own > 0:
+            reward += reward_weights.loss_terminal  # loss_terminal is negative
 
-        for sf in sub_factions:
-            sf_key = str(sf)
-            if sf_key in density_maps:
-                sf_grid = np.array(density_maps[sf_key]).reshape(50, 50)
-                flank = max(flank, flanking_bonus(own_grid, sf_grid, enemy_grid))
-
-    total = (
-        w["survival"] * survival
-        + w["kill"] * kill
-        + w["territory"] * territory
-        + w["health"] * health_delta
-        + w["flanking"] * flank
-    )
-    return float(total)
+    return float(reward)

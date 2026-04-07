@@ -16,15 +16,18 @@
 use bevy::prelude::*;
 use bevy_state::app::AppExtStates;
 use bevy_state::prelude::*;
-use std::sync::{mpsc, Mutex};
+use std::sync::{Mutex, mpsc};
 
 use crate::systems::directive_executor::LatestDirective;
 
 pub mod config;
 mod io_loop;
-mod systems;
+pub(crate) mod reset;
+pub(crate) mod snapshot;
+pub(crate) mod systems;
 
 pub use config::{AiBridgeChannels, AiBridgeConfig, SimState};
+pub use reset::{PendingReset, ResetRequest};
 
 /// Bevy plugin that initializes the ZMQ AI bridge.
 ///
@@ -48,6 +51,7 @@ impl Plugin for ZmqBridgePlugin {
 
         // LatestDirective bridges ai_poll_system (writes) → directive_executor_system (reads)
         app.init_resource::<LatestDirective>();
+        app.init_resource::<PendingReset>();
 
         app.init_state::<SimState>()
             .insert_resource(config)
@@ -60,6 +64,7 @@ impl Plugin for ZmqBridgePlugin {
                 (
                     systems::ai_trigger_system.run_if(in_state(SimState::Running)),
                     systems::ai_poll_system.run_if(in_state(SimState::WaitingForAI)),
+                    reset::reset_environment_system,
                 ),
             );
     }

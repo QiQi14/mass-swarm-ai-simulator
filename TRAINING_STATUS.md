@@ -58,7 +58,7 @@
 - ✅ State Vectorizer (50×50 density heatmaps per faction)
 - ✅ `SwarmEnv` (Gymnasium-compatible, 13 safety tests)
 - ✅ `MaskablePPO` training with `sb3-contrib`
-- ✅ 2-Stage Curriculum (flat → procedural terrain)
+- ✅ 5-Stage Curriculum (flat → procedural terrain → complex management)
 - ✅ Terrain Generator (3-tier encoding, BFS connectivity)
 - ✅ Reward Shaping (Pacifist Flank exploit blocked)
 - ✅ 3-Tier Interactable Terrain (Passable/Destructible/Permanent)
@@ -73,9 +73,10 @@
 |-----------|-------|
 | Map | Flat 1000×1000 |
 | Opponent | Heuristic Bot (Faction 1, Rust-controlled) |
-| Actions | 0-3 only (Hold, UpdateNav, Frenzy, Retreat) |
-| Actions 4-7 | **MASKED** (MaskablePPO prevents selection) |
+| Actions | 0-2 only (Hold, UpdateNav, Frenzy) |
+| Locked actions | **MASKED** (Retreat locked to force combat; Actions 4-7 locked to flat map) |
 | Terrain | None (flat) |
+| Spawning | Fixed starting scenarios via `get_stage1_spawns` |
 | Promotion | `mean_reward > 0.3` over 50-episode window |
 
 ### Stage 2 — Domain Randomization
@@ -83,9 +84,12 @@
 |-----------|-------|
 | Map | Procedural (walls, chokepoints, swamps) |
 | Opponent | Same heuristic bot |
-| Actions | All 8 (full vocabulary unlocked) |
+| Actions | 0-3 (Hold, UpdateNav, Frenzy, Retreat) — Retreat unlocked |
 | Terrain | 60% permanent walls, 40% destructible |
+| Spawning | Dynamic procedural spreading via `get_stage2_spawns` |
 | Wall types | Tier 1 (breakable by zone modifiers), Tier 2 (indestructible) |
+
+*(Note: Stages 3-5 continue incrementally unlocking the full 8-action vocabulary and advanced mechanics depending on curriculum progression).*
 
 ### Hyperparameters
 | Parameter | Value |
@@ -95,7 +99,52 @@
 | Observation | 4×50×50 density + 50×50 terrain + 6-dim summary |
 | Actions | `Discrete(8)` |
 | AI Frequency | 2 Hz (every 30 ticks) |
-| Max Steps | 200 per episode |
+| Max Steps | 500 per episode (increased for more dynamic exploration) |
+| Entities | 300 vs 300 (600 total) |
+
+---
+
+## Reward Calculation
+
+The reward is a **weighted sum of 5 components**, computed each step from the state transition `(prev_snapshot → snapshot)`. All components are normalized to `[0.0, 1.0]` (or `[-1.0, 1.0]` for health delta) before weighting.
+
+### Formula
+```
+reward = 0.25 × survival + 0.25 × kill + 0.15 × territory + 0.15 × health_Δ + 0.20 × flanking
+```
+
+### Components
+
+| # | Component | Weight | Range | Signal |
+|---|-----------|--------|-------|--------|
+| 1 | **Survival** | 0.25 | [0, 1] | `1.0` if own faction count > 0, else `0.0` |
+| 2 | **Kill** | 0.25 | [0, 1] | `min((prev_enemy − curr_enemy) / 10, 1.0)` — big burst kills = high reward |
+| 3 | **Territory** | 0.15 | [0, 1] | `nonzero_cells / 2500` — fraction of 50×50 grid with own density > 0.01 |
+| 4 | **Health Delta** | 0.15 | [-1, 1] | `clamp((curr_avg_health − prev_avg_health) / 10, -1, 1)` — penalizes health loss |
+| 5 | **Flanking Bonus** | 0.20 | [0, 1] | Max flanking score across all active sub-factions (see below) |
+
+### Flanking Bonus (P5-Protected)
+
+Measures how effectively a sub-faction has outflanked the enemy:
+
+1. **Compute centroids** of main faction, sub-faction, and enemy from density grids
+2. **Cosine similarity** between (main→enemy) and (main→sub) vectors
+3. **Projection check**: sub-faction must be *beyond* the enemy (projection ratio > 1.0)
+4. **P5a: Distance cutoff** — sub-faction must be within 15 grid cells (~300 world units) of enemy centroid, otherwise `0.0`
+5. **P5b: Distance attenuation** — bonus decays linearly: `(max_range − dist) / max_range`
+6. Final: `raw_bonus × proximity_multiplier`
+
+> This prevents the "Pacifist Flank" exploit where the agent parks a sub-faction at the map corner for free geometry-based reward.
+
+### Reward Interpretation
+
+| Scenario | Expected Reward |
+|----------|----------------|
+| Idle (both alive, no kills) | ~0.25 (survival only) |
+| Killing enemies | 0.25 + 0.25 = ~0.50 |
+| Killing + territory control | ~0.65 |
+| Full flank + kills | ~0.85 |
+| Dead (own faction = 0) | 0.0 |
 
 ---
 
@@ -167,9 +216,8 @@ tensorboard --logdir=./tb_logs/
 
 All Phase 3 task briefs, changelogs, QA reports, dispatch prompts, and implementation plans are archived in:
 ```
-.agents/history/20260406_phase3_multi_master_arbitration_rl_training/
-├── dispatch/     ← 12 executor prompt files
-├── plans/        ← 6 implementation plan files
-├── tasks/        ← 35 task briefs + changelogs + QA reports
-└── task_state_final.json
+.agents/history/20260406_181600_phase_3_multi_master_arbitration_rl_training/
+├── implementation_plan*.md   ← 6 plan files
+├── task_state.json           ← final state (all 12 COMPLETE)
+└── tasks_pending/            ← 35 task briefs + changelogs + QA reports
 ```

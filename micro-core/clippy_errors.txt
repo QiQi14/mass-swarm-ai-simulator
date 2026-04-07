@@ -1,0 +1,15 @@
+    Checking micro-core v0.1.0 (/Users/manifera/Documents/Study/mass-swarm-ai-simulator/micro-core)
+src/bridges/zmq_bridge/snapshot.rs:185:5: warning: this function has too many arguments (10/7)
+src/bridges/zmq_bridge/snapshot.rs:483:9: warning: used `assert_eq!` with a literal bool
+src/config/simulation.rs:107:9: warning: used `assert_eq!` with a literal bool
+src/pathfinding/flow_field.rs:406:29: warning: this operation has no effect: help: consider reducing it to: `5`
+src/systems/directive_executor/executor_tests.rs:267:5: warning: used `assert_eq!` with a literal bool
+src/systems/directive_executor/executor_tests.rs:268:5: warning: used `assert_eq!` with a literal bool
+src/systems/spawning.rs:73:9: warning: field assignment outside of initializer for an instance created with Default::default()
+src/systems/spawning.rs:113:9: warning: field assignment outside of initializer for an instance created with Default::default()
+src/systems/ws_command.rs:773:9: warning: used `assert_eq!` with a literal bool
+src/systems/ws_command.rs:777:9: warning: used `assert_eq!` with a literal bool
+src/bridges/zmq_bridge/systems.rs:329:26: warning: useless use of `vec!`
+src/pathfinding/flow_field.rs:461:57: warning: useless use of `vec!`: help: you can use a slice directly: `&[100; 25]`
+warning: `micro-core` (lib test) generated 12 warnings (run `cargo clippy --fix --lib -p micro-core --tests` to apply 9 suggestions)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.79s

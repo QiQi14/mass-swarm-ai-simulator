@@ -51,3 +51,4 @@
 
 > [!IMPORTANT]
 > The Micro-Core must be running before either client node can connect. There is no retry/reconnect logic in the prototype phase.
+

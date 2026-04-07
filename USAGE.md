@@ -38,6 +38,7 @@ Press `Ctrl+C` to stop all services.
 
 ```bash
 ./dev.sh                # Normal dev mode
+./dev.sh --watch        # Visualizer only (no Rust core)
 ./dev.sh --smoke        # Run 300-tick smoke test, then exit
 ./dev.sh --release      # Build with release optimizations
 ./dev.sh --prod         # Production build (no debug telemetry)
@@ -216,31 +217,94 @@ lsof -ti:3000 | xargs kill   # Kill HTTP port user
 mass-swarm-ai-simulator/
 ├── dev.sh                          # ← Start here
 ├── USAGE.md                        # ← You are here
+├── TRAINING_STATUS.md              # Training run tracker
+├── ROADMAP.md                      # Phase roadmap (1-3 ✅, 4-5 ⬜)
+├── CASE_STUDY.md                   # Original technical design document
 ├── micro-core/                     # Rust simulation engine
 │   ├── Cargo.toml                  # Features: debug-telemetry
 │   └── src/
 │       ├── main.rs                 # Bevy app entry point
 │       ├── lib.rs                  # Module barrel
-│       ├── config.rs               # SimulationConfig, resources
-│       ├── plugins/
-│       │   ├── mod.rs              # #[cfg(feature)] gates
-│       │   └── telemetry.rs        # PerfTelemetry + TelemetryPlugin
-│       ├── components/             # ECS components
+│       ├── config.rs               # SimulationConfig, Phase 3 resources
+│       ├── terrain.rs              # 3-tier terrain (Passable/Destructible/Permanent)
+│       ├── visibility.rs           # Bit-packed Fog of War
+│       ├── plugins/                # Conditional compilation gates
+│       ├── components/             # ECS components (Position, Velocity, Faction, etc.)
 │       ├── systems/                # Bevy systems
-│       │   ├── movement.rs         # Composite steering
+│       │   ├── movement.rs         # Composite steering + soft cost
+│       │   ├── flow_field_update.rs# Dijkstra flow fields + zone modifiers
+│       │   ├── directive_executor.rs# Multi-Master Arbitration (8-action vocabulary)
+│       │   ├── engine_override.rs  # Tier 1 per-entity velocity override
+│       │   ├── state_vectorizer.rs # 50×50 density heatmaps
 │       │   ├── ws_sync.rs          # State broadcast
-│       │   ├── ws_command.rs       # Command receiver
+│       │   ├── ws_command.rs       # WS command receiver
 │       │   └── ...
 │       ├── bridges/                # IPC bridges
 │       │   ├── ws_server.rs        # Tokio WebSocket server
-│       │   ├── ws_protocol.rs      # Message DTOs
-│       │   └── zmq_bridge.rs       # ZeroMQ Python bridge
+│       │   ├── ws_protocol.rs      # WS message DTOs
+│       │   ├── zmq_bridge/         # ZeroMQ Python bridge
+│       │   └── zmq_protocol.rs     # MacroDirective, AiResponse, StateSnapshot
 │       ├── spatial/                # Spatial hash grid
 │       └── pathfinding/            # Flow field navigation
+├── macro-brain/                    # Python RL training
+│   ├── requirements.txt            # SB3, sb3-contrib, gymnasium, torch
+│   ├── src/
+│   │   ├── env/
+│   │   │   ├── swarm_env.py        # Gymnasium environment (ZMQ REP socket)
+│   │   │   ├── rewards.py          # 5-component reward + P5 anti-exploit
+│   │   │   └── spaces.py           # Observation & action space definitions
+│   │   ├── training/
+│   │   │   ├── train.py            # MaskablePPO entry point
+│   │   │   ├── curriculum.py       # 2-stage curriculum callback
+│   │   │   └── callbacks.py        # Training stats callback
+│   │   └── utils/
+│   │       ├── terrain_generator.py# Procedural terrain (BFS-verified)
+│   │       └── vectorizer.py       # State snapshot → numpy arrays
+│   └── tests/                      # 33 Python tests
 ├── debug-visualizer/               # Browser-based debug UI
-│   ├── index.html                  # Dual-canvas layout
+│   ├── index.html                  # Multi-panel layout
 │   ├── style.css                   # Dark theme + perf bars
 │   └── visualizer.js               # Rendering + telemetry
-└── macro-brain/                    # Python AI (future)
-    └── stub_ai.py
+└── docs/                           # Documentation
+    ├── architecture.md             # System architecture
+    ├── ipc-protocol.md             # ZMQ + WS message schemas
+    └── study/                      # 12 engineering case studies
 ```
+
+---
+
+## Running RL Training
+
+### Prerequisites
+```bash
+cd macro-brain
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+### Training Commands
+```bash
+# Start Rust simulation first (required for ZMQ)
+cd micro-core && cargo run &
+
+# Then start training
+cd macro-brain
+source venv/bin/activate
+
+# Basic training (flat map, 100K steps)
+python -m src.training.train --timesteps 100000
+
+# With curriculum auto-promotion
+python -m src.training.train --timesteps 100000 --curriculum
+
+# Monitor training
+tensorboard --logdir=./tb_logs/
+```
+
+### Training Outputs
+| Artifact | Location | Purpose |
+|----------|---------|---------|
+| Checkpoints | `macro-brain/checkpoints/` | Model snapshots (every 10K steps) |
+| TensorBoard | `macro-brain/tb_logs/` | Reward curves, loss, episode stats |
+

@@ -2,7 +2,7 @@
 
 A study project exploring two proof-of-concept ideas: **decoupled tri-node architecture** for mass-entity AI simulation, and **AI-agent-driven development workflows** for orchestrating complex software builds.
 
-> **Status:** Phase 2 of 5 complete — 111 unit tests, simulation running with 10K+ entities, fog of war, terrain pathfinding, and a real-time debug visualizer. [See Roadmap →](ROADMAP.md)
+> **Status:** Phase 3 of 5 complete — 179 Rust + 33 Python tests, RL training pipeline operational with 5-stage curriculum, bidirectional combat resolution at 50v50. [See Roadmap →](ROADMAP.md)
 
 ---
 
@@ -84,7 +84,7 @@ Each phase produced a full archival trail: implementation plans, task briefs, ch
 
 ---
 
-## Why This Approach?
+## Why We Choose This Approach
 
 ### Why Rust for the Simulation Core?
 
@@ -92,7 +92,7 @@ The Micro-Core runs at a **fixed 60 TPS** and must process 10,000+ entity update
 
 Rust's ownership model eliminates data races at compile time, which is non-negotiable for a simulation that uses parallel iteration (`par_iter_mut()`) across CPU cores. Bevy's ECS architecture provides zero-cost archetype storage and cache-friendly iteration over entity components.
 
-**Achieved:** 111 unit tests, sub-millisecond per-tick processing, 60 TPS sustained.
+**Achieved:** 179 unit tests, sub-millisecond per-tick processing, 60 TPS sustained with bidirectional combat resolution.
 
 ### Why Three Separate Processes?
 
@@ -108,6 +108,57 @@ The ZMQ bridge sends the Macro-Brain a **fog-filtered state snapshot** — it on
 
 If all three concerns lived in one process, you'd couple rendering frame rate to AI inference time to simulation tick rate. With three processes, each runs independently — you can train AI at 2 Hz while the simulation ticks at 60 Hz and the visualizer renders at monitor refresh rate.
 
+### Why Stable-Baselines3 over Ray RLlib?
+
+The original technical design specified **Ray RLlib** as the RL framework. During Phase 3 implementation, we evaluated both and chose **Stable-Baselines3 (SB3)** with the `sb3-contrib` extension. Here's why:
+
+| Criteria | Ray RLlib | SB3 + sb3-contrib | Winner |
+|:---------|:----------|:-------------------|:-------|
+| **Action Masking** | Requires custom wrapper + policy override | First-class `MaskablePPO` in `sb3-contrib` | SB3 |
+| **Setup Complexity** | Ray cluster runtime, distributed scheduler | `pip install` and go — single-process | SB3 |
+| **Multi-Agent** | Native — built for multi-agent RL | Single-agent only | RLlib |
+| **Debugging** | Opaque; logs buried in Ray worker processes | Transparent; standard Python stack traces | SB3 |
+| **Scale** | Designed for 100+ parallel envs on clusters | Best for 1–8 envs on a single machine | RLlib |
+
+**The deciding factor was action masking.** Our 8-action vocabulary includes terrain-dependent actions (ZoneModifier, SplitFaction) that are invalid on flat maps. Without proper masking, the agent wastes exploration budget on illegal moves and learns that half its actions are useless — a phenomenon called "Learned Helplessness." SB3's `MaskablePPO` solves this natively: the policy's softmax is zeroed out for masked actions at every step, so the agent never even considers invalid moves.
+
+**The trade-off:** RLlib's multi-agent support would enable **self-play** (training the swarm against a learning opponent instead of a static bot). This is deferred to Phase 4 — if we need self-play, we'll either migrate to RLlib or implement population-based training on top of SB3.
+
+**Goal:** A training pipeline that converges quickly on a single machine, with clear debugging output, and progressive action space expansion via curriculum learning.
+
+### Why a 5-Stage Curriculum?
+
+Throwing an agent into a complex environment with 8 actions, procedural terrain, and multiple unit types simultaneously is a recipe for convergence failure. The agent has too many degrees of freedom to discover meaningful behavior through random exploration.
+
+Instead, we use **progressive complexity expansion** — each curriculum stage adds one new challenge after the previous one is mastered:
+
+```
+Stage 1 ── Learn to fight
+  3 actions (Hold, Navigate, Frenzy), flat map. Retreat is explicitly locked to force combat engagement.
+  Spawns: Fixed starting scenarios.
+  Graduate: >80% win rate over 100 episodes
+
+Stage 2 ── Learn positioning
+  +Retreat (4 actions), defenders scattered into 2-3 groups
+  Spawns: Dynamic procedural spreading.
+  Graduate: >75% win rate
+
+Stage 3 ── Learn army management
+  +ZoneModifier, +SplitFaction (6 actions), simple terrain (1-2 walls)
+  Graduate: >70% win rate
+
+Stage 4 ── Learn terrain tactics
+  Full 8 actions, complex procedural terrain, uniform units
+  Graduate: >65% win rate
+
+Stage 5 ── Learn unit composition (Phase 4)
+  Full actions + terrain + multiple unit types (Tanker/Ranger/Scout)
+```
+
+Each stage's graduation threshold decreases because the scenarios become inherently harder — winning 65% with complex terrain and 8 actions is more impressive than winning 80% on a flat map with 3.
+
+**Achieved:** Stage 1 operational — episodes completing in ~10 steps, win/loss cycling at ~55% (random policy), auto-promotion triggers when thresholds are met.
+
 ### Why Agent-Driven Development?
 
 The system has **15 interdependent tasks** spanning Rust ECS systems, WebSocket IPC, ZeroMQ bridges, HTML5 Canvas rendering, and fog-of-war bit manipulation. No single context window can hold all of this simultaneously.
@@ -119,7 +170,19 @@ The DAG planning approach solves this by:
 3. **Contract-driven integration** — shared interfaces are specified as architectural contracts in the implementation plan, so agents that never communicate can still produce compatible code
 4. **Persistent learning** — bugs, gotchas, and conventions are captured as knowledge files that persist across sessions (21 knowledge files accumulated)
 
-**Achieved:** 2 phases completed across 6 planning cycles, 15 executor dispatches, 7 QA audits — with full archival trail in `.agents/history/`.
+**Achieved:** 3 phases completed across 7 planning cycles, 15+ executor dispatches, 7 QA audits — with full archival trail in `.agents/history/`.
+
+---
+
+## How It Works
+
+The system operates across three decoupled processes that communicate purely over IPC, with strict separation of concerns.
+
+1. **The Micro-Core (Rust):** The absolute source of truth. Runs ECS systems, Spatial Hash Grid, Pathfinding, and Combat mapping. When run with `./dev.sh --watch`, it operates purely for debug visualization. During training, it is booted with `cargo run -- --training` which disables cosmetic systems (like initial wave spawning) and relies purely on atomic `ResetEnvironment` payloads from Python via ZMQ. 
+2. **The Macro-Brain (Python):** The Reinforcement Learning agent. Connects via ZeroMQ Request/Reply. Upon reset, Python sends initial procedural terrain and spawn locations. Then, every 30 ticks (2Hz), it receives an observation (grid densities, Faction state) and returns an action via an 8-command vocabulary (e.g., `Retreat`, `ZoneModifier`, `SplitFaction`).
+3. **The Debug Visualizer (JS):** Connects to Rust via WebSockets (`ws://127.0.0.1:8080`). Parses state delta-updates and translates them to an HTML5 canvas at monitor refresh rate.
+
+Because these are fully split, they do not block each other natively. By running `dev.sh --watch` in one terminal and Python training in the other, one can watch Python RL training live through the visualizer without injecting rendering delays back into the PyTorch steps.
 
 ---
 
@@ -141,7 +204,7 @@ mass-swarm-ai-simulator/
 │   ├── index.html             # Dual-canvas rendering, spawn tools, fog toggle
 │   ├── visualizer.js          # WebSocket client, entity renderer, terrain painter
 │   └── style.css              # Dark theme, glassmorphism, animations
-├── macro-brain/               # Python RL (Phase 3 — not yet implemented)
+├── macro-brain/               # Python RL training (SB3 MaskablePPO)
 ├── docs/
 │   ├── architecture.md        # Architecture deep-dive
 │   ├── ipc-protocol.md        # IPC message schema reference
@@ -187,7 +250,7 @@ The visualizer connects automatically. Click `🎯 Spawn Mode` to add entities, 
 | Node | Language | Key Technologies |
 |:-----|:---------|:-----------------|
 | Micro-Core | Rust 2024 | Bevy 0.18 ECS, Tokio, tungstenite, ZeroMQ |
-| Macro-Brain | Python 3.14+ | PyTorch, Ray RLlib, Gymnasium *(Phase 3)* |
+| Macro-Brain | Python 3.14+ | PyTorch, Stable-Baselines3, sb3-contrib, Gymnasium |
 | Debug Visualizer | Vanilla JS | HTML5 Canvas, native WebSocket, zero build step |
 | Engine Integration | WASM + JS | wasm-pack, onnxruntime-web, Three.js *(Phase 5)* |
 
@@ -201,9 +264,15 @@ The visualizer connects automatically. Click `🎯 Spawn Mode` to add entities, 
 | [Case Studies](docs/study/) | 9 algorithm research notes & bug postmortems |
 | [Original TDD](CASE_STUDY.md) | Technical Design Document that started the project |
 
-## What's Next
+## Which Is Our Goal
 
-**Phase 3: Macro-Brain & RL Training** — Build the Python side: a custom `gymnasium.Env` wrapping ZMQ communication, PPO training via Ray RLlib, and a macro-action vocabulary. The fog-of-war system means the AI must learn to explore and make decisions under partial observability.
+Our ultimate goal is a **production-ready "zero-gap engine integration."** 
+
+By taking the headless Rust simulation and compiling it entirely to WebAssembly (`wasm32-unknown-unknown`), alongside exporting the trained Python brain to an ONNX file (`onnxruntime-web`), we can embed 10,000+ AI entities and high-level behavioral models directly into web-based game engines (like Three.js or Babylon.js).
+
+The game engine’s *only* responsibility will become rendering visual assets exactly where the WASM core dictates, proving the thesis that game engines should be render-first, with simulation and intelligence decoupled.
+
+**Phase 4: Integration & Scale** will stress-test this at scale, and **Phase 5** will execute the Web Engine Integration.
 
 See [ROADMAP.md](ROADMAP.md) for the full 5-phase plan.
 

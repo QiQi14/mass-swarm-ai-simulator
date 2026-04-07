@@ -6,9 +6,9 @@
 //! - **Task:** task_05_directive_executor_system
 //! - **Contract:** implementation_plan_feature_1.md
 
-use bevy::prelude::*;
-use crate::components::{Velocity, EngineOverride};
+use crate::components::{EngineOverride, Velocity};
 use crate::config::InterventionTracker;
+use bevy::prelude::*;
 
 pub fn engine_override_system(
     mut commands: Commands,
@@ -38,10 +38,16 @@ mod tests {
         app.insert_resource(InterventionTracker::default());
         app.add_systems(Update, engine_override_system);
 
-        let entity = app.world_mut().spawn((
-            Velocity { dx: 0.0, dy: 0.0 },
-            EngineOverride { forced_velocity: Vec2::new(10.0, 20.0), ticks_remaining: None },
-        )).id();
+        let entity = app
+            .world_mut()
+            .spawn((
+                Velocity { dx: 0.0, dy: 0.0 },
+                EngineOverride {
+                    forced_velocity: Vec2::new(10.0, 20.0),
+                    ticks_remaining: None,
+                },
+            ))
+            .id();
 
         app.update();
 
@@ -56,13 +62,22 @@ mod tests {
         app.insert_resource(InterventionTracker::default());
         app.add_systems(Update, engine_override_system);
 
-        let entity = app.world_mut().spawn((
-            Velocity { dx: 0.0, dy: 0.0 },
-            EngineOverride { forced_velocity: Vec2::new(5.0, 5.0), ticks_remaining: Some(1) },
-        )).id();
+        let entity = app
+            .world_mut()
+            .spawn((
+                Velocity { dx: 0.0, dy: 0.0 },
+                EngineOverride {
+                    forced_velocity: Vec2::new(5.0, 5.0),
+                    ticks_remaining: Some(1),
+                },
+            ))
+            .id();
 
         app.update();
 
-        assert!(app.world().get::<EngineOverride>(entity).is_none(), "Should be removed after ticks_remaining goes to 0");
+        assert!(
+            app.world().get::<EngineOverride>(entity).is_none(),
+            "Should be removed after ticks_remaining goes to 0"
+        );
     }
 }

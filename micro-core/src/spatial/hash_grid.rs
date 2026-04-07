@@ -9,9 +9,9 @@
 //! ## Depends On
 //! - `crate::components::Position`
 
-use bevy::prelude::*;
-use bevy::platform::collections::HashMap;
 use crate::components::Position;
+use bevy::platform::collections::HashMap;
+use bevy::prelude::*;
 
 /// Spatial hash grid for O(1) amortized proximity lookups.
 ///
@@ -58,7 +58,8 @@ impl SpatialHashGrid {
             self.grid.entry(cell).or_default().push((entity, pos));
         }
         // Remove empty buckets to prevent unbounded memory growth
-        self.grid.retain(|_, v: &mut Vec<(Entity, Vec2)>| !v.is_empty());
+        self.grid
+            .retain(|_, v: &mut Vec<(Entity, Vec2)>| !v.is_empty());
     }
 
     /// Returns all entities within `radius` of `center`.
@@ -141,7 +142,8 @@ pub fn update_spatial_grid_system(
     query: Query<(Entity, &Position)>,
 ) {
     let start = telemetry.as_ref().map(|_| std::time::Instant::now());
-    let entities: Vec<(Entity, Vec2)> = query.iter()
+    let entities: Vec<(Entity, Vec2)> = query
+        .iter()
         .map(|(e, p)| (e, Vec2::new(p.x, p.y)))
         .collect();
     grid.rebuild(&entities);
@@ -225,10 +227,7 @@ mod tests {
         let e_near = make_entity(&mut world);
         let e_far = make_entity(&mut world);
         let mut grid = SpatialHashGrid::new(20.0);
-        grid.rebuild(&[
-            (e_near, Vec2::new(5.0, 0.0)),
-            (e_far, Vec2::new(15.0, 0.0)),
-        ]);
+        grid.rebuild(&[(e_near, Vec2::new(5.0, 0.0)), (e_far, Vec2::new(15.0, 0.0))]);
 
         let results = grid.query_radius(Vec2::ZERO, 10.0);
         assert_eq!(results.len(), 1, "Only e_near (dist=5) within R=10");
@@ -282,7 +281,7 @@ mod tests {
         let radius = 15.0;
 
         let results_query = grid.query_radius(center, radius);
-        
+
         let mut results_closure = Vec::new();
         grid.for_each_in_radius(center, radius, |e, p| {
             results_closure.push((e, p));
@@ -291,11 +290,14 @@ mod tests {
         // The order is not guaranteed so we should compare sets
         let mut sorted_query = results_query.clone();
         sorted_query.sort_by_key(|&(e, _)| e);
-        
+
         let mut sorted_closure = results_closure.clone();
         sorted_closure.sort_by_key(|&(e, _)| e);
 
-        assert_eq!(sorted_query, sorted_closure, "for_each_in_radius should yield same entities as query_radius");
+        assert_eq!(
+            sorted_query, sorted_closure,
+            "for_each_in_radius should yield same entities as query_radius"
+        );
         assert_eq!(sorted_closure.len(), 2, "Should find e1 and e2, not e3");
     }
 }

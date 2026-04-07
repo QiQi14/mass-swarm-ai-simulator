@@ -105,7 +105,8 @@ Verification_Strategy:
     - "Function X returns correct output for input Y"
     - "Empty input returns empty array without throwing"
   Suggested_Test_Commands: (optional hints for QA)
-    - "npx vitest run src/features/my-feature"
+    - "cd micro-core && cargo test src/features/my-feature"
+    - "cd macro-brain && python -m pytest tests/test_my_feature.py -v"
   Manual_Steps: (for UI/complex tasks where automation is insufficient)
     - "Open config panel → click button → verify result"
     - "Use browser control to navigate to /page and verify rendering"

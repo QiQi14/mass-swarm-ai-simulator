@@ -7,8 +7,11 @@
 ## Project Name
 Decoupled Headless Mass-Swarm AI Simulation
 
+## Current Phase
+**Phase 3: COMPLETE** (2026-04-06). Multi-Master Arbitration + RL Training pipeline fully implemented. 180 Rust tests, 33 Python tests, 0 warnings.
+
 ## Tech Stack
-Tri-language system: Rust/Bevy ECS (Micro-Core) • Python/PyTorch (Macro-Brain) • HTML5 Canvas/JS (Debug Visualizer), bridged via ZeroMQ and WebSockets.
+Tri-language system: Rust/Bevy ECS (Micro-Core) • Python/SB3 (Macro-Brain) • HTML5 Canvas/JS (Debug Visualizer), bridged via ZeroMQ and WebSockets.
 
 ## Architecture
 Tri-Node Decoupled System — three independent OS processes (Rust, Python, Browser) communicating over IPC. No shared memory. Each node is replaceable independently.
@@ -39,6 +42,16 @@ Context_Bindings:
 ```
 
 ## Key References
-- **Phase Roadmap:** `implementation_plan.md` (root) — 5-phase plan approved by user
+- **Phase Roadmap:** `ROADMAP.md` (root) — 5-phase plan, Phases 1-3 complete
+- **Training Status:** `TRAINING_STATUS.md` — live training run tracker
 - **Original TDD:** `CASE_STUDY.md` — full technical design document
 - **Human Docs:** `docs/` — developer-facing documentation (NOT for agents)
+- **Study Notes:** `docs/study/` — 12 engineering case studies (bugs, design decisions, research)
+- **Archived Tasks:** `.agents/history/` — completed implementation cycles
+
+## Test Health
+| Suite | Count | Command |
+|-------|-------|---------|
+| Rust | 181 | `cd micro-core && cargo test` |
+| Python | 33 | `cd macro-brain && python -m pytest tests/ -v` |
+| Smoke | 300 ticks | `cd micro-core && cargo run -- --smoke-test` |

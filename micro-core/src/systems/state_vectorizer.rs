@@ -94,8 +94,16 @@ pub fn build_summary_stats(
     [
         (own_count as f32 / max_entities).min(1.0),
         (enemy_count as f32 / max_entities).min(1.0),
-        if own_count > 0 { own_stat_sum / own_count as f32 } else { 0.0 },
-        if enemy_count > 0 { enemy_stat_sum / enemy_count as f32 } else { 0.0 },
+        if own_count > 0 {
+            own_stat_sum / own_count as f32
+        } else {
+            0.0
+        },
+        if enemy_count > 0 {
+            enemy_stat_sum / enemy_count as f32
+        } else {
+            0.0
+        },
     ]
 }
 
@@ -121,18 +129,21 @@ mod tests {
         assert!(maps.contains_key(&0), "Map should contain faction 0");
         let map = &maps[&0];
         assert_eq!(map.len(), 100, "Map size should be 100");
-        assert!((map[21] - (1.0 / 50.0)).abs() < f32::EPSILON, "Cell 21 density incorrect");
-        assert!((map[22] - 0.0).abs() < f32::EPSILON, "Cell 22 density should be 0");
+        assert!(
+            (map[21] - (1.0 / 50.0)).abs() < f32::EPSILON,
+            "Cell 21 density incorrect"
+        );
+        assert!(
+            (map[22] - 0.0).abs() < f32::EPSILON,
+            "Cell 22 density should be 0"
+        );
     }
 
     #[test]
     fn test_density_map_multiple_factions() {
         // Arrange
-        let entities = vec![
-            (15.0, 25.0, 0),
-            (25.0, 35.0, 1)
-        ];
-        
+        let entities = vec![(15.0, 25.0, 0), (25.0, 35.0, 1)];
+
         // Act
         let maps = build_density_maps(&entities, 10, 10, 10.0, 50.0);
 
@@ -145,15 +156,16 @@ mod tests {
     #[test]
     fn test_density_map_sub_faction() {
         // Arrange
-        let entities = vec![
-            (15.0, 25.0, 101)
-        ];
-        
+        let entities = vec![(15.0, 25.0, 101)];
+
         // Act
         let maps = build_density_maps(&entities, 10, 10, 10.0, 50.0);
 
         // Assert
-        assert!(maps.contains_key(&101), "Map should contain sub-faction 101");
+        assert!(
+            maps.contains_key(&101),
+            "Map should contain sub-faction 101"
+        );
     }
 
     #[test]
@@ -163,13 +175,16 @@ mod tests {
         for _ in 0..50 {
             entities.push((15.0, 25.0, 0));
         }
-        
+
         // Act
         let maps = build_density_maps(&entities, 10, 10, 10.0, 50.0);
 
         // Assert
         let map = &maps[&0];
-        assert!((map[21] - 1.0).abs() < f32::EPSILON, "50 entities should normalize to 1.0");
+        assert!(
+            (map[21] - 1.0).abs() < f32::EPSILON,
+            "50 entities should normalize to 1.0"
+        );
     }
 
     #[test]
@@ -179,13 +194,16 @@ mod tests {
         for _ in 0..100 {
             entities.push((15.0, 25.0, 0));
         }
-        
+
         // Act
         let maps = build_density_maps(&entities, 10, 10, 10.0, 50.0);
 
         // Assert
         let map = &maps[&0];
-        assert!((map[21] - 1.0).abs() < f32::EPSILON, "100 entities should clamp to 1.0");
+        assert!(
+            (map[21] - 1.0).abs() < f32::EPSILON,
+            "100 entities should clamp to 1.0"
+        );
     }
 
     #[test]
@@ -196,20 +214,23 @@ mod tests {
             (115.0, 125.0, 0),
             (5.0, 5.0, 0), // Valid Entity
         ];
-        
+
         // Act
         let maps = build_density_maps(&entities, 10, 10, 10.0, 50.0);
 
         // Assert
         let map = &maps[&0];
-        assert!((map[0] - (1.0 / 50.0)).abs() < f32::EPSILON, "Only valid entity should be counted");
+        assert!(
+            (map[0] - (1.0 / 50.0)).abs() < f32::EPSILON,
+            "Only valid entity should be counted"
+        );
     }
 
     #[test]
     fn test_density_map_empty_entities() {
         // Arrange
         let entities: Vec<(f32, f32, u32)> = Vec::new();
-        
+
         // Act
         let maps = build_density_maps(&entities, 10, 10, 10.0, 50.0);
 
@@ -221,16 +242,19 @@ mod tests {
     fn test_density_map_grid_boundaries() {
         // Arrange
         let entities = vec![
-            (99.9, 99.9, 0), // In bounds, idx = 9 * 10 + 9 = 99
+            (99.9, 99.9, 0),   // In bounds, idx = 9 * 10 + 9 = 99
             (100.0, 100.0, 0), // Out of bounds
         ];
-        
+
         // Act
         let maps = build_density_maps(&entities, 10, 10, 10.0, 50.0);
 
         // Assert
         let map = &maps[&0];
-        assert!((map[99] - (1.0 / 50.0)).abs() < f32::EPSILON, "Boundary edge should be computed correctly");
+        assert!(
+            (map[99] - (1.0 / 50.0)).abs() < f32::EPSILON,
+            "Boundary edge should be computed correctly"
+        );
         // Ensure no panic, and 100.0 is skipped
     }
 
@@ -243,26 +267,42 @@ mod tests {
             (0.0, 0.0, 1, 50.0),  // Enemy, health 50
         ];
         let max_entities = 10.0;
-        
+
         // Act
         let stats = build_summary_stats(&entities, 0, max_entities);
 
         // Assert
-        assert!((stats[0] - 0.2).abs() < f32::EPSILON, "Own count norm expected 0.2");
-        assert!((stats[1] - 0.1).abs() < f32::EPSILON, "Enemy count norm expected 0.1");
-        assert!((stats[2] - 90.0).abs() < f32::EPSILON, "Own avg health expected 90.0");
-        assert!((stats[3] - 50.0).abs() < f32::EPSILON, "Enemy avg health expected 50.0");
+        assert!(
+            (stats[0] - 0.2).abs() < f32::EPSILON,
+            "Own count norm expected 0.2"
+        );
+        assert!(
+            (stats[1] - 0.1).abs() < f32::EPSILON,
+            "Enemy count norm expected 0.1"
+        );
+        assert!(
+            (stats[2] - 90.0).abs() < f32::EPSILON,
+            "Own avg health expected 90.0"
+        );
+        assert!(
+            (stats[3] - 50.0).abs() < f32::EPSILON,
+            "Enemy avg health expected 50.0"
+        );
     }
 
     #[test]
     fn test_summary_stats_empty() {
         // Arrange
         let entities: Vec<(f32, f32, u32, f32)> = Vec::new();
-        
+
         // Act
         let stats = build_summary_stats(&entities, 0, 10.0);
 
         // Assert
-        assert_eq!(stats, [0.0, 0.0, 0.0, 0.0], "Empty stats should return array of zero floats");
+        assert_eq!(
+            stats,
+            [0.0, 0.0, 0.0, 0.0],
+            "Empty stats should return array of zero floats"
+        );
     }
 }

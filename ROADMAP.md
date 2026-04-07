@@ -10,7 +10,7 @@
 graph LR
     P1["Phase 1 ✅\nVertical Slice\n(Core + Bridges + Visualizer)"]
     P2["Phase 2 ✅\nCore Algorithms\n(Spatial, Pathfinding, Combat)"]
-    P3["Phase 3 ⬜\nMacro-Brain\n(Python RL)"]
+    P3["Phase 3 ✅\nMacro-Brain\n(Python RL)"]
     P4["Phase 4 ⬜\nIntegration\n& Scale"]
     P5["Phase 5 ⬜\nWeb Engine\nIntegration"]
 
@@ -21,6 +21,7 @@ graph LR
 
     style P1 fill:#238636,stroke:#2ea043,color:#fff
     style P2 fill:#238636,stroke:#2ea043,color:#fff
+    style P3 fill:#238636,stroke:#2ea043,color:#fff
 ```
 
 > [!NOTE]
@@ -105,7 +106,7 @@ Build the AI training pipeline. Python wraps the Rust simulation as a Gymnasium 
 - Custom `gymnasium.Env` wrapping ZMQ communication (`SwarmEnv`)
 - State vectorization: JSON → flat tensor / low-res heatmap
 - Observation space and action space definitions
-- PPO training loop via Ray RLlib
+- PPO training loop via SB3 `MaskablePPO` (sb3-contrib) with 5-stage curriculum
 - Reward function design (e.g., territory captured, defenders eliminated)
 - Macro-action vocabulary: `TRIGGER_FRENZY`, `FLANK_LEFT`, etc.
 - Trained model checkpoint
@@ -187,7 +188,7 @@ Prove the **"zero-gap engine integration"** thesis by consuming the Rust core an
 |-------|--------|-----------|------------------|
 | **Phase 1** | ✅ Complete | 2026-04-04 | Bevy 0.18 ECS, WS/ZMQ bridges, Debug Visualizer, bidirectional commands |
 | **Phase 2** | ✅ Complete | 2026-04-05 | Spatial hash grid, Chamfer flow fields, Boids steering, FoW, terrain, 111 unit tests |
-| **Phase 3** | ⬜ Not Started | — | Python Gymnasium env, PPO training, ZMQ action vocabulary |
+| **Phase 3** | ✅ Complete | 2026-04-06 | Multi-Master Arbitration, SB3 MaskablePPO training, 5-stage curriculum, 179 Rust + 33 Python tests |
 | **Phase 4** | ⬜ Not Started | — | 10K scale test, serialization upgrade, full tri-node orchestration |
 | **Phase 5** | ⬜ Not Started | — | WASM compilation, ONNX export, Three.js 3D rendering |
 
@@ -199,7 +200,21 @@ Phase 2 was split into two implementation cycles:
 
 2. **Debug Visualizer UX Refactor** (Tasks 09–15): Terrain grid, faction visibility, terrain-aware flow fields, visibility IPC, WS commands (Fibonacci spawn, terrain editing, scenario I/O), visualizer UI (spawn tools, fog renderer, paint mode), final integration.
 
-**Key bugs resolved during integration:** broadcast forwarder death, SimState physics freezing, `Changed<Position>` late-join, omniscient flow field, Play/Pause desync. All documented in `docs/study/`.
+**Key bugs resolved during integration:** broadcast forwarder death, SimState physics freezing, `Changed<Position>` late-join, omniscient flow field, Play/Pause desync. All documented in `docs/study/001-009`.
+
+### Phase 3 Completion Notes
+
+Phase 3 was implemented as 12 atomic tasks across 5 features:
+
+1. **MacroDirective Protocol** (Tasks 01–04): ZMQ protocol upgrade, Phase 3 resources, state vectorizer, Python scaffold.
+2. **Directive Executor** (Tasks 05–06): Executor system, engine overrides, SwarmEnv Gymnasium environment.
+3. **ZMQ Integration** (Task 07): AiResponse envelope, ResetEnvironment, terrain tier constants.
+4. **PPO Training** (Tasks 08–09): SB3 MaskablePPO pipeline, 5-stage curriculum learning, dynamic spawning, reward shaping.
+5. **Debug Visualizer Phase 3** (Tasks 10–12): ML Brain panel, zone modifier tools, faction splitters, aggro masks.
+
+**Key research:** RL training methodology, 3-tier interactable terrain, multi-master arbitration. All documented in `docs/study/010-012`.
+
+**Safety patches:** 8 patches preventing RL exploitation (Vaporization Guard, Moses Effect, Ghost State Cleanup, f32 Sort Panic, Pacifist Flank Block, Dynamic Epicenter, Sub-Faction Desync, ZMQ Deadlock Guard).
 
 > [!NOTE]
 > This roadmap was approved at the start of the project. Per-phase implementation plans are created via the `/planner` workflow and archived in `.agents/history/` after completion.

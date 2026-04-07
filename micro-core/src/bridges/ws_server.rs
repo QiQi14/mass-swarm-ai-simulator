@@ -8,9 +8,12 @@ pub async fn start_server(
     mut rx: tokio::sync::broadcast::Receiver<String>,
     cmd_tx: std::sync::mpsc::Sender<String>,
 ) {
-    let listener = TcpListener::bind("127.0.0.1:8080").await.expect("Failed to bind WebSocket server");
+    let listener = TcpListener::bind("127.0.0.1:8080")
+        .await
+        .expect("Failed to bind WebSocket server");
 
-    type WsSink = futures_util::stream::SplitSink<tokio_tungstenite::WebSocketStream<TcpStream>, Message>;
+    type WsSink =
+        futures_util::stream::SplitSink<tokio_tungstenite::WebSocketStream<TcpStream>, Message>;
     let clients = Arc::new(Mutex::new(Vec::<WsSink>::new()));
 
     let clients_clone = clients.clone();
@@ -20,13 +23,13 @@ pub async fn start_server(
                 Ok(msg) => {
                     let mut clients_lock = clients_clone.lock().await;
                     let mut to_remove = Vec::new();
-                    
+
                     for (i, sink) in clients_lock.iter_mut().enumerate() {
                         if sink.send(Message::Text(msg.clone().into())).await.is_err() {
                             to_remove.push(i);
                         }
                     }
-                    
+
                     for i in to_remove.into_iter().rev() {
                         let _ = clients_lock.remove(i);
                     }
@@ -70,16 +73,15 @@ pub async fn start_server(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures_util::StreamExt;
     use tokio::sync::broadcast;
     use tokio_tungstenite::connect_async;
-    use futures_util::StreamExt;
-
 
     #[tokio::test]
     async fn test_ws_server_broadcast() {
         let (tx, rx) = broadcast::channel(10);
         let (cmd_tx, _cmd_rx) = std::sync::mpsc::channel();
-        
+
         // Start server in background
         tokio::spawn(async move {
             start_server(rx, cmd_tx).await;

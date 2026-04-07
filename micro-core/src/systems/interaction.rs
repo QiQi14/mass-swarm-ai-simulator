@@ -9,20 +9,21 @@
 //! - **Contract:** implementation_plan.md → Contract 7
 //!
 //! ## Depends On
-//! - `crate::components::{Position, FactionId, StatBlock}`
+//! - `crate::components::{Position, FactionId, StatBlock, EntityId}`
 //! - `crate::spatial::SpatialHashGrid`
 //! - `crate::rules::{InteractionRuleSet, InteractionRule, StatEffect}`
 //!
 //! ## Architecture: Disjoint Queries
-//! - `q_ro: Query<(Entity, &Position, &FactionId)>` — read-only spatial data
+//! - `q_ro: Query<(Entity, &Position, &FactionId, &EntityId)>` — read-only spatial data
 //! - `q_rw: Query<&mut StatBlock>` — write-only stat mutation
 //! - Zero component overlap → safe simultaneous access
 //! - Zero heap allocations in the interaction loop
 
-use bevy::prelude::*;
-use crate::components::{Position, FactionId, StatBlock};
-use crate::spatial::SpatialHashGrid;
+use crate::components::{EntityId, FactionId, Position, StatBlock};
+use crate::config::FactionBuffs;
 use crate::rules::InteractionRuleSet;
+use crate::spatial::SpatialHashGrid;
+use bevy::prelude::*;
 
 /// Processes proximity-based interactions between entities.
 ///
@@ -31,19 +32,26 @@ use crate::rules::InteractionRuleSet;
 /// - `q_ro.get(neighbor)` reads neighbor faction inside the loop (safe: shared borrows).
 /// - `q_rw.get_mut(neighbor)` mutates neighbor stats (safe: disjoint component set).
 ///
+/// Frenzy buff: When a faction has an active buff, their damage output is
+/// multiplied by the buff's speed_multiplier. This makes Frenzy a dual
+/// speed+damage ability, creating a meaningful tactical lever for the RL agent.
+///
 /// ## Performance
 /// - Single-threaded (L1 cache coherent on hot targets)
 /// - Zero Vec/HashMap allocations
 /// - O(N × R × K) where N=entities, R=rules, K=avg neighbors in range
 /// - ~0.5ms for 10K entities with default config
+#[allow(clippy::too_many_arguments)]
 pub fn interaction_system(
     telemetry: Option<ResMut<crate::plugins::telemetry::PerfTelemetry>>,
     grid: Res<SpatialHashGrid>,
     rules: Res<InteractionRuleSet>,
     aggro: Res<crate::config::AggroMaskRegistry>,
+    combat_buffs: Res<FactionBuffs>,
+    buff_config: Res<crate::config::BuffConfig>,
     // Query 1: Purely immutable spatial data.
     // Safe to iterate AND random-access simultaneously (multiple &self borrows).
-    q_ro: Query<(Entity, &Position, &FactionId)>,
+    q_ro: Query<(Entity, &Position, &FactionId, &EntityId)>,
     // Query 2: Purely mutable stat data.
     // Disjoint from Query 1 (StatBlock ∩ {Position, FactionId} = ∅).
     mut q_rw: Query<&mut StatBlock>,
@@ -59,7 +67,7 @@ pub fn interaction_system(
     // Pre-calculate fixed delta — ML determinism requires strict fixed timestep
     let tick_delta = 1.0 / 60.0;
 
-    for (source_entity, source_pos, source_faction) in q_ro.iter() {
+    for (source_entity, source_pos, source_faction, source_id) in q_ro.iter() {
         for rule in &rules.rules {
             // Only process rules where this entity is the source faction
             if rule.source_faction != source_faction.0 {
@@ -72,6 +80,14 @@ pub fn interaction_system(
                 continue;
             }
 
+            // Abstract damage multiplier via configurable stat index + entity targeting
+            let damage_mult = buff_config
+                .combat_damage_stat
+                .map(|stat_idx| {
+                    combat_buffs.get_multiplier(source_faction.0, source_id.id, stat_idx)
+                })
+                .unwrap_or(1.0);
+
             // O(K) spatial lookup — only allocation is grid.query_radius's return Vec
             let center = Vec2::new(source_pos.x, source_pos.y);
             let neighbors = grid.query_radius(center, rule.range);
@@ -83,7 +99,7 @@ pub fn interaction_system(
                 }
 
                 // O(1) read-only lookup inside iter() — safe: multiple &self borrows
-                if let Ok((_, _, neighbor_faction)) = q_ro.get(neighbor_entity) {
+                if let Ok((_, _, neighbor_faction, _)) = q_ro.get(neighbor_entity) {
                     if neighbor_faction.0 != rule.target_faction {
                         continue;
                     }
@@ -94,7 +110,7 @@ pub fn interaction_system(
                         for effect in &rule.effects {
                             if effect.stat_index < stat_block.0.len() {
                                 stat_block.0[effect.stat_index] +=
-                                    effect.delta_per_second * tick_delta;
+                                    effect.delta_per_second * tick_delta * damage_mult;
                             }
                         }
                     }
@@ -117,6 +133,8 @@ mod tests {
         app.insert_resource(SpatialHashGrid::new(20.0));
         app.insert_resource(InteractionRuleSet { rules: vec![] });
         app.insert_resource(crate::config::AggroMaskRegistry::default());
+        app.insert_resource(FactionBuffs::default());
+        app.init_resource::<crate::config::BuffConfig>();
         app.add_systems(Update, interaction_system);
         app
     }
@@ -132,35 +150,52 @@ mod tests {
                     source_faction: 0,
                     target_faction: 1,
                     range: 15.0,
-                    effects: vec![StatEffect { stat_index: 0, delta_per_second: -10.0 }],
+                    effects: vec![StatEffect {
+                        stat_index: 0,
+                        delta_per_second: -10.0,
+                    }],
                 },
                 InteractionRule {
                     source_faction: 1,
                     target_faction: 0,
                     range: 15.0,
-                    effects: vec![StatEffect { stat_index: 0, delta_per_second: -20.0 }],
+                    effects: vec![StatEffect {
+                        stat_index: 0,
+                        delta_per_second: -20.0,
+                    }],
                 },
             ],
         });
 
         // Add Attacker
-        let attacker = app.world_mut().spawn((
-            Position { x: 0.0, y: 0.0 },
-            FactionId(0),
-            StatBlock::with_defaults(&[(0, 100.0)]),
-        )).id();
+        let attacker = app
+            .world_mut()
+            .spawn((
+                EntityId { id: 1 },
+                Position { x: 0.0, y: 0.0 },
+                FactionId(0),
+                StatBlock::with_defaults(&[(0, 100.0)]),
+            ))
+            .id();
 
         // Add Defender
-        let defender = app.world_mut().spawn((
-            Position { x: 5.0, y: 0.0 },
-            FactionId(1),
-            StatBlock::with_defaults(&[(0, 100.0)]),
-        )).id();
+        let defender = app
+            .world_mut()
+            .spawn((
+                EntityId { id: 2 },
+                Position { x: 5.0, y: 0.0 },
+                FactionId(1),
+                StatBlock::with_defaults(&[(0, 100.0)]),
+            ))
+            .id();
 
         // Update SpatialHashGrid manually for the test
         {
             let mut grid = app.world_mut().resource_mut::<SpatialHashGrid>();
-            grid.rebuild(&[(attacker, Vec2::new(0.0, 0.0)), (defender, Vec2::new(5.0, 0.0))]);
+            grid.rebuild(&[
+                (attacker, Vec2::new(0.0, 0.0)),
+                (defender, Vec2::new(5.0, 0.0)),
+            ]);
         }
 
         app.update();
@@ -182,27 +217,36 @@ mod tests {
         let mut app = setup_app();
 
         app.insert_resource(InteractionRuleSet {
-            rules: vec![
-                InteractionRule {
-                    source_faction: 0,
-                    target_faction: 1, // Doesn't match
-                    range: 15.0,
-                    effects: vec![StatEffect { stat_index: 0, delta_per_second: -10.0 }],
-                },
-            ],
+            rules: vec![InteractionRule {
+                source_faction: 0,
+                target_faction: 1, // Doesn't match
+                range: 15.0,
+                effects: vec![StatEffect {
+                    stat_index: 0,
+                    delta_per_second: -10.0,
+                }],
+            }],
         });
 
-        let a1 = app.world_mut().spawn((
-            Position { x: 0.0, y: 0.0 },
-            FactionId(0),
-            StatBlock::with_defaults(&[(0, 100.0)]),
-        )).id();
+        let a1 = app
+            .world_mut()
+            .spawn((
+                EntityId { id: 1 },
+                Position { x: 0.0, y: 0.0 },
+                FactionId(0),
+                StatBlock::with_defaults(&[(0, 100.0)]),
+            ))
+            .id();
 
-        let a2 = app.world_mut().spawn((
-            Position { x: 5.0, y: 0.0 },
-            FactionId(0),
-            StatBlock::with_defaults(&[(0, 100.0)]),
-        )).id();
+        let a2 = app
+            .world_mut()
+            .spawn((
+                EntityId { id: 2 },
+                Position { x: 5.0, y: 0.0 },
+                FactionId(0),
+                StatBlock::with_defaults(&[(0, 100.0)]),
+            ))
+            .id();
 
         {
             let mut grid = app.world_mut().resource_mut::<SpatialHashGrid>();
@@ -223,31 +267,43 @@ mod tests {
         let mut app = setup_app();
 
         app.insert_resource(InteractionRuleSet {
-            rules: vec![
-                InteractionRule {
-                    source_faction: 0,
-                    target_faction: 1,
-                    range: 15.0,
-                    effects: vec![StatEffect { stat_index: 0, delta_per_second: -10.0 }],
-                },
-            ],
+            rules: vec![InteractionRule {
+                source_faction: 0,
+                target_faction: 1,
+                range: 15.0,
+                effects: vec![StatEffect {
+                    stat_index: 0,
+                    delta_per_second: -10.0,
+                }],
+            }],
         });
 
-        let attacker = app.world_mut().spawn((
-            Position { x: 0.0, y: 0.0 },
-            FactionId(0),
-            StatBlock::with_defaults(&[(0, 100.0)]),
-        )).id();
+        let attacker = app
+            .world_mut()
+            .spawn((
+                EntityId { id: 1 },
+                Position { x: 0.0, y: 0.0 },
+                FactionId(0),
+                StatBlock::with_defaults(&[(0, 100.0)]),
+            ))
+            .id();
 
-        let defender = app.world_mut().spawn((
-            Position { x: 20.0, y: 0.0 }, // Out of range
-            FactionId(1),
-            StatBlock::with_defaults(&[(0, 100.0)]),
-        )).id();
+        let defender = app
+            .world_mut()
+            .spawn((
+                EntityId { id: 2 },
+                Position { x: 20.0, y: 0.0 }, // Out of range
+                FactionId(1),
+                StatBlock::with_defaults(&[(0, 100.0)]),
+            ))
+            .id();
 
         {
             let mut grid = app.world_mut().resource_mut::<SpatialHashGrid>();
-            grid.rebuild(&[(attacker, Vec2::new(0.0, 0.0)), (defender, Vec2::new(20.0, 0.0))]);
+            grid.rebuild(&[
+                (attacker, Vec2::new(0.0, 0.0)),
+                (defender, Vec2::new(20.0, 0.0)),
+            ]);
         }
 
         app.update();
@@ -262,21 +318,26 @@ mod tests {
 
         // Even if there's a rule making a faction attack itself
         app.insert_resource(InteractionRuleSet {
-            rules: vec![
-                InteractionRule {
-                    source_faction: 0,
-                    target_faction: 0,
-                    range: 15.0,
-                    effects: vec![StatEffect { stat_index: 0, delta_per_second: -10.0 }],
-                },
-            ],
+            rules: vec![InteractionRule {
+                source_faction: 0,
+                target_faction: 0,
+                range: 15.0,
+                effects: vec![StatEffect {
+                    stat_index: 0,
+                    delta_per_second: -10.0,
+                }],
+            }],
         });
 
-        let entity = app.world_mut().spawn((
-            Position { x: 0.0, y: 0.0 },
-            FactionId(0),
-            StatBlock::with_defaults(&[(0, 100.0)]),
-        )).id();
+        let entity = app
+            .world_mut()
+            .spawn((
+                EntityId { id: 1 },
+                Position { x: 0.0, y: 0.0 },
+                FactionId(0),
+                StatBlock::with_defaults(&[(0, 100.0)]),
+            ))
+            .id();
 
         {
             let mut grid = app.world_mut().resource_mut::<SpatialHashGrid>();

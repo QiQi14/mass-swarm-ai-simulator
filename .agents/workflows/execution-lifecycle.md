@@ -8,6 +8,7 @@ When assigned a task from `tasks_pending/`, follow this 4-step execution loop:
 
 ## Step 1: Assimilation (Context Sync)
 - Read your assigned `tasks_pending/task_[ID].md`.
+- **CRITICAL:** Check the skills and knowledge indices (`.agents/skills/index.md` & `.agents/knowledge/README.md`). Do NOT blindly trust the Planner's `Context_Bindings`. Proactively load any relevant context missed by the Planner.
 - Read the root `implementation_plan.md` ONLY to understand where your task fits in the overall architecture. Do not attempt to fulfill other agents' tasks.
 - Identify your exact target files and the strict contracts you must fulfill.
 
@@ -22,6 +23,8 @@ Before finalizing, perform an internal check:
 1. Did I strictly follow the function signatures and models defined in the task brief?
 2. Did I accidentally leak logic or modify files outside my `Target_Files` scope?
 3. (If applicable) Does my code compile/transpile logically based on the language constraints?
+
+> **Tip:** Use `-- --nocapture` or `-- --show-output` flags when debugging test failures that need full verbose output.
 
 ## Step 4: Status Reporting (Handover)
 Before you mark the task as done, you must generate a handoff artifact for the QA Agent. 

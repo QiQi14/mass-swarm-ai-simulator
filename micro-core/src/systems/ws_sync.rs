@@ -7,15 +7,15 @@
 //! - **Task:** task_03_ws_sync_system
 //! - **Contract:** Phase 1, Micro-Phase 2 WebSocket Message Schema
 
-use bevy::prelude::*;
+#[cfg(feature = "debug-telemetry")]
+use crate::bridges::ws_protocol::{AggroMaskSync, MlBrainSync, VisibilitySync, ZoneModifierSync};
+use crate::bridges::ws_protocol::{EntityState, WsMessage};
 use crate::components::{EntityId, FactionId, Position, StatBlock, Velocity};
 use crate::config::TickCounter;
-use crate::bridges::ws_protocol::{WsMessage, EntityState};
-#[cfg(feature = "debug-telemetry")]
-use crate::bridges::ws_protocol::{VisibilitySync, ZoneModifierSync, MlBrainSync, AggroMaskSync};
 use crate::rules::RemovalEvents;
 #[cfg(feature = "debug-telemetry")]
 use crate::visibility::FactionVisibility;
+use bevy::prelude::*;
 use tokio::sync::broadcast::Sender;
 
 #[cfg(feature = "debug-telemetry")]
@@ -33,27 +33,36 @@ pub struct BroadcastSender(pub Sender<String>);
 /// This ensures late-connecting WS clients always get a complete picture.
 #[allow(clippy::too_many_arguments)]
 pub fn ws_sync_system(
-    changed_query: Query<(&EntityId, &Position, &Velocity, &FactionId, &StatBlock), Changed<Position>>,
+    changed_query: Query<
+        (&EntityId, &Position, &Velocity, &FactionId, &StatBlock),
+        Changed<Position>,
+    >,
     full_query: Query<(&EntityId, &Position, &Velocity, &FactionId, &StatBlock)>,
     tick: Res<TickCounter>,
     sender: Res<BroadcastSender>,
     mut removal_events: ResMut<RemovalEvents>,
-    #[cfg(feature = "debug-telemetry")]
-    fog_faction: Res<crate::systems::ws_command::ActiveFogFaction>,
-    #[cfg(feature = "debug-telemetry")]
-    visibility: Res<FactionVisibility>,
-    #[cfg(feature = "debug-telemetry")]
-    telemetry: Option<ResMut<PerfTelemetry>>,
-    #[cfg(feature = "debug-telemetry")]
-    active_zones: Option<Res<crate::config::ActiveZoneModifiers>>,
-    #[cfg(feature = "debug-telemetry")]
-    active_sub_factions_res: Option<Res<crate::config::ActiveSubFactions>>,
-    #[cfg(feature = "debug-telemetry")]
-    aggro_masks_res: Option<Res<crate::config::AggroMaskRegistry>>,
-    #[cfg(feature = "debug-telemetry")]
-    intervention_tracker: Option<Res<crate::config::InterventionTracker>>,
-    #[cfg(feature = "debug-telemetry")]
-    config: Option<Res<crate::config::SimulationConfig>>,
+    #[cfg(feature = "debug-telemetry")] fog_faction: Res<
+        crate::systems::ws_command::ActiveFogFaction,
+    >,
+    #[cfg(feature = "debug-telemetry")] visibility: Res<FactionVisibility>,
+    #[cfg(feature = "debug-telemetry")] telemetry: Option<ResMut<PerfTelemetry>>,
+    #[cfg(feature = "debug-telemetry")] active_zones: Option<
+        Res<crate::config::ActiveZoneModifiers>,
+    >,
+    #[cfg(feature = "debug-telemetry")] active_sub_factions_res: Option<
+        Res<crate::config::ActiveSubFactions>,
+    >,
+    #[cfg(feature = "debug-telemetry")] aggro_masks_res: Option<
+        Res<crate::config::AggroMaskRegistry>,
+    >,
+    #[cfg(feature = "debug-telemetry")] intervention_tracker: Option<
+        Res<crate::config::InterventionTracker>,
+    >,
+    #[cfg(feature = "debug-telemetry")] config: Option<Res<crate::config::SimulationConfig>>,
+    #[cfg(feature = "debug-telemetry")] density_config: Option<Res<crate::config::DensityConfig>>,
+    #[cfg(feature = "debug-telemetry")] latest_directive: Option<
+        Res<crate::systems::directive_executor::LatestDirective>,
+    >,
 ) {
     #[cfg(feature = "debug-telemetry")]
     let start = telemetry.as_ref().map(|_| std::time::Instant::now());
@@ -119,20 +128,27 @@ pub fn ws_sync_system(
         },
         #[cfg(feature = "debug-telemetry")]
         zone_modifiers: if tick.tick.is_multiple_of(6) {
-            active_zones.as_ref().map(|z| z.zones.iter().map(|zone| ZoneModifierSync {
-                target_faction: zone.target_faction,
-                x: zone.x,
-                y: zone.y,
-                radius: zone.radius,
-                cost_modifier: zone.cost_modifier,
-                ticks_remaining: zone.ticks_remaining,
-            }).collect())
+            active_zones.as_ref().map(|z| {
+                z.zones
+                    .iter()
+                    .map(|zone| ZoneModifierSync {
+                        target_faction: zone.target_faction,
+                        x: zone.x,
+                        y: zone.y,
+                        radius: zone.radius,
+                        cost_modifier: zone.cost_modifier,
+                        ticks_remaining: zone.ticks_remaining,
+                    })
+                    .collect()
+            })
         } else {
             None
         },
         #[cfg(feature = "debug-telemetry")]
         active_sub_factions: if tick.tick.is_multiple_of(6) {
-            active_sub_factions_res.as_ref().map(|sf| sf.factions.clone())
+            active_sub_factions_res
+                .as_ref()
+                .map(|sf| sf.factions.clone())
         } else {
             None
         },
@@ -150,8 +166,19 @@ pub fn ws_sync_system(
         },
         #[cfg(feature = "debug-telemetry")]
         ml_brain: if tick.tick.is_multiple_of(6) {
-            intervention_tracker.as_ref().map(|tracker| MlBrainSync {
-                intervention_active: tracker.active,
+            intervention_tracker.as_ref().map(|tracker| {
+                let py_connected = latest_directive
+                    .as_ref()
+                    .map(|ld| ld.last_received_tick == u64::MAX || ld.last_directive_json.is_some())
+                    .unwrap_or(false);
+                let last_dir_str = latest_directive
+                    .as_ref()
+                    .and_then(|ld| ld.last_directive_json.clone());
+                MlBrainSync {
+                    intervention_active: tracker.active,
+                    python_connected: py_connected,
+                    last_directive: last_dir_str,
+                }
             })
         } else {
             None
@@ -166,7 +193,14 @@ pub fn ws_sync_system(
                     entities.push((pos.x, pos.y, faction.0));
                 }
                 Some(crate::systems::state_vectorizer::build_density_maps(
-                    &entities, grid_w, grid_h, cfg.flow_field_cell_size, crate::systems::state_vectorizer::DEFAULT_MAX_DENSITY
+                    &entities,
+                    grid_w,
+                    grid_h,
+                    cfg.flow_field_cell_size,
+                    density_config
+                        .as_ref()
+                        .map(|dc| dc.max_density)
+                        .unwrap_or(50.0),
                 ))
             } else {
                 None

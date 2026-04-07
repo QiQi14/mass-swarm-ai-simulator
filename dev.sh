@@ -9,6 +9,7 @@
 #
 # Usage:
 #   ./dev.sh              — Normal dev mode
+#   ./dev.sh --watch      — Visualizer only (no Rust core)
 #   ./dev.sh --smoke      — Run 300-tick smoke test then exit
 #   ./dev.sh --release    — Build and run with release optimizations
 #   ./dev.sh --prod       — Production build (no debug telemetry)
@@ -65,9 +66,13 @@ CARGO_PROFILE=""
 CARGO_EXTRA_ARGS=""
 FEATURES=""
 SMOKE_TEST=false
+WATCH_ONLY=false
 
 for arg in "$@"; do
     case "$arg" in
+        --watch|--passive)
+            WATCH_ONLY=true
+            ;;
         --smoke)
             SMOKE_TEST=true
             CARGO_EXTRA_ARGS="$CARGO_EXTRA_ARGS --smoke-test"
@@ -88,7 +93,7 @@ for arg in "$@"; do
             exit 0
             ;;
         --help|-h)
-            head -n 17 "$0" | tail -n 14
+            head -n 18 "$0" | tail -n 15
             exit 0
             ;;
         *)
@@ -135,6 +140,35 @@ echo -e "${CYAN}${BOLD}╔══════════════════
 echo -e "${CYAN}${BOLD}║     Mass-Swarm AI Simulator — Dev Environment    ║${RESET}"
 echo -e "${CYAN}${BOLD}╚══════════════════════════════════════════════════╝${RESET}"
 echo ""
+
+# ── Watch-Only Mode ────────────────────────────────────────────────────
+if [ "$WATCH_ONLY" = true ]; then
+    kill_port "$HTTP_PORT"
+
+    echo -e "${YELLOW}▸ Starting Debug Visualizer HTTP server on port $HTTP_PORT...${RESET}"
+    python3 -m http.server "$HTTP_PORT" --bind 127.0.0.1 --directory "$VISUALIZER_DIR" 2>/dev/null &
+    HTTP_PID=$!
+    echo "$HTTP_PID" > "$PID_FILE"
+
+    sleep 0.5
+    if ! kill -0 "$HTTP_PID" 2>/dev/null; then
+        echo -e "${RED}✘ Failed to start HTTP server on port $HTTP_PORT.${RESET}"
+        exit 1
+    fi
+
+    echo -e "${GREEN}${BOLD}═══════════════════════════════════════════════════${RESET}"
+    echo -e "${GREEN}${BOLD}  👁  Watch mode — Visualizer only${RESET}"
+    echo -e "${GREEN}${BOLD}═══════════════════════════════════════════════════${RESET}"
+    echo ""
+    echo -e "  ${BOLD}Debug Visualizer:${RESET}  ${CYAN}http://127.0.0.1:$HTTP_PORT${RESET}"
+    echo -e "  ${DIM}Rust core and training must be started separately.${RESET}"
+    echo ""
+    echo -e "  ${DIM}Press Ctrl+C to stop the visualizer.${RESET}"
+    echo ""
+
+    wait "$HTTP_PID" 2>/dev/null || true
+    exit 0
+fi
 
 # ── Step 0: Kill leftovers from previous runs ──────────────────────────
 kill_saved_pids

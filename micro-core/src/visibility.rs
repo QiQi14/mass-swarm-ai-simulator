@@ -57,8 +57,12 @@ impl FactionVisibility {
 
     pub fn ensure_faction(&mut self, faction_id: u32) {
         let size = Self::bitpack_len(self.grid_width, self.grid_height);
-        self.explored.entry(faction_id).or_insert_with(|| vec![0; size]);
-        self.visible.entry(faction_id).or_insert_with(|| vec![0; size]);
+        self.explored
+            .entry(faction_id)
+            .or_insert_with(|| vec![0; size]);
+        self.visible
+            .entry(faction_id)
+            .or_insert_with(|| vec![0; size]);
     }
 
     pub fn reset_explored(&mut self) {
@@ -127,10 +131,13 @@ mod tests {
         let mut vis = FactionVisibility::new(50, 50, 20.0);
         vis.ensure_faction(0);
         FactionVisibility::set_bit(vis.explored.get_mut(&0).unwrap(), 10);
-        
+
         // second call should not reset
         vis.ensure_faction(0);
-        assert!(FactionVisibility::get_bit(vis.explored.get(&0).unwrap(), 10));
+        assert!(FactionVisibility::get_bit(
+            vis.explored.get(&0).unwrap(),
+            10
+        ));
     }
 
     #[test]
@@ -146,9 +153,18 @@ mod tests {
 
         vis.reset_explored();
 
-        assert!(!FactionVisibility::get_bit(vis.explored.get(&0).unwrap(), 10));
-        assert!(!FactionVisibility::get_bit(vis.explored.get(&1).unwrap(), 20));
-        assert!(!FactionVisibility::get_bit(vis.explored.get(&2).unwrap(), 30));
+        assert!(!FactionVisibility::get_bit(
+            vis.explored.get(&0).unwrap(),
+            10
+        ));
+        assert!(!FactionVisibility::get_bit(
+            vis.explored.get(&1).unwrap(),
+            20
+        ));
+        assert!(!FactionVisibility::get_bit(
+            vis.explored.get(&2).unwrap(),
+            30
+        ));
     }
 
     #[test]

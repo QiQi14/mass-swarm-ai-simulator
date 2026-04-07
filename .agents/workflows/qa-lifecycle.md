@@ -24,7 +24,7 @@ Follow this 6-step workflow to certify a task and capture lessons:
 > **CRITICAL:** Static analysis (tsc, eslint, gradle build) proves code COMPILES, not that it WORKS. Passing a build check alone is NEVER sufficient to certify a task.
 
 ### Step 3A: Build Gate (Prerequisite — Not Sufficient)
-- Run the build/compile check (`tsc --noEmit`, `gradle build`, etc.).
+- Run the build/compile check (`cargo build`, `cargo clippy`, etc.).
 - This is a **prerequisite**, not a pass condition. Passing this alone is NOT enough to certify.
 
 ### Step 3B: Regression Scan (Reuse Prior Tests)
@@ -52,6 +52,7 @@ Follow this 6-step workflow to certify a task and capture lessons:
 - If tests fail → investigate whether it's a test bug or an implementation bug:
   - **Implementation bug** → FAIL the task with the defect list.
   - **Test bug** → fix the test and re-run.
+  - **Need more detail** → Re-run with `-- --nocapture` or `-- --show-output` for full verbose output.
 
 ### Step 3E: Acceptance Criteria Walkthrough (Mandatory)
 - Walk through each item in `Verification_Strategy.Acceptance_Criteria`.

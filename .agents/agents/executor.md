@@ -58,17 +58,17 @@ During execution, a human may intercept your work and propose changes, provide c
 
 ## Context Loading (Tier-Dependent)
 
-**If your tier is `basic`:**
-- Skip all external file reading. Your Task Brief below IS your complete instruction.
-- Implement the code exactly as specified in the Task Brief.
-- Follow the MANDATORY PROCESS rules above (changelog + scope), then halt.
-
 **If your tier is `standard` or `advanced`:**
-1. Read `.agents/context.md` — Thin index pointing to context sub-files
-2. Load ONLY the `context/*` sub-files listed in your `Context_Bindings` below
-3. Scan `.agents/knowledge/` — Lessons from previous sessions relevant to your task
-4. Read `.agents/workflows/execution-lifecycle.md` — Your 4-step execution loop
-5. Read `.agents/rules/execution-boundary.md` — Scope and contract constraints
+
+> **CRITICAL FIRST STEP:** The Planner might omit critical skills or knowledge in your `Context_Bindings`. It is YOUR responsibility to self-heal missing context.
+1. Read `.agents/skills/index.md` (Skills Catalog)
+2. Read `.agents/knowledge/README.md` (Master Knowledge Index)
+   *(If you discover a skill or knowledge domain relevant to your task that isn't in your `Context_Bindings`, **read it immediately** before starting.)*
+3. Read `.agents/context.md` — Thin index pointing to context sub-files
+4. Load ONLY the `context/*` sub-files listed in your `Context_Bindings` below
+5. Scan `.agents/knowledge/` — Lessons from previous sessions relevant to your task
+6. Read `.agents/workflows/execution-lifecycle.md` — Your 4-step execution loop
+7. Read `.agents/rules/execution-boundary.md` — Scope and contract constraints
 
 {{CONTEXT_BINDINGS_LIST}}
 

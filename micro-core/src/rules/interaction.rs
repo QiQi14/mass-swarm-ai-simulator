@@ -49,26 +49,9 @@ pub struct RemovalEvents {
 }
 
 impl Default for InteractionRuleSet {
-    /// Swarm demo default config:
-    /// - Rule 1: faction 0 damages faction 1 at -10.0/sec (stat[0])
-    /// - Rule 2: faction 1 damages faction 0 at -20.0/sec (stat[0])
+    /// Empty ruleset — no combat unless explicitly configured by game profile.
     fn default() -> Self {
-        Self {
-            rules: vec![
-                InteractionRule {
-                    source_faction: 0,
-                    target_faction: 1,
-                    range: 15.0,
-                    effects: vec![StatEffect { stat_index: 0, delta_per_second: -10.0 }],
-                },
-                InteractionRule {
-                    source_faction: 1,
-                    target_faction: 0,
-                    range: 15.0,
-                    effects: vec![StatEffect { stat_index: 0, delta_per_second: -20.0 }],
-                },
-            ],
-        }
+        Self { rules: vec![] }
     }
 }
 
@@ -79,17 +62,22 @@ mod tests {
     #[test]
     fn test_interaction_rule_set_default() {
         let ruleset = InteractionRuleSet::default();
-        assert_eq!(ruleset.rules.len(), 2);
+        assert_eq!(ruleset.rules.len(), 0);
     }
 
     #[test]
-    fn test_interaction_rule_set_factions() {
-        let ruleset = InteractionRuleSet::default();
+    fn test_interaction_rule_set_explicit_construction() {
+        let ruleset = InteractionRuleSet {
+            rules: vec![InteractionRule {
+                source_faction: 0,
+                target_faction: 1,
+                range: 10.0,
+                effects: vec![],
+            }],
+        };
+        assert_eq!(ruleset.rules.len(), 1);
         assert_eq!(ruleset.rules[0].source_faction, 0);
         assert_eq!(ruleset.rules[0].target_faction, 1);
-        
-        assert_eq!(ruleset.rules[1].source_faction, 1);
-        assert_eq!(ruleset.rules[1].target_faction, 0);
     }
 
     #[test]

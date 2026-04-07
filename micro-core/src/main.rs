@@ -13,17 +13,29 @@
 
 use bevy::prelude::*;
 
-use micro_core::components::NextEntityId;
-use micro_core::config::{SimulationConfig, TickCounter, SimPaused, SimSpeed, SimStepRemaining, ActiveZoneModifiers, InterventionTracker, FactionSpeedBuffs, AggroMaskRegistry, ActiveSubFactions};
 use micro_core::bridges::zmq_bridge::ZmqBridgePlugin;
-use micro_core::rules::{RemovalEvents, FactionBehaviorMode, NavigationRuleSet, InteractionRuleSet, RemovalRuleSet};
-use micro_core::spatial::SpatialHashGrid;
+use micro_core::components::NextEntityId;
+use micro_core::config::{
+    ActiveSubFactions, ActiveZoneModifiers, AggroMaskRegistry, BuffConfig, DensityConfig,
+    FactionBuffs, InterventionTracker, SimPaused, SimSpeed, SimStepRemaining, SimulationConfig,
+    TickCounter,
+};
 use micro_core::pathfinding::FlowFieldRegistry;
+use micro_core::rules::{
+    FactionBehaviorMode, InteractionRuleSet, NavigationRuleSet, RemovalEvents, RemovalRuleSet,
+};
+use micro_core::spatial::SpatialHashGrid;
+use micro_core::systems::directive_executor::{
+    LatestDirective, buff_tick_system, directive_executor_system, zone_tick_system,
+};
+use micro_core::systems::engine_override::engine_override_system;
+use micro_core::systems::{
+    initial_spawn_system, movement_system, tick_counter_system, visibility_update_system,
+    ws_command::ActiveFogFaction, ws_command::WsCommandReceiver, ws_command::step_tick_system,
+    ws_command::ws_command_system,
+};
 use micro_core::terrain::TerrainGrid;
 use micro_core::visibility::FactionVisibility;
-use micro_core::systems::{initial_spawn_system, movement_system, tick_counter_system, visibility_update_system, ws_command::WsCommandReceiver, ws_command::ws_command_system, ws_command::step_tick_system, ws_command::ActiveFogFaction};
-use micro_core::systems::directive_executor::{LatestDirective, directive_executor_system, zone_tick_system, speed_buff_tick_system};
-use micro_core::systems::engine_override::engine_override_system;
 
 /// Maximum ticks before auto-exit in smoke test mode.
 /// Set to 0 or remove this system for "run forever" mode.
@@ -32,6 +44,7 @@ const SMOKE_TEST_MAX_TICKS: u64 = 300; // ~5 seconds at 60 TPS
 fn main() {
     let mut init_entity_count = None;
     let mut is_smoke_test = false;
+    let mut is_training = false;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         if arg == "--entity-count" {
@@ -40,6 +53,8 @@ fn main() {
             }
         } else if arg == "--smoke-test" {
             is_smoke_test = true;
+        } else if arg == "--training" {
+            is_training = true;
         }
     }
 
@@ -89,45 +104,75 @@ fn main() {
         // Phase 3 resources — required by directive_executor, flow_field_update, movement, zmq_bridge
         .init_resource::<ActiveZoneModifiers>()
         .init_resource::<InterventionTracker>()
-        .init_resource::<FactionSpeedBuffs>()
+        .init_resource::<FactionBuffs>()
+        .init_resource::<BuffConfig>()
+        .init_resource::<DensityConfig>()
         .init_resource::<AggroMaskRegistry>()
         .init_resource::<ActiveSubFactions>()
         .init_resource::<LatestDirective>()
         .insert_resource(micro_core::systems::ws_sync::BroadcastSender(tx))
-        .insert_resource(WsCommandReceiver(std::sync::Mutex::new(ws_cmd_rx)))
-        // Startup systems (run once)
-        .add_systems(Startup, initial_spawn_system)
-        // Per-tick systems (run every frame)
-        // Simulation systems — gated behind pause/step controls
-        .add_systems(Update, (
-            micro_core::systems::spawning::wave_spawn_system,
+        .insert_resource(WsCommandReceiver(std::sync::Mutex::new(ws_cmd_rx)));
+
+    // Startup systems (run once) — disabled in training mode
+    // In training mode, entities are spawned by ResetEnvironment from Python
+    if !is_training {
+        app.add_systems(Startup, initial_spawn_system);
+    }
+
+    // Simulation systems — gated behind pause/step controls
+    let sim_gate = |paused: Res<SimPaused>, step: Res<SimStepRemaining>| !paused.0 || step.0 > 0;
+    app.add_systems(
+        Update,
+        (
             micro_core::systems::flow_field_update::flow_field_update_system,
             micro_core::spatial::update_spatial_grid_system,
             micro_core::systems::interaction::interaction_system,
             micro_core::systems::removal::removal_system,
             movement_system,
-        ).chain().run_if(|paused: Res<SimPaused>, step: Res<SimStepRemaining>| !paused.0 || step.0 > 0))
-        .add_systems(Update, (
+        )
+            .chain()
+            .run_if(sim_gate),
+    );
+
+    app.add_systems(
+        Update,
+        (
             directive_executor_system,
             zone_tick_system,
-            speed_buff_tick_system,
-        ).chain().run_if(|paused: Res<SimPaused>, step: Res<SimStepRemaining>| !paused.0 || step.0 > 0).before(movement_system))
-        .add_systems(Update, engine_override_system
+            buff_tick_system,
+        )
+            .chain()
+            .run_if(|paused: Res<SimPaused>, step: Res<SimStepRemaining>| !paused.0 || step.0 > 0)
+            .before(movement_system),
+    )
+    .add_systems(
+        Update,
+        engine_override_system
             .after(movement_system)
-            .run_if(|paused: Res<SimPaused>, step: Res<SimStepRemaining>| !paused.0 || step.0 > 0))
-        // Always-running systems (work while paused for terrain painting and fog preview)
-        .add_systems(Update, (
+            .run_if(|paused: Res<SimPaused>, step: Res<SimStepRemaining>| !paused.0 || step.0 > 0),
+    )
+    // Always-running systems (work while paused for terrain painting and fog preview)
+    .add_systems(
+        Update,
+        (
             tick_counter_system,
             ws_command_system,
             visibility_update_system,
-            step_tick_system
-                .after(movement_system),
+            step_tick_system.after(movement_system),
             micro_core::systems::ws_sync::ws_sync_system,
             log_system,
-        ));
+        ),
+    );
 
     #[cfg(feature = "debug-telemetry")]
-    app.add_plugins(micro_core::plugins::TelemetryPlugin);
+    {
+        app.add_plugins(micro_core::plugins::TelemetryPlugin);
+        app.add_systems(
+            Update,
+            micro_core::plugins::telemetry::flow_field_broadcast_system
+                .after(micro_core::systems::flow_field_update::flow_field_update_system),
+        );
+    }
 
     if is_smoke_test {
         app.add_systems(Update, smoke_test_exit_system);
@@ -137,10 +182,7 @@ fn main() {
 }
 
 /// Logs simulation status every 60 ticks (~1 second).
-fn log_system(
-    counter: Res<TickCounter>,
-    query: Query<&micro_core::components::Position>,
-) {
+fn log_system(counter: Res<TickCounter>, query: Query<&micro_core::components::Position>) {
     if counter.tick > 0 && counter.tick.is_multiple_of(60) {
         let entity_count = query.iter().count();
         println!("[Tick {}] Entities alive: {}", counter.tick, entity_count);
@@ -149,10 +191,7 @@ fn log_system(
 
 /// Auto-exits after SMOKE_TEST_MAX_TICKS for CI-friendly testing.
 /// Remove this system for "run forever" mode when bridges are added.
-fn smoke_test_exit_system(
-    counter: Res<TickCounter>,
-    mut exit: MessageWriter<AppExit>,
-) {
+fn smoke_test_exit_system(counter: Res<TickCounter>, mut exit: MessageWriter<AppExit>) {
     if SMOKE_TEST_MAX_TICKS > 0 && counter.tick >= SMOKE_TEST_MAX_TICKS {
         println!("[Tick {}] Smoke test complete. Exiting.", counter.tick);
         exit.write(AppExit::Success);

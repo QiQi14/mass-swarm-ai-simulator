@@ -114,6 +114,9 @@ pub struct ZoneModifierSync {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MlBrainSync {
     pub intervention_active: bool,
+    pub python_connected: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_directive: Option<String>,
 }
 
 #[cfg(feature = "debug-telemetry")]

@@ -1,0 +1,128 @@
+.canvas-hint {
+    transition: opacity 0.3s ease;
+}
+
+.canvas-container:hover .canvas-hint {
+    opacity: 0;
+}
+
+.dot.disconnected {
+    animation: blink 1.5s infinite;
+}
+
+.dot.reconnecting {
+    animation: pulse 1s infinite;
+}
+
+@keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+}
+
+@keyframes pulse {
+    0% { transform: scale(1); opacity: 1; box-shadow: 0 0 5px var(--status-reconnecting); }
+    50% { transform: scale(1.3); opacity: 0.6; box-shadow: 0 0 15px var(--status-reconnecting); }
+    100% { transform: scale(1); opacity: 1; box-shadow: 0 0 5px var(--status-reconnecting); }
+}
+
+.stat-box {
+    transition: border-color 0.2s ease, transform 0.1s ease;
+}
+
+.stat-box:hover {
+    border-color: var(--border-light);
+    transform: translateY(-1px);
+}
+
+.btn {
+    transition: all 0.2s ease;
+}
+
+.btn:active {
+    transform: translateY(1px);
+}
+
+.btn.primary:hover {
+    background-color: var(--accent-primary-hover);
+    box-shadow: var(--shadow-glow);
+}
+
+.btn.secondary:hover {
+    background-color: var(--accent-secondary-hover);
+}
+
+.input-wrapper:focus-within {
+    border-color: var(--accent-primary);
+    box-shadow: 0 0 0 1px var(--accent-primary);
+}
+
+.control-indicator {
+    transition: background-color 0.3s ease;
+}
+
+.control-indicator:after {
+    transition: transform 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
+}
+
+.toggle-control:hover .control-indicator {
+    background-color: var(--accent-secondary-hover);
+}
+
+.toggle-control input:checked:hover ~ .control-indicator {
+    background-color: var(--accent-primary-hover);
+}
+
+.control-label {
+    transition: color 0.2s ease;
+}
+
+.toggle-control:hover .control-label {
+    color: #fff;
+}
+
+.perf-bar-fill {
+    transition: width 0.15s ease;
+}
+
+.faction-toggle-btn:hover { background: var(--bg-input); }
+
+.brush-btn {
+    transition: all 0.2s;
+}
+
+.brush-btn:hover { background: var(--bg-input); }
+
+.btn.icon-btn {
+    transition: all 0.15s;
+}
+
+.btn.icon-btn:hover { background: var(--accent-secondary-hover); }
+
+.btn.icon-btn.danger:hover { background: rgba(244, 63, 94, 0.3); color: #f43f5e; }
+
+.spawn-hint {
+    animation: pulse-hint 2s ease-in-out infinite;
+}
+
+@keyframes pulse-hint {
+    0%, 100% { opacity: 0.7; }
+    50% { opacity: 1; }
+}
+
+.toast {
+    transition: opacity 0.3s, transform 0.3s;
+}
+
+.zone-type-btn {
+    transition: all 0.2s;
+}
+
+.zone-type-btn:hover { background: var(--bg-input); }
+
+.aggro-cell {
+    transition: all 0.2s;
+}
+
+.aggro-cell:hover {
+    background: var(--bg-input);
+}

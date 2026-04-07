@@ -41,12 +41,15 @@ mod tests {
     fn test_faction_id_serde_roundtrip() {
         // Arrange
         let original = FactionId(1);
-        
+
         // Act
         let json = serde_json::to_string(&original).unwrap();
         let deserialized: FactionId = serde_json::from_str(&json).unwrap();
-        
+
         // Assert
-        assert_eq!(original, deserialized, "FactionId should survive JSON roundtrip");
+        assert_eq!(
+            original, deserialized,
+            "FactionId should survive JSON roundtrip"
+        );
     }
 }

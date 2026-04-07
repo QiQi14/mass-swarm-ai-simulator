@@ -6,49 +6,44 @@ from sb3_contrib import MaskablePPO
 from sb3_contrib.common.wrappers import ActionMasker
 from src.env.swarm_env import SwarmEnv
 
+def _make_snapshot(tick=0, own=100, enemy=100):
+    """Helper to create a valid mock snapshot."""
+    return json.dumps({
+        "type": "state_snapshot",
+        "tick": tick,
+        "density_maps": {"0": [0.0]*2500, "1": [0.0]*2500},
+        "summary": {"faction_counts": {"0": own, "1": enemy}},
+        "active_sub_factions": [],
+    })
+
 @pytest.fixture
 def mock_zmq_context():
     with patch("zmq.Context") as mock_ctx:
         mock_socket = MagicMock()
         mock_ctx.return_value.socket.return_value = mock_socket
-        
-        # Mock reset responses (needs two recv_string calls)
-        reset_snapshot_1 = json.dumps({
-            "tick": 0,
-            "density_maps": {"0": [0.0]*2500, "1": [0.0]*2500},
-            "summary": {"faction_counts": {"0": 100, "1": 100}},
-            "active_sub_factions": []
-        })
-        reset_snapshot_2 = json.dumps({
-            "tick": 1,
-            "density_maps": {"0": [0.0]*2500, "1": [0.0]*2500},
-            "summary": {"faction_counts": {"0": 100, "1": 100}},
-            "active_sub_factions": []
-        })
-        
-        # Subsequent steps
-        step_snapshot = json.dumps({
-            "tick": 2,
-            "density_maps": {"0": [0.0]*2500, "1": [0.0]*2500},
-            "summary": {"faction_counts": {"0": 100, "1": 100}},
-            "active_sub_factions": []
-        })
-        
-        # We need a long list of side effects in case it learns multiple steps
-        mock_socket.recv_string.side_effect = [reset_snapshot_1, reset_snapshot_2] + [step_snapshot]*500
+
+        # Use a function side_effect for infinite responses
+        call_count = [0]
+        def recv_side_effect():
+            call_count[0] += 1
+            return _make_snapshot(tick=call_count[0])
+
+        mock_socket.recv_string.side_effect = recv_side_effect
         yield mock_ctx
 
 def test_swarm_env_action_masks(mock_zmq_context):
     env = SwarmEnv(config={"curriculum_stage": 1})
     masks = env.action_masks()
     assert masks.shape == (8,)
-    assert all(masks[0:4])
-    assert not any(masks[4:8])
-    
+    # Stage 1: Hold(0), Navigate(1), ActivateBuff(2) unlocked; Retreat(3) locked
+    assert all(masks[0:3])  # 0,1,2 unlocked
+    assert not masks[3]     # Retreat locked (stage 2)
+    assert not any(masks[4:8])  # Stage 3-4 actions locked
+
     env.curriculum_stage = 2
     masks = env.action_masks()
-    assert masks[6] == False
-    assert masks[7] == False
+    assert all(masks[0:4])  # 0,1,2,3 unlocked
+    assert not any(masks[4:8])  # Stage 3-4 still locked
 
 def test_maskable_ppo_initialization(mock_zmq_context):
     # Just checking it initializes and runs one step without crashing
