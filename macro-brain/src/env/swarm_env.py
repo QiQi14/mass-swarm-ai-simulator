@@ -270,7 +270,13 @@ class SwarmEnv(gym.Env):
         # Win: ALL enemy factions eliminated
         total_enemy = self._get_total_enemy_count(snapshot)
         own_count = self._get_own_count(snapshot)
-        terminated = own_count == 0 or total_enemy == 0
+
+        # Guard: first step after reset may have stale snapshot data
+        # from the Rust side. Don't terminate on step 1.
+        if self._step_count <= 1:
+            terminated = False
+        else:
+            terminated = own_count == 0 or total_enemy == 0
         truncated = self._step_count >= self.max_steps
 
         info = {

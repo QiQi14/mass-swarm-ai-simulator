@@ -94,7 +94,7 @@
   ],
   "training": {
     "max_density": 50.0,
-    "max_steps": 200,
+    "max_steps": 500,
     "ai_eval_interval_ticks": 30,
     "observation_channels": 5,
     "rewards": {
