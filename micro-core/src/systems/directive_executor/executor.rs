@@ -36,6 +36,7 @@ pub struct LatestDirective {
 pub fn directive_executor_system(
     mut latest: ResMut<LatestDirective>,
     mut nav_rules: ResMut<NavigationRuleSet>,
+    mut int_rules: ResMut<crate::rules::InteractionRuleSet>,
     mut buffs: ResMut<FactionBuffs>,
     mut zones: ResMut<ActiveZoneModifiers>,
     mut aggro: ResMut<AggroMaskRegistry>,
@@ -43,11 +44,16 @@ pub fn directive_executor_system(
     mut faction_query: Query<(Entity, &Position, &mut FactionId)>,
 ) {
     let directives: Vec<MacroDirective> = std::mem::take(&mut latest.directives);
+
     if directives.is_empty() { return; }
 
     for directive in directives {
+
         match directive {
-            MacroDirective::Hold => { /* no-op */ }
+            MacroDirective::Idle => { /* no-op */ }
+            MacroDirective::Hold { faction_id } => {
+                nav_rules.rules.retain(|r| r.follower_faction != faction_id);
+            }
     
             MacroDirective::UpdateNavigation {
                 follower_faction,
@@ -178,6 +184,28 @@ pub fn directive_executor_system(
                 if !sub_factions.factions.contains(&new_sub_faction) {
                     sub_factions.factions.push(new_sub_faction);
                 }
+
+                // Push new waypoint navigation for the sub-faction (Flanking movement)
+                nav_rules.rules.push(NavigationRule {
+                    follower_faction: new_sub_faction,
+                    target: NavigationTarget::Waypoint { x: epicenter[0], y: epicenter[1] },
+                });
+
+                // Duplicate interaction rules from the source faction so sub-faction can fight!
+                let mut int_copies = Vec::new();
+                for r in &int_rules.rules {
+                    if r.source_faction == source_faction {
+                        let mut copy = r.clone();
+                        copy.source_faction = new_sub_faction;
+                        int_copies.push(copy);
+                    }
+                    if r.target_faction == source_faction {
+                        let mut copy = r.clone();
+                        copy.target_faction = new_sub_faction;
+                        int_copies.push(copy);
+                    }
+                }
+                int_rules.rules.extend(int_copies);
             }
     
             MacroDirective::MergeFaction {
@@ -199,6 +227,9 @@ pub fn directive_executor_system(
                 aggro
                     .masks
                     .retain(|&(s, t), _| s != source_faction && t != source_faction);
+
+                // Purge sub-faction's interaction rules
+                int_rules.rules.retain(|r| r.source_faction != source_faction && r.target_faction != source_faction);
             }
     
             MacroDirective::SetAggroMask {

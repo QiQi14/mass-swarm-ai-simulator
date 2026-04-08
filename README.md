@@ -2,7 +2,7 @@
 
 A study project exploring two proof-of-concept ideas: **decoupled tri-node architecture** for mass-entity AI simulation, and **AI-agent-driven development workflows** for orchestrating complex software builds.
 
-> **Status:** Phase 3 of 5 complete — 179 Rust + 33 Python tests, RL training pipeline operational with 5-stage curriculum, bidirectional combat resolution at 50v50. [See Roadmap →](ROADMAP.md)
+> **Status:** Phase 3.5 of 5 complete — 195 Rust + 63 Python tests, RL training pipeline operational with 5-stage curriculum, bidirectional combat resolution at 50v50. [See Roadmap →](ROADMAP.md)
 
 ---
 
@@ -92,7 +92,7 @@ The Micro-Core runs at a **fixed 60 TPS** and must process 10,000+ entity update
 
 Rust's ownership model eliminates data races at compile time, which is non-negotiable for a simulation that uses parallel iteration (`par_iter_mut()`) across CPU cores. Bevy's ECS architecture provides zero-cost archetype storage and cache-friendly iteration over entity components.
 
-**Achieved:** 179 unit tests, sub-millisecond per-tick processing, 60 TPS sustained with bidirectional combat resolution.
+**Achieved:** 195 unit tests, sub-millisecond per-tick processing, 60 TPS sustained with bidirectional combat resolution.
 
 ### Why Three Separate Processes?
 

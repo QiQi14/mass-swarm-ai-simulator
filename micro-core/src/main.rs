@@ -45,6 +45,7 @@ fn main() {
     let mut init_entity_count = None;
     let mut is_smoke_test = false;
     let mut is_training = false;
+    let mut is_throttle = false;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         if arg == "--entity-count" {
@@ -55,6 +56,8 @@ fn main() {
             is_smoke_test = true;
         } else if arg == "--training" {
             is_training = true;
+        } else if arg == "--throttle" {
+            is_throttle = true;
         }
     }
 
@@ -71,7 +74,7 @@ fn main() {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
         .add_plugins(bevy_state::app::StatesPlugin)
-        .set_runner(custom_runner)
+        .set_runner(move |app| custom_runner(app, is_training, is_throttle))
         .add_plugins(ZmqBridgePlugin);
 
     let mut config = SimulationConfig::default();
@@ -88,7 +91,7 @@ fn main() {
     app.insert_resource(config)
         .init_resource::<TickCounter>()
         .init_resource::<NextEntityId>()
-        .init_resource::<SimPaused>()
+        .insert_resource(SimPaused(!is_training))
         .init_resource::<SimSpeed>()
         .init_resource::<SimStepRemaining>()
         .init_resource::<RemovalEvents>()
@@ -198,17 +201,21 @@ fn smoke_test_exit_system(counter: Res<TickCounter>, mut exit: MessageWriter<App
     }
 }
 
-fn custom_runner(mut app: App) -> AppExit {
+fn custom_runner(mut app: App, is_training: bool, is_throttle: bool) -> AppExit {
     let frame_duration = std::time::Duration::from_secs_f64(1.0 / 60.0);
+    // Throttle: sleep to maintain 60 TPS even in training mode (human-observable)
+    let should_sleep = !is_training || is_throttle;
     loop {
         let start = std::time::Instant::now();
         app.update();
         if let Some(exit_code) = app.should_exit() {
             return exit_code;
         }
-        let elapsed = start.elapsed();
-        if elapsed < frame_duration {
-            std::thread::sleep(frame_duration - elapsed);
+        if should_sleep {
+            let elapsed = start.elapsed();
+            if elapsed < frame_duration {
+                std::thread::sleep(frame_duration - elapsed);
+            }
         }
     }
 }

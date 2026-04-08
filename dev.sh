@@ -124,9 +124,12 @@ cleanup() {
         echo -e "   ${DIM}HTTP server stopped${RESET}"
     fi
     
-    # Also kill by port in case any child escaped the PID tracking
+    # Only kill ports that THIS script owns
     lsof -ti:"$HTTP_PORT" 2>/dev/null | xargs kill -9 2>/dev/null || true
-    lsof -ti:"$WS_PORT" 2>/dev/null | xargs kill -9 2>/dev/null || true
+    # Only kill WS port if we started the Rust core (NOT in watch mode)
+    if [ "$WATCH_ONLY" != true ] && [ -n "$CORE_PID" ]; then
+        lsof -ti:"$WS_PORT" 2>/dev/null | xargs kill -9 2>/dev/null || true
+    fi
     
     rm -f "$PID_FILE"
     echo -e "${GREEN}✔  All services stopped.${RESET}"
@@ -146,7 +149,7 @@ if [ "$WATCH_ONLY" = true ]; then
     kill_port "$HTTP_PORT"
 
     echo -e "${YELLOW}▸ Starting Debug Visualizer HTTP server on port $HTTP_PORT...${RESET}"
-    python3 -m http.server "$HTTP_PORT" --bind 127.0.0.1 --directory "$VISUALIZER_DIR" 2>/dev/null &
+    python3 -m http.server "$HTTP_PORT" --bind 0.0.0.0 --directory "$VISUALIZER_DIR" 2>/dev/null &
     HTTP_PID=$!
     echo "$HTTP_PID" > "$PID_FILE"
 
@@ -192,7 +195,7 @@ echo ""
 if [ "$SMOKE_TEST" = false ]; then
     echo -e "${YELLOW}▸ Starting Debug Visualizer HTTP server on port $HTTP_PORT...${RESET}"
     
-    python3 -m http.server "$HTTP_PORT" --bind 127.0.0.1 --directory "$VISUALIZER_DIR" 2>/dev/null &
+    python3 -m http.server "$HTTP_PORT" --bind 0.0.0.0 --directory "$VISUALIZER_DIR" 2>/dev/null &
     HTTP_PID=$!
     
     # Save PID for cross-session cleanup

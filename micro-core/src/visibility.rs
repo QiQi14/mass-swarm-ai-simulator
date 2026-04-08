@@ -169,6 +169,6 @@ mod tests {
 
     #[test]
     fn test_vision_radius_default() {
-        assert_eq!(VisionRadius::default().0, 80.0);
+        assert_eq!(VisionRadius::default().0, 1000.0);
     }
 }

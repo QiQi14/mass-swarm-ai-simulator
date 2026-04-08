@@ -10,7 +10,7 @@
 graph LR
     P1["Phase 1 ✅\nVertical Slice\n(Core + Bridges + Visualizer)"]
     P2["Phase 2 ✅\nCore Algorithms\n(Spatial, Pathfinding, Combat)"]
-    P3["Phase 3 ✅\nMacro-Brain\n(Python RL)"]
+    P3["Phase 3.5 ✅\nMacro-Brain\n(Python RL & Prod Pipeline)"]
     P4["Phase 4 ⬜\nIntegration\n& Scale"]
     P5["Phase 5 ⬜\nWeb Engine\nIntegration"]
 
@@ -188,7 +188,7 @@ Prove the **"zero-gap engine integration"** thesis by consuming the Rust core an
 |-------|--------|-----------|------------------|
 | **Phase 1** | ✅ Complete | 2026-04-04 | Bevy 0.18 ECS, WS/ZMQ bridges, Debug Visualizer, bidirectional commands |
 | **Phase 2** | ✅ Complete | 2026-04-05 | Spatial hash grid, Chamfer flow fields, Boids steering, FoW, terrain, 111 unit tests |
-| **Phase 3** | ✅ Complete | 2026-04-06 | Multi-Master Arbitration, SB3 MaskablePPO training, 5-stage curriculum, 179 Rust + 33 Python tests |
+| **Phase 3.5** | ✅ Complete | 2026-04-08 | Multi-Master Arbitration, SB3 MaskablePPO, 5-stage curriculum, Bot Controller, prod pipeline, 195 Rust + 63 Python tests |
 | **Phase 4** | ⬜ Not Started | — | 10K scale test, serialization upgrade, full tri-node orchestration |
 | **Phase 5** | ⬜ Not Started | — | WASM compilation, ONNX export, Three.js 3D rendering |
 
@@ -215,6 +215,14 @@ Phase 3 was implemented as 12 atomic tasks across 5 features:
 **Key research:** RL training methodology, 3-tier interactable terrain, multi-master arbitration. All documented in `docs/study/010-012`.
 
 **Safety patches:** 8 patches preventing RL exploitation (Vaporization Guard, Moses Effect, Ghost State Cleanup, f32 Sort Panic, Pacifist Flank Block, Dynamic Epicenter, Sub-Faction Desync, ZMQ Deadlock Guard).
+
+### Phase 3.5 Completion Notes
+
+Phase 3.5 was introduced to solidify the training pipeline before large scale runs:
+
+1. **Python BotController:** Extracted bot strategy logic entirely into Python (Context-Agnostic refactor completion).
+2. **5-Stage Curriculum:** Procedural terrain logic, dynamic 50v50 entity scaling, mixed heuristic algorithms.
+3. **Training Orchestration:** Run Managers for tracking experiments in `runs/`, Validator CLIs, and `train.sh` launch scripts.
 
 > [!NOTE]
 > This roadmap was approved at the start of the project. Per-phase implementation plans are created via the `/planner` workflow and archived in `.agents/history/` after completion.

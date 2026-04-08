@@ -9,10 +9,7 @@ if TYPE_CHECKING:
     from src.config.game_profile import GameProfile
 
 # Must match curriculum.py
-ACTION_NAMES = [
-    "Hold", "Navigate", "Frenzy", "Retreat",
-    "ZoneModifier", "SplitFaction", "MergeFaction", "SetAggroMask"
-]
+ACTION_NAMES = ["Hold", "AttackA", "AttackB"]
 
 
 class EnvStatCallback(BaseCallback):
@@ -24,63 +21,66 @@ class EnvStatCallback(BaseCallback):
                 self.logger.record("env/own_count", info["own_count"])
             if "enemy_count" in info:
                 self.logger.record("env/enemy_count", info["enemy_count"])
-            if "sub_factions" in info:
-                self.logger.record("env/sub_factions", info["sub_factions"])
+            if "patrol_count" in info:
+                self.logger.record("env/patrol_count", info["patrol_count"])
+            if "target_count" in info:
+                self.logger.record("env/target_count", info["target_count"])
+            if "debuff_applied" in info:
+                self.logger.record("env/debuff_applied", int(info["debuff_applied"]))
         return True
 
 
 class EpisodeLogCallback(BaseCallback):
-    """Comprehensive per-episode logging with mastery metrics.
+    """Per-episode logging for Stage 1 Tactical Training.
 
-    Tracks everything the CurriculumCallback needs for
-    Proof-of-Mechanic-Mastery transitions:
-      - Rolling win rate
-      - Rolling avg survivors (on wins only)
-      - Rolling action usage (per-action fraction)
-      - Rolling timeout rate
-      - Rolling flanking score
+    Tracks rolling reward for graduation condition:
+    - Rolling avg reward > threshold for N consecutive episodes
     """
 
     WINDOW = 100  # Rolling window for stats
+    GRADUATION_STREAK = 20  # Consecutive episodes above threshold
 
-    def __init__(self, log_path: str = "./episode_log.csv", verbose: int = 1):
+    def __init__(self, log_path: str = "./episode_log.csv",
+                 num_actions: int = 3, verbose: int = 1):
         super().__init__(verbose)
         self.log_path = log_path
+        self.num_actions = num_actions
         self.episode_count = 0
         self.episode_reward = 0.0
         self.episode_steps = 0
-        # Per-episode action counts
-        self.action_counts = [0] * 8
+        self.action_counts = [0] * num_actions
         self._file = None
         self._writer = None
 
-        # Rolling deques for mastery metrics
-        self._results = deque(maxlen=self.WINDOW)         # 1=WIN, 0=LOSS/TIMEOUT
-        self._survivors = deque(maxlen=self.WINDOW)        # own_alive on WIN, 0 on LOSS
+        # Rolling deques
+        self._results = deque(maxlen=self.WINDOW)
+        self._survivors = deque(maxlen=self.WINDOW)
         self._episode_lengths = deque(maxlen=self.WINDOW)
-        self._timeouts = deque(maxlen=self.WINDOW)         # 1=TIMEOUT, 0=WIN/LOSS
-        self._flanking_scores = deque(maxlen=self.WINDOW)  # episode flanking score
-        # Per-episode total action counts for rolling usage
-        self._action_totals = deque(maxlen=self.WINDOW)    # list of [count_per_action]
-        self._step_totals = deque(maxlen=self.WINDOW)      # total steps per episode
+        self._rewards = deque(maxlen=self.WINDOW)
+        self._debuff_applied = deque(maxlen=self.WINDOW)
 
-        # Per-episode flanking accumulator
-        self._episode_flanking = 0.0
+        # Graduation streak tracking
+        self._consecutive_above_threshold = 0
 
     def _on_training_start(self) -> None:
         os.makedirs(os.path.dirname(self.log_path) or ".", exist_ok=True)
         self._file = open(self.log_path, "w", newline="")
         self._writer = csv.writer(self._file)
-        self._writer.writerow([
+        header = [
             "episode", "timestep", "result", "own_alive", "enemy_alive",
-            "ep_steps", "ep_reward", "kills", "deaths",
-            "act_hold", "act_nav", "act_frenzy", "act_retreat",
-            "act_zone", "act_split", "act_merge", "act_aggro",
+            "patrol_alive", "target_alive",
+            "ep_steps", "ep_reward",
+        ]
+        for i in range(self.num_actions):
+            name = ACTION_NAMES[i] if i < len(ACTION_NAMES) else f"act_{i}"
+            header.append(f"act_{name}")
+        header.extend([
+            "debuff_applied", "group_a_engaged",
             "win_rate_100", "avg_survivors_100", "avg_ep_len_100",
-            "timeout_rate_100", "flanking_score_100",
-            "retreat_usage", "split_usage",
-            "stage", "timestamp"
+            "avg_reward_100", "graduation_streak",
+            "stage", "timestamp",
         ])
+        self._writer.writerow(header)
         self._file.flush()
 
     def _on_step(self) -> bool:
@@ -88,7 +88,7 @@ class EpisodeLogCallback(BaseCallback):
         actions = self.locals.get("actions", None)
         if actions is not None and len(actions) > 0:
             act = int(actions[0])
-            if 0 <= act < 8:
+            if 0 <= act < self.num_actions:
                 self.action_counts[act] += 1
 
         # Track rewards
@@ -99,11 +99,6 @@ class EpisodeLogCallback(BaseCallback):
         if rewards is not None and len(rewards) > 0:
             self.episode_reward += float(rewards[0])
 
-        # Track flanking from info (if env exposes it)
-        if infos and len(infos) > 0:
-            info = infos[0]
-            self._episode_flanking += info.get("flanking_bonus", 0.0)
-
         self.episode_steps += 1
 
         if dones is not None and len(dones) > 0 and dones[0]:
@@ -111,6 +106,10 @@ class EpisodeLogCallback(BaseCallback):
             info = infos[0] if infos else {}
             own = info.get("own_count", -1)
             enemy = info.get("enemy_count", -1)
+            patrol = info.get("patrol_count", -1)
+            target = info.get("target_count", -1)
+            debuff = info.get("debuff_applied", False)
+            engaged = info.get("group_a_engaged", False)
 
             # Determine result
             if own == 0 and enemy > 0:
@@ -122,28 +121,19 @@ class EpisodeLogCallback(BaseCallback):
             else:
                 result = "TIMEOUT"
 
-            kills = max(0, 50 - enemy)
-            deaths = max(0, 50 - own)
-
-            # ── Update Rolling Stats ────────────────────────────
+            # Update rolling stats
             self._results.append(1 if result == "WIN" else 0)
             self._survivors.append(own if result == "WIN" else 0)
             self._episode_lengths.append(self.episode_steps)
-            self._timeouts.append(1 if result == "TIMEOUT" else 0)
-            self._flanking_scores.append(self._episode_flanking)
-            self._action_totals.append(list(self.action_counts))
-            self._step_totals.append(self.episode_steps)
+            self._rewards.append(self.episode_reward)
+            self._debuff_applied.append(1 if debuff else 0)
 
-            # ── Compute Rolling Metrics ─────────────────────────
+            # Compute rolling metrics
             win_rate = sum(self._results) / len(self._results) if self._results else 0
             win_survivors = [s for s in self._survivors if s > 0]
             avg_survivors = sum(win_survivors) / len(win_survivors) if win_survivors else 0
             avg_ep_len = sum(self._episode_lengths) / len(self._episode_lengths)
-            timeout_rate = sum(self._timeouts) / len(self._timeouts) if self._timeouts else 0
-            flanking_score = sum(self._flanking_scores) / len(self._flanking_scores) if self._flanking_scores else 0
-
-            # Per-action usage as fraction of total steps
-            action_usage = self._compute_action_usage()
+            avg_reward = sum(self._rewards) / len(self._rewards) if self._rewards else 0
 
             # Get curriculum stage
             stage = 1
@@ -158,18 +148,18 @@ class EpisodeLogCallback(BaseCallback):
                 result,
                 own,
                 enemy,
+                patrol,
+                target,
                 self.episode_steps,
                 f"{self.episode_reward:.4f}",
-                kills,
-                deaths,
                 *self.action_counts,
+                int(debuff),
+                int(engaged),
                 f"{win_rate:.3f}",
                 f"{avg_survivors:.1f}",
                 f"{avg_ep_len:.1f}",
-                f"{timeout_rate:.3f}",
-                f"{flanking_score:.4f}",
-                f"{action_usage.get('Retreat', 0):.3f}",
-                f"{action_usage.get('SplitFaction', 0):.3f}",
+                f"{avg_reward:.4f}",
+                self._consecutive_above_threshold,
                 stage,
                 datetime.now().strftime("%H:%M:%S"),
             ]
@@ -177,47 +167,30 @@ class EpisodeLogCallback(BaseCallback):
             self._file.flush()
 
             if self.verbose >= 1:
-                act_str = f"H:{self.action_counts[0]} N:{self.action_counts[1]} F:{self.action_counts[2]}"
-                if stage >= 2:
-                    act_str += f" R:{self.action_counts[3]}"
-                if stage >= 3:
-                    act_str += f" Sp:{self.action_counts[5]}"
+                act_str = " ".join(
+                    f"{ACTION_NAMES[i] if i < len(ACTION_NAMES) else f'A{i}'}:{self.action_counts[i]}"
+                    for i in range(self.num_actions)
+                )
+                debuff_str = "🎯" if debuff else "  "
                 print(
                     f"[Ep {self.episode_count:>4}] {result:<7} | "
-                    f"Own:{own:>2} Ene:{enemy:>2} | "
+                    f"Own:{own:>2} Ene:{enemy:>2} (P:{patrol:>2} T:{target:>2}) | "
                     f"Steps:{self.episode_steps:>3} | "
                     f"Rew:{self.episode_reward:>+8.2f} | "
                     f"WR100:{win_rate:.0%} | "
                     f"Surv:{avg_survivors:.1f} | "
-                    f"S{stage} | {act_str}"
+                    f"AvgR:{avg_reward:.2f} | "
+                    f"{debuff_str} | {act_str}"
                 )
 
             # Reset per-episode accumulators
             self.episode_reward = 0.0
             self.episode_steps = 0
-            self.action_counts = [0] * 8
-            self._episode_flanking = 0.0
+            self.action_counts = [0] * self.num_actions
 
         return True
 
-    # ── Public Properties for CurriculumCallback ────────────────
-
-    def _compute_action_usage(self) -> dict:
-        """Compute per-action usage fraction over the rolling window."""
-        if not self._action_totals:
-            return {}
-        total_steps = sum(self._step_totals)
-        if total_steps == 0:
-            return {}
-        # Sum action counts across all episodes in window
-        summed = [0] * 8
-        for ep_counts in self._action_totals:
-            for i, c in enumerate(ep_counts):
-                summed[i] += c
-        return {
-            ACTION_NAMES[i]: summed[i] / total_steps
-            for i in range(8)
-        }
+    # ── Public Properties ───────────────────────────────────────
 
     @property
     def rolling_win_rate(self) -> float:
@@ -229,79 +202,35 @@ class EpisodeLogCallback(BaseCallback):
         return sum(win_survivors) / len(win_survivors) if win_survivors else 0.0
 
     @property
-    def rolling_action_usage(self) -> dict:
-        return self._compute_action_usage()
-
-    @property
-    def rolling_timeout_rate(self) -> float:
-        return sum(self._timeouts) / len(self._timeouts) if self._timeouts else 0.0
-
-    @property
-    def rolling_flanking_score(self) -> float:
-        return sum(self._flanking_scores) / len(self._flanking_scores) if self._flanking_scores else 0.0
+    def rolling_avg_reward(self) -> float:
+        return sum(self._rewards) / len(self._rewards) if self._rewards else 0.0
 
     def _on_training_end(self) -> None:
         if self._file:
             self._file.close()
 
-# ── Curriculum Callback ─────────────────────────────────────────────
 
 class CurriculumCallback(BaseCallback):
-    """Mastery-based curriculum with promotion AND demotion.
+    """Stage 1 graduation: rolling avg reward > threshold for N consecutive episodes.
 
-    Reads curriculum stage configs from the GameProfile contract.
-
-    Reads rolling stats from the EpisodeLogCallback:
-      - rolling_win_rate, rolling_avg_survivors
-      - rolling_action_usage (dict of action_name → fraction)
-      - rolling_timeout_rate, rolling_flanking_score
-      - episode_count, episodes_since_promotion
-
-    Promotion: All graduation conditions must be met simultaneously.
-    Demotion:  Win rate below floor for window episodes → drop one stage.
+    Simplified from the multi-stage mastery system — only checks one condition.
     """
 
     def __init__(
         self,
-        episode_logger=None,
+        episode_logger: EpisodeLogCallback | None = None,
         profile: 'GameProfile' | None = None,
+        reward_threshold: float = 12.0,
+        streak_required: int = 20,
         verbose: int = 1,
     ):
         super().__init__(verbose)
         self.episode_logger = episode_logger
         self.profile = profile
+        self.reward_threshold = reward_threshold
+        self.streak_required = streak_required
         self._last_checked_episode = 0
-        self._episodes_at_promotion = 0
-
-        # Build stage configs from profile or use empty
-        self._stage_configs: dict[int, dict] = {}
-        if profile is not None:
-            for stage_cfg in profile.training.curriculum:
-                grad = {
-                    "win_rate": stage_cfg.graduation.win_rate,
-                    "min_episodes": stage_cfg.graduation.min_episodes,
-                }
-                if stage_cfg.graduation.avg_survivors is not None:
-                    grad["avg_survivors"] = stage_cfg.graduation.avg_survivors
-                if stage_cfg.graduation.action_usage:
-                    grad["action_usage"] = dict(stage_cfg.graduation.action_usage)
-                if stage_cfg.graduation.avg_flanking_score_min is not None:
-                    grad["avg_flanking_score_min"] = stage_cfg.graduation.avg_flanking_score_min
-                if stage_cfg.graduation.timeout_rate_max is not None:
-                    grad["timeout_rate_max"] = stage_cfg.graduation.timeout_rate_max
-
-                demotion = None
-                if stage_cfg.demotion is not None:
-                    demotion = {
-                        "win_rate_floor": stage_cfg.demotion.win_rate_floor,
-                        "window": stage_cfg.demotion.window,
-                    }
-
-                self._stage_configs[stage_cfg.stage] = {
-                    "description": stage_cfg.description,
-                    "graduation": grad,
-                    "demotion": demotion,
-                }
+        self._consecutive_above = 0
 
     def _on_step(self) -> bool:
         if self.episode_logger is None:
@@ -312,130 +241,28 @@ class CurriculumCallback(BaseCallback):
             return True
         self._last_checked_episode = current_ep
 
-        env = self._get_env()
-        if env is None:
-            return True
-
-        current_stage = getattr(env, 'curriculum_stage', 1)
-        eps_since_promo = current_ep - self._episodes_at_promotion
-
-        # ── Check Demotion First ────────────────────────────────
-        config = self._stage_configs.get(current_stage)
-        if config and config.get("demotion"):
-            demotion = config["demotion"]
-            if eps_since_promo >= demotion["window"]:
-                win_rate = self.episode_logger.rolling_win_rate
-                if win_rate < demotion["win_rate_floor"]:
-                    self._demote(env, current_stage, current_ep, win_rate)
-                    return True
-
-        # ── Check Graduation ────────────────────────────────────
-        if config is None or "graduation" not in config:
-            return True
-
-        grad = config["graduation"]
-        if eps_since_promo < grad.get("min_episodes", 100):
-            return True
-
-        # Collect all metrics
-        win_rate = self.episode_logger.rolling_win_rate
-        avg_surv = self.episode_logger.rolling_avg_survivors
-        action_usage = self.episode_logger.rolling_action_usage
-        timeout_rate = self.episode_logger.rolling_timeout_rate
-        flanking_score = self.episode_logger.rolling_flanking_score
-
-        # Check each condition
-        reasons_met = []
-        reasons_failed = []
-
-        # 1. Win rate
-        threshold = grad.get("win_rate", 0)
-        if win_rate >= threshold:
-            reasons_met.append(f"WR {win_rate:.0%} >= {threshold:.0%}")
+        # Check rolling average reward
+        avg_reward = self.episode_logger.rolling_avg_reward
+        if avg_reward >= self.reward_threshold:
+            self._consecutive_above += 1
         else:
-            reasons_failed.append(f"WR {win_rate:.0%} < {threshold:.0%}")
+            self._consecutive_above = 0
 
-        # 2. Avg survivors
-        if "avg_survivors" in grad:
-            threshold = grad["avg_survivors"]
-            if avg_surv >= threshold:
-                reasons_met.append(f"Surv {avg_surv:.1f} >= {threshold:.1f}")
-            else:
-                reasons_failed.append(f"Surv {avg_surv:.1f} < {threshold:.1f}")
+        # Update the episode logger's streak counter for CSV logging
+        self.episode_logger._consecutive_above_threshold = self._consecutive_above
 
-        # 3. Action usage
-        for action_name, min_usage in grad.get("action_usage", {}).items():
-            actual = action_usage.get(action_name, 0.0)
-            if actual >= min_usage:
-                reasons_met.append(f"{action_name} {actual:.1%} >= {min_usage:.0%}")
-            else:
-                reasons_failed.append(f"{action_name} {actual:.1%} < {min_usage:.0%}")
-
-        # 4. Flanking score
-        if "avg_flanking_score_min" in grad:
-            threshold = grad["avg_flanking_score_min"]
-            if flanking_score > threshold:
-                reasons_met.append(f"Flank {flanking_score:.3f} > {threshold}")
-            else:
-                reasons_failed.append(f"Flank {flanking_score:.3f} <= {threshold}")
-
-        # 5. Timeout rate
-        if "timeout_rate_max" in grad:
-            threshold = grad["timeout_rate_max"]
-            if timeout_rate <= threshold:
-                reasons_met.append(f"Timeout {timeout_rate:.1%} <= {threshold:.0%}")
-            else:
-                reasons_failed.append(f"Timeout {timeout_rate:.1%} > {threshold:.0%}")
-
-        # All conditions must pass
-        if not reasons_failed:
-            self._promote(env, current_stage, current_ep, reasons_met)
-        elif self.verbose >= 2 and current_ep % 50 == 0:
-            print(
-                f"[Curriculum S{current_stage}] Ep {current_ep} | "
-                f"Passed: {', '.join(reasons_met)} | "
-                f"Blocked: {', '.join(reasons_failed)}"
-            )
+        if self._consecutive_above >= self.streak_required:
+            if self.verbose >= 1:
+                print(
+                    f"\n{'='*60}\n"
+                    f"🎓 STAGE 1 GRADUATED!\n"
+                    f"   Episode:   {current_ep}\n"
+                    f"   Timesteps: {self.num_timesteps}\n"
+                    f"   Avg Reward: {avg_reward:.2f} >= {self.reward_threshold}\n"
+                    f"   Streak:     {self._consecutive_above} >= {self.streak_required}\n"
+                    f"{'='*60}\n"
+                )
+            # Reset streak after graduation (prevents repeated printing)
+            self._consecutive_above = 0
 
         return True
-
-    def _get_env(self):
-        if self.training_env and hasattr(self.training_env, 'envs'):
-            return self.training_env.envs[0].unwrapped
-        return None
-
-    def _promote(self, env, from_stage, episode, reasons):
-        next_stage = from_stage + 1
-        env.curriculum_stage = next_stage
-        self._episodes_at_promotion = episode
-
-        if self.verbose >= 1:
-            next_desc = self._stage_configs.get(next_stage, {}).get(
-                'description', 'Final stage'
-            )
-            reasons_str = "\n".join(f"   ✅ {r}" for r in reasons)
-            print(
-                f"\n{'='*60}\n"
-                f"🎓 STAGE {from_stage} → STAGE {next_stage} PROMOTION!\n"
-                f"   Episode:   {episode}\n"
-                f"   Timesteps: {self.num_timesteps}\n"
-                f"{reasons_str}\n"
-                f"   Next: {next_desc}\n"
-                f"{'='*60}\n"
-            )
-
-    def _demote(self, env, from_stage, episode, win_rate):
-        prev_stage = max(1, from_stage - 1)
-        env.curriculum_stage = prev_stage
-        self._episodes_at_promotion = episode
-
-        if self.verbose >= 1:
-            print(
-                f"\n{'='*60}\n"
-                f"⚠️  STAGE {from_stage} → STAGE {prev_stage} DEMOTION!\n"
-                f"   Episode:   {episode}\n"
-                f"   Win Rate:  {win_rate:.0%} (below floor)\n"
-                f"   Reason:    Catastrophic forgetting prevention\n"
-                f"   Action:    Rebuilding confidence at Stage {prev_stage}\n"
-                f"{'='*60}\n"
-            )

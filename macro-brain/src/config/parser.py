@@ -26,6 +26,7 @@ def _parse_profile(raw: dict[str, Any]):
 
     def _parse_strategy(raw_strat: dict) -> BotStrategyDef:
         strats = raw_strat.get("strategies")
+        waypoints = raw_strat.get("waypoints")
         return BotStrategyDef(
             type=raw_strat["type"],
             target_faction=raw_strat.get("target_faction"),
@@ -34,7 +35,9 @@ def _parse_profile(raw: dict[str, Any]):
             retreat_health_fraction=raw_strat.get("retreat_health_fraction"),
             retreat_x=raw_strat.get("retreat_x"),
             retreat_y=raw_strat.get("retreat_y"),
-            strategies=[_parse_strategy(s) for s in strats] if strats else None
+            strategies=[_parse_strategy(s) for s in strats] if strats else None,
+            waypoints=waypoints,
+            waypoint_threshold=raw_strat.get("waypoint_threshold", 50.0),
         )
 
     meta = ProfileMeta(**raw["meta"])

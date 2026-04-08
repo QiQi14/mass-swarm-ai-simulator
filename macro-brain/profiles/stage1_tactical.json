@@ -1,0 +1,146 @@
+{
+  "meta": {
+    "name": "Stage 1 Tactical Training",
+    "version": "1.0.0",
+    "description": "3-faction tactical decision scenario: Brain vs Patrol Guard vs Stationary Target"
+  },
+  "world": {
+    "width": 1000.0,
+    "height": 1000.0,
+    "grid_width": 50,
+    "grid_height": 50,
+    "cell_size": 20.0
+  },
+  "factions": [
+    {
+      "id": 0,
+      "name": "Brain",
+      "role": "brain",
+      "stats": { "hp": 100.0 },
+      "default_count": 50
+    },
+    {
+      "id": 1,
+      "name": "Patrol",
+      "role": "bot",
+      "stats": { "hp": 100.0 },
+      "default_count": 20
+    },
+    {
+      "id": 2,
+      "name": "Target",
+      "role": "bot",
+      "stats": { "hp": 100.0 },
+      "default_count": 50
+    }
+  ],
+  "combat": {
+    "rules": [
+      {
+        "source_faction": 0,
+        "target_faction": 1,
+        "range": 25.0,
+        "effects": [{ "stat_index": 0, "delta_per_second": -25.0 }]
+      },
+      {
+        "source_faction": 1,
+        "target_faction": 0,
+        "range": 25.0,
+        "effects": [{ "stat_index": 0, "delta_per_second": -25.0 }]
+      },
+      {
+        "source_faction": 0,
+        "target_faction": 2,
+        "range": 25.0,
+        "effects": [{ "stat_index": 0, "delta_per_second": -25.0 }]
+      },
+      {
+        "source_faction": 2,
+        "target_faction": 0,
+        "range": 25.0,
+        "effects": [{ "stat_index": 0, "delta_per_second": -25.0 }]
+      }
+    ]
+  },
+  "movement": {
+    "max_speed": 60.0,
+    "steering_factor": 5.0,
+    "separation_radius": 6.0,
+    "separation_weight": 1.5,
+    "flow_weight": 1.0
+  },
+  "terrain_thresholds": {
+    "impassable_threshold": 65535,
+    "destructible_min": 60001
+  },
+  "removal_rules": [
+    { "stat_index": 0, "threshold": 0.0, "condition": "LessOrEqual" }
+  ],
+  "abilities": {
+    "buff_cooldown_ticks": 180,
+    "movement_speed_stat": 1,
+    "combat_damage_stat": 2,
+    "activate_buff": {
+      "modifiers": [
+        { "stat_index": 0, "modifier_type": "Multiplier", "value": 0.5 }
+      ],
+      "duration_ticks": 9999
+    }
+  },
+  "actions": [
+    { "index": 0, "name": "Hold", "unlock_stage": 1 },
+    { "index": 1, "name": "AttackA", "unlock_stage": 1 },
+    { "index": 2, "name": "AttackB", "unlock_stage": 1 }
+  ],
+  "training": {
+    "max_density": 50.0,
+    "max_steps": 200,
+    "ai_eval_interval_ticks": 30,
+    "observation_channels": 5,
+    "rewards": {
+      "time_penalty_per_step": -0.01,
+      "kill_reward": 0.05,
+      "death_penalty": -0.03,
+      "win_terminal": 10.0,
+      "loss_terminal": -10.0,
+      "survival_bonus_multiplier": 5.0
+    },
+    "curriculum": [
+      {
+        "stage": 1,
+        "description": "Tactical decision: avoid patrol, ambush weakened target",
+        "graduation": {
+          "win_rate": 0.90,
+          "avg_survivors": 20.0,
+          "min_episodes": 50
+        },
+        "demotion": null
+      }
+    ]
+  },
+  "bot_stage_behaviors": [
+    {
+      "stage": 1,
+      "faction_id": 1,
+      "strategy": {
+        "type": "Patrol",
+        "waypoints": [
+          { "x": 500.0, "y": 150.0 },
+          { "x": 500.0, "y": 850.0 }
+        ],
+        "waypoint_threshold": 50.0
+      },
+      "eval_interval_ticks": 30
+    },
+    {
+      "stage": 1,
+      "faction_id": 2,
+      "strategy": {
+        "type": "HoldPosition",
+        "x": 800.0,
+        "y": 500.0
+      },
+      "eval_interval_ticks": 60
+    }
+  ]
+}

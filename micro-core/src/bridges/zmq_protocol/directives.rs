@@ -85,7 +85,10 @@ pub struct StatModifierPayload {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(tag = "directive")]
 pub enum MacroDirective {
-    Hold,
+    Idle,
+    Hold {
+        faction_id: u32,
+    },
 
     UpdateNavigation {
         follower_faction: u32,

@@ -70,7 +70,9 @@ pub fn movement_system(
         ),
         Without<EngineOverride>,
     >,
+    tick_res: Res<crate::config::TickCounter>,
 ) {
+    let tick = tick_res.tick;
     let start = telemetry.as_ref().map(|_| std::time::Instant::now());
     let dt = 1.0 / 60.0;
 
@@ -183,6 +185,7 @@ pub fn movement_system(
                 next_y = pos.y + vel.dy * dt;
             }
 
+
             pos.x = next_x.clamp(0.0, config.world_width);
             pos.y = next_y.clamp(0.0, config.world_height);
         });
@@ -213,6 +216,7 @@ mod tests {
         app.insert_resource(FactionBuffs::default());
         app.init_resource::<crate::config::BuffConfig>();
         app.insert_resource(crate::terrain::TerrainGrid::new(50, 50, 20.0));
+        app.insert_resource(crate::config::TickCounter { tick: 0 });
         app.add_systems(Update, movement_system);
         app
     }

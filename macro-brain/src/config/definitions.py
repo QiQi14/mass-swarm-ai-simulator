@@ -158,7 +158,7 @@ class TrainingConfig:
 @dataclass(frozen=True)
 class BotStrategyDef:
     """Abstract bot strategy — maps to Rust BotStrategy enum."""
-    type: str  # "Charge", "HoldPosition", "Adaptive", "Mixed"
+    type: str  # "Charge", "HoldPosition", "Adaptive", "Mixed", "Patrol"
     target_faction: int | None = None
     x: float | None = None
     y: float | None = None
@@ -166,6 +166,8 @@ class BotStrategyDef:
     retreat_x: float | None = None
     retreat_y: float | None = None
     strategies: list | None = None  # list of BotStrategyDef dicts for Mixed
+    waypoints: list | None = None  # list of {"x": float, "y": float} for Patrol
+    waypoint_threshold: float = 50.0  # proximity to switch waypoint
 
     def to_dict(self) -> dict:
         """Serialize to ZMQ payload format matching Rust serde(tag='type')."""
@@ -183,6 +185,9 @@ class BotStrategyDef:
         elif self.type == "Mixed":
             d["strategies"] = [s.to_dict() if isinstance(s, BotStrategyDef)
                                else s for s in (self.strategies or [])]
+        elif self.type == "Patrol":
+            d["waypoints"] = self.waypoints or []
+            d["waypoint_threshold"] = self.waypoint_threshold
         return d
 
 

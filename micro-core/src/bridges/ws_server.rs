@@ -8,7 +8,7 @@ pub async fn start_server(
     mut rx: tokio::sync::broadcast::Receiver<String>,
     cmd_tx: std::sync::mpsc::Sender<String>,
 ) {
-    let listener = TcpListener::bind("127.0.0.1:8080")
+    let listener = TcpListener::bind("0.0.0.0:8080")
         .await
         .expect("Failed to bind WebSocket server");
 

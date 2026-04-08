@@ -27,7 +27,7 @@ fn test_macro_action_with_params() {
 
 #[test]
 fn test_macro_directive_hold_roundtrip() {
-    let directive = MacroDirective::Hold;
+    let directive = MacroDirective::Idle;
     let json = serde_json::to_string(&directive).unwrap();
     let deserialized: MacroDirective = serde_json::from_str(&json).unwrap();
     assert_eq!(directive, deserialized, "Hold directive should roundtrip");
@@ -168,10 +168,10 @@ fn test_navigation_target_waypoint_roundtrip() {
 
 #[test]
 fn test_macro_directive_json_tag_is_directive() {
-    let directive = MacroDirective::Hold;
+    let directive = MacroDirective::Idle;
     let json = serde_json::to_string(&directive).unwrap();
     assert!(
-        json.contains("\"directive\":\"Hold\""),
+        json.contains("\"directive\":\"Idle\""),
         "MacroDirective JSON must use 'directive' key"
     );
 }

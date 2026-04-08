@@ -17,14 +17,31 @@ export function updateMlBrainPanel(mlBrain) {
 
     if (directiveEl && mlBrain.last_directive) {
         try {
-            const d = JSON.parse(mlBrain.last_directive);
-            let summary = d.directive || 'Hold';
-            if (d.directive === 'SplitFaction') {
-                summary = `Split ${Math.round(d.percentage * 100)}% to ${d.new_sub_faction}`;
+            let d = JSON.parse(mlBrain.last_directive);
+            if (d.type === 'macro_directives' && Array.isArray(d.directives)) {
+                // Find the brain's directive (first in the batch)
+                // Bot directives follow after the brain's directive(s)
+                d = d.directives[0] || {};
+            }
+
+            let summary = d.directive || 'Unknown';
+            if (d.directive === 'Hold') {
+                summary = '⏸ Hold (Brake)';
+            } else if (d.directive === 'Idle') {
+                summary = '💤 Idle';
+            } else if (d.directive === 'SplitFaction') {
+                summary = `✂️ Split ${Math.round(d.percentage * 100)}% → sub ${d.new_sub_faction}`;
             } else if (d.directive === 'SetZoneModifier') {
-                summary = `${d.cost_modifier < 0 ? 'Attract' : 'Repel'} at (${Math.round(d.x)}, ${Math.round(d.y)})`;
+                summary = `${d.cost_modifier < 0 ? '🧲 Attract' : '🚫 Repel'} at (${Math.round(d.x)}, ${Math.round(d.y)})`;
             } else if (d.directive === 'UpdateNavigation') {
-                summary = `Nav ${d.follower_faction} to ${d.target.type}`;
+                const targetLabel = d.target?.faction_id !== undefined
+                    ? `Faction ${d.target.faction_id}`
+                    : d.target?.type || '?';
+                summary = `⚔️ Attack → ${targetLabel}`;
+            } else if (d.directive === 'ActivateBuff') {
+                summary = '🎯 Debuff Applied!';
+            } else if (d.directive === 'Retreat') {
+                summary = `🏃 Retreat → (${Math.round(d.retreat_x)}, ${Math.round(d.retreat_y)})`;
             }
             directiveEl.textContent = summary;
         } catch {

@@ -95,6 +95,7 @@ pub(super) fn ai_poll_system(
     channels: Res<AiBridgeChannels>,
     mut next_state: ResMut<NextState<SimState>>,
     mut latest_directive: ResMut<LatestDirective>,
+    mut pending_reset: ResMut<crate::bridges::zmq_bridge::reset::PendingReset>,
     mut waiting_since: Local<Option<std::time::Instant>>,
 ) {
     // Track when we entered WaitingForAI
@@ -117,6 +118,7 @@ pub(super) fn ai_poll_system(
                         batch.directives.len()
                     );
                     latest_directive.directives = batch.directives;
+                    latest_directive.last_directive_json = Some(reply_json.clone());
                     *waiting_since = None;
                     next_state.set(SimState::Running);
                     return;
@@ -125,8 +127,29 @@ pub(super) fn ai_poll_system(
 
             // Fallback for ResetEnvironment (which still uses AiResponse)
             match serde_json::from_str::<AiResponse>(&reply_json) {
-                Ok(AiResponse::ResetEnvironment { .. }) => {
+                Ok(AiResponse::ResetEnvironment {
+                    terrain,
+                    spawns,
+                    combat_rules,
+                    ability_config,
+                    movement_config,
+                    max_density,
+                    terrain_thresholds,
+                    removal_rules,
+                    navigation_rules,
+                }) => {
                     println!("[AI Bridge] Received reset_environment command (tick resume)");
+                    pending_reset.request = Some(crate::bridges::zmq_bridge::reset::ResetRequest {
+                        terrain,
+                        spawns,
+                        combat_rules,
+                        ability_config,
+                        movement_config,
+                        max_density,
+                        terrain_thresholds,
+                        removal_rules,
+                        navigation_rules,
+                    });
                 }
                 Ok(AiResponse::Directive { directive: _ }) => {
                     eprintln!("[ZMQ] Unexpected message type (expected 'macro_directives')");
@@ -285,6 +308,7 @@ mod tests {
             action_rx: Mutex::new(action_rx),
         });
         app.insert_resource(LatestDirective::default());
+        app.insert_resource(crate::bridges::zmq_bridge::reset::PendingReset::default());
 
         app.add_systems(
             Update,
@@ -298,8 +322,8 @@ mod tests {
             .set(SimState::WaitingForAI);
         app.update(); // Apply NextState
 
-        // Send a valid macro_directives batch with Hold
-        let directive_json = r#"{"type":"macro_directives","directives":[{"directive":"Hold"}]}"#;
+        // Send a valid macro_directives batch with Idle
+        let directive_json = r#"{"type":"macro_directives","directives":[{"directive":"Idle"}]}"#;
         action_tx.send(directive_json.to_string()).unwrap();
 
         // Act
@@ -321,7 +345,7 @@ mod tests {
     fn test_ai_poll_parses_all_directive_variants() {
         // Test that various MacroDirective variants parse successfully in batch format
         let test_cases = [
-            r#"{"type":"macro_directives","directives":[{"directive":"Hold"}]}"#,
+            r#"{"type":"macro_directives","directives":[{"directive":"Idle"}]}"#,
             r#"{"type":"macro_directives","directives":[{"directive":"UpdateNavigation","follower_faction":0,"target":{"type":"Faction","faction_id":1}}]}"#,
             r#"{"type":"macro_directives","directives":[{"directive":"Retreat","faction":0,"retreat_x":50.0,"retreat_y":50.0}]}"#,
             r#"{"type":"macro_directives","directives":[{"directive":"SetZoneModifier","target_faction":0,"x":100.0,"y":100.0,"radius":50.0,"cost_modifier":-50.0}]}"#,
@@ -363,6 +387,7 @@ mod tests {
             action_rx: Mutex::new(action_rx),
         });
         app.insert_resource(LatestDirective::default());
+        app.insert_resource(crate::bridges::zmq_bridge::reset::PendingReset::default());
 
         app.add_systems(
             Update,
@@ -377,7 +402,7 @@ mod tests {
         app.update(); // Apply NextState
 
         // Send legacy MacroAction format
-        let legacy_json = r#"{"type":"macro_directive","directive":"Hold"}"#;
+        let legacy_json = r#"{"type":"macro_directive","directive":"Idle"}"#;
         action_tx.send(legacy_json.to_string()).unwrap();
 
         // Act

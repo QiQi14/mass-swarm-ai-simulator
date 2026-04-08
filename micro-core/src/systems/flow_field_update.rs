@@ -100,6 +100,7 @@ pub fn flow_field_update_system(
                     }
                 }
 
+
                 if goals.is_empty() {
                     // No visible goals → remove flow field so entities idle
                     registry.fields.remove(&target);

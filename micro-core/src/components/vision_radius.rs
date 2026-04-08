@@ -5,6 +5,6 @@ pub struct VisionRadius(pub f32);
 
 impl Default for VisionRadius {
     fn default() -> Self {
-        Self(80.0)
+        Self(1000.0)
     }
 }

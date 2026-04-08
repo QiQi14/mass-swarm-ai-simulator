@@ -94,7 +94,7 @@ def compute_shaped_reward(
     snapshot: dict,
     prev_snapshot: dict | None,
     brain_faction: int,
-    enemy_faction: int,
+    enemy_faction: int | list[int],
     reward_weights: RewardWeights | None = None,
     starting_entities: float = 50.0,
 ) -> float:
@@ -104,7 +104,7 @@ def compute_shaped_reward(
         snapshot: Current state snapshot from Rust.
         prev_snapshot: Previous state snapshot (None on first step).
         brain_faction: Faction ID controlled by the RL agent.
-        enemy_faction: Faction ID of the bot opponent.
+        enemy_faction: Faction ID(s) of the bot opponent(s).
         reward_weights: Weights from the game profile. Uses defaults if None.
         starting_entities: Initial entity count per faction (from profile).
 
@@ -123,8 +123,13 @@ def compute_shaped_reward(
             survival_bonus_multiplier=5.0,
         )
 
+    # Normalize enemy_faction to list
+    if isinstance(enemy_faction, int):
+        enemy_factions = [enemy_faction]
+    else:
+        enemy_factions = list(enemy_faction)
+
     own_key = str(brain_faction)
-    enemy_key = str(enemy_faction)
     reward = 0.0
 
     # ── 1. TIME PRESSURE (Anti-Coward) ────────────────────────
@@ -136,8 +141,16 @@ def compute_shaped_reward(
 
         prev_own = prev_counts.get(own_key, prev_counts.get(int(own_key), 0))
         curr_own = curr_counts.get(own_key, curr_counts.get(int(own_key), 0))
-        prev_enemy = prev_counts.get(enemy_key, prev_counts.get(int(enemy_key), 0))
-        curr_enemy = curr_counts.get(enemy_key, curr_counts.get(int(enemy_key), 0))
+
+        # Aggregate enemy counts across all enemy factions
+        prev_enemy = sum(
+            prev_counts.get(str(ef), prev_counts.get(ef, 0))
+            for ef in enemy_factions
+        )
+        curr_enemy = sum(
+            curr_counts.get(str(ef), curr_counts.get(ef, 0))
+            for ef in enemy_factions
+        )
 
         # ── 2. COMBAT TRADING (Aggression Incentive) ──────────
         enemies_killed = max(0, prev_enemy - curr_enemy)
@@ -158,3 +171,4 @@ def compute_shaped_reward(
             reward += reward_weights.loss_terminal  # loss_terminal is negative
 
     return float(reward)
+

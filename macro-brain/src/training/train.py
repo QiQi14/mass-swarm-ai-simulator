@@ -1,10 +1,10 @@
 """Training entrypoint for Mass-Swarm AI Simulator.
 
-Usage:
-    python -m src.training.train --profile profiles/default_swarm_combat.json
-    python -m src.training.train --timesteps 500000
+Stage 1 Tactical: 3-faction decision training.
 
-All game parameters are loaded from the game profile JSON.
+Usage:
+    python -m src.training.train --profile profiles/stage1_tactical.json
+    python -m src.training.train --timesteps 500000
 """
 
 import argparse
@@ -34,7 +34,7 @@ def make_env(profile, args):
 def main():
     parser = argparse.ArgumentParser(description="Mass-Swarm AI Training")
     parser.add_argument("--profile", type=str,
-        default="profiles/default_swarm_combat.json")
+        default="profiles/stage1_tactical.json")
     parser.add_argument("--timesteps", type=int, default=100_000)
     parser.add_argument("--runs-dir", default="./runs")
     args = parser.parse_args()
@@ -79,7 +79,10 @@ def main():
         tensorboard_log=str(run.tensorboard_dir),
     )
 
-    episode_logger = EpisodeLogCallback(log_path=str(run.episode_log_path))
+    episode_logger = EpisodeLogCallback(
+        log_path=str(run.episode_log_path),
+        num_actions=profile.num_actions,
+    )
 
     callbacks = [
         CheckpointCallback(

@@ -2,8 +2,11 @@ from typing import Any
 from dataclasses import asdict
 from src.config.definitions import ActivateBuffDef
 
-def build_hold_directive() -> dict[str, Any]:
-    return {"type": "macro_directive", "directive": "Hold"}
+def build_idle_directive() -> dict[str, Any]:
+    return {"type": "macro_directive", "directive": "Idle"}
+
+def build_hold_directive(faction: int) -> dict[str, Any]:
+    return {"type": "macro_directive", "directive": "Hold", "faction_id": faction}
 
 def build_update_nav_directive(follower_faction: int, enemy_faction: int) -> dict[str, Any]:
     return {

@@ -7,6 +7,7 @@ fn setup_app() -> App {
     let mut app = App::new();
     app.insert_resource(LatestDirective::default());
     app.insert_resource(NavigationRuleSet { rules: vec![] });
+    app.insert_resource(crate::rules::InteractionRuleSet { rules: vec![] });
     app.insert_resource(FactionBuffs::default());
     app.insert_resource(ActiveZoneModifiers::default());
     app.insert_resource(AggroMaskRegistry::default());
@@ -30,7 +31,7 @@ fn test_directive_hold_is_noop() {
     app.world_mut()
         .get_resource_mut::<LatestDirective>()
         .unwrap()
-        .directives = vec![MacroDirective::Hold];
+        .directives = vec![MacroDirective::Idle];
     app.update();
     assert!(
         app.world()
@@ -318,7 +319,7 @@ fn test_vaporization_guard_latest_is_none_after_execution() {
     app.world_mut()
         .get_resource_mut::<LatestDirective>()
         .unwrap()
-        .directives = vec![MacroDirective::Hold];
+        .directives = vec![MacroDirective::Idle];
     app.update();
     assert!(
         app.world()

@@ -62,14 +62,20 @@ def make_action_names(profile: GameProfile | None = None) -> dict[int, str]:
 
 
 # Action index constants (stable across profiles — these are protocol indices)
-ACTION_HOLD = 0
-ACTION_UPDATE_NAV = 1
-ACTION_ACTIVATE_BUFF = 2
-ACTION_RETREAT = 3
-ACTION_ZONE_MODIFIER = 4
-ACTION_SPLIT_FACTION = 5
-ACTION_MERGE_FACTION = 6
-ACTION_SET_AGGRO_MASK = 7
+ACTION_IDLE = 0
+ACTION_HOLD = 1
+ACTION_UPDATE_NAV = 2
+ACTION_ACTIVATE_BUFF = 3
+ACTION_RETREAT = 4
+ACTION_ZONE_MODIFIER = 5
+ACTION_SPLIT_FACTION = 6
+ACTION_MERGE_FACTION = 7
+ACTION_SET_AGGRO_MASK = 8
+
+# Stage 1 Tactical action constants (3-action space)
+ACTION_S1_HOLD = 0
+ACTION_S1_ATTACK_A = 1
+ACTION_S1_ATTACK_B = 2
 
 # Grid defaults (overridden by profile)
 GRID_WIDTH = 50
@@ -77,6 +83,7 @@ GRID_HEIGHT = 50
 NUM_DENSITY_CHANNELS = 4
 
 _DEFAULT_ACTION_NAMES = {
+    ACTION_IDLE: "Idle",
     ACTION_HOLD: "Hold",
     ACTION_UPDATE_NAV: "UpdateNavigation",
     ACTION_ACTIVATE_BUFF: "ActivateBuff",

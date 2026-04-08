@@ -117,3 +117,13 @@ Finalized decouple refactoring by removing hardcoded legacy fallback logic (navi
 
 **Key files:** `micro-core/src/rules/navigation.rs`, `micro-core/src/config/simulation.rs`, `micro-core/src/bridges/zmq_bridge/reset.rs`, `macro-brain/src/config/game_profile.py`, `debug-visualizer/js/controls/algorithm-test.js`
 **Depends on:** File Splitting Refactor
+
+---
+
+### Phase 3.5: Training Pipeline Readiness
+**Completed:** 2026-04-08 | **Archive:** `.agents/history/20260408_150643_unnamed_feature/`
+
+Extracted bot strategy logic entirely into Python (BotController) to enforce context-agnostic Rust core. Implemented ZMQ Batch directive protocol. Built Training Run Manager, Profile Validator CLI, and train.sh for standardized logging. Established 5-stage curriculum with randomized procedural terrain and mixed bot heuristics.
+
+**Key files:** `macro-brain/src/env/bot_controller.py`, `micro-core/src/systems/directive_executor/`, `train.sh`
+**Depends on:** Contextless Audit & Debug Visualizer Contract

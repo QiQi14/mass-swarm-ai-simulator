@@ -1,6 +1,6 @@
 // ─── Constants & Configuration ──────────────────────────────────────
 
-export const WS_URL = "ws://127.0.0.1:8080";
+export const WS_URL = `ws://${window.location.hostname}:8080`;
 export const WORLD_WIDTH = 1000.0;
 export const WORLD_HEIGHT = 1000.0;
 export const GRID_DIVISIONS = 100;
