@@ -12,7 +12,8 @@ from src.config.definitions import (
     CombatRuleConfig, CombatConfig, MovementConfigDef, TerrainThresholdsDef,
     StatModifierDef, ActivateBuffDef, AbilitiesDef, RemovalRuleDef,
     ActionDef, RewardWeights, GraduationConfig, DemotionConfig,
-    CurriculumStageConfig, TrainingConfig, ProfileMeta
+    CurriculumStageConfig, TrainingConfig, ProfileMeta,
+    BotStrategyDef, BotStageBehaviorDef
 )
 
 
@@ -22,6 +23,19 @@ def _parse_profile(raw: dict[str, Any]):
     Returns a GameProfile instance. Import is deferred to avoid circular deps.
     """
     from src.config.game_profile import GameProfile
+
+    def _parse_strategy(raw_strat: dict) -> BotStrategyDef:
+        strats = raw_strat.get("strategies")
+        return BotStrategyDef(
+            type=raw_strat["type"],
+            target_faction=raw_strat.get("target_faction"),
+            x=raw_strat.get("x"),
+            y=raw_strat.get("y"),
+            retreat_health_fraction=raw_strat.get("retreat_health_fraction"),
+            retreat_x=raw_strat.get("retreat_x"),
+            retreat_y=raw_strat.get("retreat_y"),
+            strategies=[_parse_strategy(s) for s in strats] if strats else None
+        )
 
     meta = ProfileMeta(**raw["meta"])
 
@@ -105,6 +119,16 @@ def _parse_profile(raw: dict[str, Any]):
         curriculum=curriculum,
     )
 
+    bot_stage_behaviors = [
+        BotStageBehaviorDef(
+            stage=b["stage"],
+            faction_id=b["faction_id"],
+            strategy=_parse_strategy(b["strategy"]),
+            eval_interval_ticks=b.get("eval_interval_ticks", 60),
+        )
+        for b in raw.get("bot_stage_behaviors", [])
+    ]
+
     return GameProfile(
         meta=meta,
         world=world,
@@ -116,4 +140,5 @@ def _parse_profile(raw: dict[str, Any]):
         removal_rules=removal_rules,
         actions=actions,
         training=training,
+        bot_stage_behaviors=bot_stage_behaviors,
     )

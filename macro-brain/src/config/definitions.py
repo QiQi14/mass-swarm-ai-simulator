@@ -153,6 +153,48 @@ class TrainingConfig:
     curriculum: list[CurriculumStageConfig]
 
 
+# ── Bot Configuration ─────────────────────────────────────────────────
+
+@dataclass(frozen=True)
+class BotStrategyDef:
+    """Abstract bot strategy — maps to Rust BotStrategy enum."""
+    type: str  # "Charge", "HoldPosition", "Adaptive", "Mixed"
+    target_faction: int | None = None
+    x: float | None = None
+    y: float | None = None
+    retreat_health_fraction: float | None = None
+    retreat_x: float | None = None
+    retreat_y: float | None = None
+    strategies: list | None = None  # list of BotStrategyDef dicts for Mixed
+
+    def to_dict(self) -> dict:
+        """Serialize to ZMQ payload format matching Rust serde(tag='type')."""
+        d = {"type": self.type}
+        if self.type == "Charge":
+            d["target_faction"] = self.target_faction
+        elif self.type == "HoldPosition":
+            d["x"] = self.x
+            d["y"] = self.y
+        elif self.type == "Adaptive":
+            d["target_faction"] = self.target_faction
+            d["retreat_health_fraction"] = self.retreat_health_fraction
+            d["retreat_x"] = self.retreat_x
+            d["retreat_y"] = self.retreat_y
+        elif self.type == "Mixed":
+            d["strategies"] = [s.to_dict() if isinstance(s, BotStrategyDef)
+                               else s for s in (self.strategies or [])]
+        return d
+
+
+@dataclass(frozen=True)
+class BotStageBehaviorDef:
+    """Bot behavior config for a specific curriculum stage."""
+    stage: int
+    faction_id: int
+    strategy: BotStrategyDef
+    eval_interval_ticks: int = 60
+
+
 # ── Root Profile ────────────────────────────────────────────────────
 
 @dataclass(frozen=True)

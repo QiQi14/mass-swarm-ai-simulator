@@ -1,0 +1,108 @@
+{
+  "feature": "Unnamed Feature",
+  "global_status": "ALL_COMPLETE",
+  "total_tasks": 9,
+  "created_at": "2026-04-08T07:31:30+00:00",
+  "updated_at": "2026-04-08T08:06:43+00:00",
+  "tasks": [
+    {
+      "task_id": "task_a1_bot_controller",
+      "status": "COMPLETE",
+      "phase": "1",
+      "source_file": "tasks_pending/task_a1_bot_controller.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-08T07:35:17+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-08T07:40:13+00:00"
+    },
+    {
+      "task_id": "task_a2_profile_validator",
+      "status": "COMPLETE",
+      "phase": "1",
+      "source_file": "tasks_pending/task_a2_profile_validator.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-08T07:36:19+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-08T07:40:13+00:00"
+    },
+    {
+      "task_id": "task_a3_run_manager",
+      "status": "COMPLETE",
+      "phase": "1",
+      "source_file": "tasks_pending/task_a3_run_manager.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-08T07:37:25+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-08T07:40:13+00:00"
+    },
+    {
+      "task_id": "task_b1_bot_config",
+      "status": "COMPLETE",
+      "phase": "2",
+      "source_file": "tasks_pending/task_b1_bot_config.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-08T07:48:42+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-08T07:56:28+00:00"
+    },
+    {
+      "task_id": "task_b2_zmq_protocol",
+      "status": "COMPLETE",
+      "phase": "2",
+      "source_file": "tasks_pending/task_b2_zmq_protocol.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-08T07:50:04+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-08T07:56:28+00:00"
+    },
+    {
+      "task_id": "task_b3_stage5_terrain",
+      "status": "COMPLETE",
+      "phase": "2",
+      "source_file": "tasks_pending/task_b3_stage5_terrain.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-08T07:52:00+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-08T07:56:28+00:00"
+    },
+    {
+      "task_id": "task_c1_train_preflight",
+      "status": "COMPLETE",
+      "phase": "3",
+      "source_file": "tasks_pending/task_c1_train_preflight.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-08T07:59:03+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-08T08:06:42+00:00"
+    },
+    {
+      "task_id": "task_c2_train_sh",
+      "status": "COMPLETE",
+      "phase": "3",
+      "source_file": "tasks_pending/task_c2_train_sh.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-08T08:04:24+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-08T08:06:43+00:00"
+    },
+    {
+      "task_id": "task_c3_training_status",
+      "status": "COMPLETE",
+      "phase": "3",
+      "source_file": "tasks_pending/task_c3_training_status.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-08T08:00:26+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-08T08:06:43+00:00"
+    }
+  ]
+}

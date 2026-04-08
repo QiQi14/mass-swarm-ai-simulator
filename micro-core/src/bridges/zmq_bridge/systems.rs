@@ -102,39 +102,44 @@ pub(super) fn ai_poll_system(
 
     match channels.action_rx.lock().unwrap().try_recv() {
         Ok(reply_json) => {
-            // Try new AiResponse discriminated union first
-            match serde_json::from_str::<AiResponse>(&reply_json) {
-                Ok(AiResponse::Directive { directive }) => {
+            #[derive(serde::Deserialize)]
+            struct BatchResponse {
+                #[serde(rename = "type")]
+                msg_type: String,
+                directives: Vec<MacroDirective>,
+            }
+
+            // Try new Batch format first
+            if let Ok(batch) = serde_json::from_str::<BatchResponse>(&reply_json) {
+                if batch.msg_type == "macro_directives" {
                     println!(
-                        "[AI Bridge] Received directive: {:?} (tick resume)",
-                        directive
+                        "[AI Bridge] Received batch directives: {} directives (tick resume)",
+                        batch.directives.len()
                     );
-                    latest_directive.directive = Some(directive);
+                    latest_directive.directives = batch.directives;
+                    *waiting_since = None;
+                    next_state.set(SimState::Running);
+                    return;
                 }
-                Ok(AiResponse::ResetEnvironment {
-                    navigation_rules: _navigation_rules,
-                    ..
-                }) => {
-                    // Reset commands are handled at the environment level,
-                    // not stored as directives. Log and resume.
-                    // TODO: task_a1 — navigation_rules field added
+            }
+
+            // Fallback for ResetEnvironment (which still uses AiResponse)
+            match serde_json::from_str::<AiResponse>(&reply_json) {
+                Ok(AiResponse::ResetEnvironment { .. }) => {
                     println!("[AI Bridge] Received reset_environment command (tick resume)");
                 }
-                Err(_) => {
-                    // Fallback: try legacy MacroAction format
-                    match serde_json::from_str::<MacroAction>(&reply_json) {
-                        Ok(action) => {
-                            println!(
-                                "[AI Bridge] Received legacy action: {} (tick resume)",
-                                action.action
-                            );
-                            // Legacy actions map to Hold (no macro-level control)
-                            latest_directive.directive = Some(MacroDirective::Hold);
-                        }
-                        Err(e) => {
-                            eprintln!("[AI Bridge] Failed to parse AI response: {}", e);
-                        }
+                Ok(AiResponse::Directive { directive: _ }) => {
+                    eprintln!("[ZMQ] Unexpected message type (expected 'macro_directives')");
+                    // Empty directives on error per requirements
+                    latest_directive.directives = vec![];
+                }
+                Err(e) => {
+                    if let Ok(legacy) = serde_json::from_str::<MacroAction>(&reply_json) {
+                        eprintln!("[ZMQ] Unexpected message type (expected 'macro_directives'). Legacy MacroAction format sent: {}", legacy.action);
+                    } else {
+                        eprintln!("[ZMQ] Failed to parse AI response: {}", e);
                     }
+                    latest_directive.directives = vec![];
                 }
             }
             *waiting_since = None;
@@ -293,8 +298,8 @@ mod tests {
             .set(SimState::WaitingForAI);
         app.update(); // Apply NextState
 
-        // Send a valid AiResponse::Directive with Hold
-        let directive_json = r#"{"type":"macro_directive","directive":"Hold"}"#;
+        // Send a valid macro_directives batch with Hold
+        let directive_json = r#"{"type":"macro_directives","directives":[{"directive":"Hold"}]}"#;
         action_tx.send(directive_json.to_string()).unwrap();
 
         // Act
@@ -303,7 +308,6 @@ mod tests {
 
         // Assert
         let _latest = app.world().get_resource::<LatestDirective>().unwrap();
-        // Directive should have been stored (may be consumed by executor if registered)
         // Check that the system transitioned to Running
         let state = app.world().get_resource::<State<SimState>>().unwrap();
         assert_eq!(
@@ -315,33 +319,33 @@ mod tests {
 
     #[test]
     fn test_ai_poll_parses_all_directive_variants() {
-        // Test that various MacroDirective variants parse successfully through AiResponse
+        // Test that various MacroDirective variants parse successfully in batch format
         let test_cases = [
-            r#"{"type":"macro_directive","directive":"Hold"}"#,
-            r#"{"type":"macro_directive","directive":"UpdateNavigation","follower_faction":0,"target":{"type":"Faction","faction_id":1}}"#,
-            r#"{"type":"macro_directive","directive":"Retreat","faction":0,"retreat_x":50.0,"retreat_y":50.0}"#,
-            r#"{"type":"macro_directive","directive":"SetZoneModifier","target_faction":0,"x":100.0,"y":100.0,"radius":50.0,"cost_modifier":-50.0}"#,
-            r#"{"type":"macro_directive","directive":"SplitFaction","source_faction":0,"new_sub_faction":101,"percentage":0.3,"epicenter":[500.0,500.0]}"#,
-            r#"{"type":"macro_directive","directive":"MergeFaction","source_faction":101,"target_faction":0}"#,
-            r#"{"type":"macro_directive","directive":"SetAggroMask","source_faction":101,"target_faction":1,"allow_combat":false}"#,
+            r#"{"type":"macro_directives","directives":[{"directive":"Hold"}]}"#,
+            r#"{"type":"macro_directives","directives":[{"directive":"UpdateNavigation","follower_faction":0,"target":{"type":"Faction","faction_id":1}}]}"#,
+            r#"{"type":"macro_directives","directives":[{"directive":"Retreat","faction":0,"retreat_x":50.0,"retreat_y":50.0}]}"#,
+            r#"{"type":"macro_directives","directives":[{"directive":"SetZoneModifier","target_faction":0,"x":100.0,"y":100.0,"radius":50.0,"cost_modifier":-50.0}]}"#,
+            r#"{"type":"macro_directives","directives":[{"directive":"SplitFaction","source_faction":0,"new_sub_faction":101,"percentage":0.3,"epicenter":[500.0,500.0]}]}"#,
+            r#"{"type":"macro_directives","directives":[{"directive":"MergeFaction","source_faction":101,"target_faction":0}]}"#,
+            r#"{"type":"macro_directives","directives":[{"directive":"SetAggroMask","source_faction":101,"target_faction":1,"allow_combat":false}]}"#,
         ];
 
         for (i, json) in test_cases.iter().enumerate() {
-            let parsed = serde_json::from_str::<AiResponse>(json);
+            #[derive(serde::Deserialize)]
+            struct BatchResponse {
+                #[serde(rename = "type")]
+                msg_type: String,
+                directives: Vec<MacroDirective>,
+            }
+            let parsed = serde_json::from_str::<BatchResponse>(json);
             assert!(
                 parsed.is_ok(),
-                "Variant {} should parse as AiResponse: {:?} — Error: {:?}",
+                "Variant {} should parse as BatchResponse: {:?} — Error: {:?}",
                 i,
                 json,
                 parsed.err()
             );
-            match parsed.unwrap() {
-                AiResponse::Directive { directive } => {
-                    // Verify it round-trips
-                    let _: MacroDirective = directive;
-                }
-                _ => panic!("Expected AiResponse::Directive for variant {}", i),
-            }
+            assert_eq!(parsed.unwrap().msg_type, "macro_directives");
         }
     }
 
@@ -373,7 +377,7 @@ mod tests {
         app.update(); // Apply NextState
 
         // Send legacy MacroAction format
-        let legacy_json = r#"{"type":"macro_action","action":"HOLD","params":{}}"#;
+        let legacy_json = r#"{"type":"macro_directive","directive":"Hold"}"#;
         action_tx.send(legacy_json.to_string()).unwrap();
 
         // Act
@@ -382,13 +386,8 @@ mod tests {
         // Assert
         let latest = app.world().get_resource::<LatestDirective>().unwrap();
         assert!(
-            latest.directive.is_some(),
-            "Legacy fallback should set directive to Some(Hold)"
-        );
-        assert_eq!(
-            latest.directive,
-            Some(MacroDirective::Hold),
-            "Legacy fallback should map to Hold"
+            latest.directives.is_empty(),
+            "Legacy fallback should evaluate as err and return empty directives"
         );
     }
 }

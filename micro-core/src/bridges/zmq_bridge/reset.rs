@@ -130,7 +130,7 @@ pub(crate) fn reset_environment_system(
     }
     // Clear static mode so ALL factions follow flow fields during training
     rules.behavior.static_factions.clear();
-    latest_directive.directive = None;
+    latest_directive.directives.clear();
     next_id.0 = 1;
 
     // 4. Spawn new entities per config

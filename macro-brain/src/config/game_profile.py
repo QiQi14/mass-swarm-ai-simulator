@@ -12,7 +12,7 @@ Usage:
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +21,8 @@ from src.config.definitions import (
     CombatRuleConfig, CombatConfig, MovementConfigDef, TerrainThresholdsDef,
     StatModifierDef, ActivateBuffDef, AbilitiesDef, RemovalRuleDef,
     ActionDef, RewardWeights, GraduationConfig, DemotionConfig,
-    CurriculumStageConfig, TrainingConfig, ProfileMeta
+    CurriculumStageConfig, TrainingConfig, ProfileMeta,
+    BotStrategyDef, BotStageBehaviorDef
 )
 
 @dataclass(frozen=True)
@@ -41,6 +42,7 @@ class GameProfile:
     removal_rules: list[RemovalRuleDef]
     actions: list[ActionDef]
     training: TrainingConfig
+    bot_stage_behaviors: list[BotStageBehaviorDef] = field(default_factory=list)
 
     # ── Derived helpers ─────────────────────────────────────
 
@@ -122,6 +124,35 @@ class GameProfile:
                 "target": {"type": "Faction", "faction_id": brain.id}
             })
         return rules
+
+    def get_bot_behavior_for_stage(
+        self, faction_id: int, stage: int
+    ) -> BotStageBehaviorDef:
+        """Find bot behavior config for this faction at this stage.
+
+        Falls back to Charge if no config found (backward compatible).
+        """
+        for b in self.bot_stage_behaviors:
+            if b.faction_id == faction_id and b.stage == stage:
+                return b
+        # Fallback: charge toward brain
+        return BotStageBehaviorDef(
+            stage=stage,
+            faction_id=faction_id,
+            strategy=BotStrategyDef(type="Charge", target_faction=self.brain_faction.id),
+        )
+
+    def bot_behaviors_payload(self, stage: int) -> list[dict]:
+        """Serialize bot behavior config for ZMQ ResetEnvironment payload."""
+        behaviors = []
+        for bot in self.bot_factions:
+            b = self.get_bot_behavior_for_stage(bot.id, stage)
+            behaviors.append({
+                "faction_id": b.faction_id,
+                "strategy": b.strategy.to_dict(),
+                "eval_interval_ticks": b.eval_interval_ticks,
+            })
+        return behaviors
 
 
 # ── Loader ──────────────────────────────────────────────────────────

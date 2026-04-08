@@ -1,14 +1,14 @@
 # Mass-Swarm AI Simulator — Training Status
 
-> **Last Updated:** 2026-04-06  
-> **Phase:** 3 Complete → Ready for Training  
-> **Codebase Health:** ✅ Rust 180 tests · Python 33 tests · 0 warnings
+> **Last Updated:** 2026-04-08  
+> **Phase:** 3.5 Complete → Ready for Training  
+> **Codebase Health:** ✅ Rust 195 tests · Python 63 tests · 0 warnings
 
 ---
 
 ## Architecture Overview
 
-```
+```text
 ┌─────────────────────────────────────────────────────────┐
 │                   Debug Visualizer                       │
 │              (HTML/JS — ws://localhost:8080)              │
@@ -24,10 +24,10 @@
                         │ ZMQ REQ/REP (2 Hz)
 ┌───────────────────────┴─────────────────────────────────┐
 │                Macro-Brain (Python/SB3)                   │
-│  - MaskablePPO + 2-Stage Curriculum                      │
+│  - MaskablePPO + 5-Stage Curriculum                      │
 │  - 50×50 density heatmaps (OGM)                          │
 │  - Terrain generator (BFS-verified)                      │
-│  - Reward shaping (5 components + P5 anti-exploit)       │
+│  - Exploit-proof zero-sum reward function                │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -58,121 +58,97 @@
 - ✅ State Vectorizer (50×50 density heatmaps per faction)
 - ✅ `SwarmEnv` (Gymnasium-compatible, 13 safety tests)
 - ✅ `MaskablePPO` training with `sb3-contrib`
-- ✅ 5-Stage Curriculum (flat → procedural terrain → complex management)
-- ✅ Terrain Generator (3-tier encoding, BFS connectivity)
-- ✅ Reward Shaping (Pacifist Flank exploit blocked)
-- ✅ 3-Tier Interactable Terrain (Passable/Destructible/Permanent)
-- ✅ Debug Visualizer Phase 3 upgrades (zone tools, faction splitter, aggro masks, ML brain panel)
+- ✅ Phase 3 Safety Patches implemented
+
+### Phase 3.5: Training Pipeline Readiness
+- ✅ **Python BotController:** Extracted bot strategy logic into Python.
+- ✅ **ZMQ Batch Protocol:** Implemented `Vec<MacroDirective>` handling for mult-agent AI directive commands.
+- ✅ **GameProfile Validator CLI:** Protect constraints.
+- ✅ **Run Manager:** Centralized tracking of runs (`runs/`).
+- ✅ **Launch Script (`train.sh`):** Automates pipeline.
+- ✅ **5-Stage Curriculum:** 50v50 increments incorporating fully random procedural logic and mixed heuristics.
+
+---
+
+## 5-Stage Curriculum Design
+
+| Stage | Map | Bot Behavior | Actions Unlocked | Graduation Condition |
+|-------|-----|-------------|------------------|---------------------|
+| **1** | Flat 1000×1000 | **Charge** — straight rush at brain | Hold, Navigate, ActivateBuff (0-2) | WR ≥ 80%, avg survivors ≥ 10.0, 100 eps |
+| **2** | Flat 1000×1000 | **Charge** — scattered 2-3 groups | +Retreat (0-3) | WR ≥ 85%, avg survivors ≥ 15.0, Retreat ≥ 5%, 100 eps |
+| **3** | Simple (1-2 walls) | **HoldPosition** — defends near spawn | +ZoneModifier, +SplitFaction (0-5) | WR ≥ 75%, Split ≥ 5%, avg_flanking_score_min: 0.0, 150 eps |
+| **4** | Complex (procedural) | **Adaptive** — retreats when losing, pushes when winning | +MergeFaction, +SetAggroMask (0-7) | WR ≥ 80%, timeout ≤ 5%, 250 eps |
+| **5** | Complex (procedural) | **Mixed** — random strategy each episode from pool | All 8 | WR ≥ 85%, timeout ≤ 5%, 300 eps |
+
+### Bot Behavior System
+The bot uses distinct strategies based on the current curriculum stage:
+- **Charge**: Always navigates toward the enemy faction.
+- **HoldPosition**: Retreats to a fixed defensive waypoint.
+- **Adaptive**: Charges when healthy, retreats to a designated area when health fraction falls below a configured threshold. Employs hysteresis mode-locking to prevent combat jitter/oscillation.
+- **Mixed**: Selects a behavior randomly from a configuration pool per episode to encourage the agent to deduce winning strategies rather than memorizing a single counter-strategy.
 
 ---
 
 ## Training Configuration
-
-### Stage 1 — Tactical Sandbox
-| Parameter | Value |
-|-----------|-------|
-| Map | Flat 1000×1000 |
-| Opponent | Heuristic Bot (Faction 1, Rust-controlled) |
-| Actions | 0-2 only (Hold, UpdateNav, Frenzy) |
-| Locked actions | **MASKED** (Retreat locked to force combat; Actions 4-7 locked to flat map) |
-| Terrain | None (flat) |
-| Spawning | Fixed starting scenarios via `get_stage1_spawns` |
-| Promotion | `mean_reward > 0.3` over 50-episode window |
-
-### Stage 2 — Domain Randomization
-| Parameter | Value |
-|-----------|-------|
-| Map | Procedural (walls, chokepoints, swamps) |
-| Opponent | Same heuristic bot |
-| Actions | 0-3 (Hold, UpdateNav, Frenzy, Retreat) — Retreat unlocked |
-| Terrain | 60% permanent walls, 40% destructible |
-| Spawning | Dynamic procedural spreading via `get_stage2_spawns` |
-| Wall types | Tier 1 (breakable by zone modifiers), Tier 2 (indestructible) |
-
-*(Note: Stages 3-5 continue incrementally unlocking the full 8-action vocabulary and advanced mechanics depending on curriculum progression).*
 
 ### Hyperparameters
 | Parameter | Value |
 |-----------|-------|
 | Algorithm | `MaskablePPO` (sb3-contrib) |
 | Policy | `MultiInputPolicy` (Dict obs) |
-| Observation | 4×50×50 density + 50×50 terrain + 6-dim summary |
+| Observation | 5×50×50 grids + 6-dim summary |
 | Actions | `Discrete(8)` |
 | AI Frequency | 2 Hz (every 30 ticks) |
-| Max Steps | 500 per episode (increased for more dynamic exploration) |
-| Entities | 300 vs 300 (600 total) |
+| Max Steps | 500 per episode (increased for dynamic exploration) |
+| Entities | 50 vs 50 (100 total entities) |
 
 ---
 
 ## Reward Calculation
 
-The reward is a **weighted sum of 5 components**, computed each step from the state transition `(prev_snapshot → snapshot)`. All components are normalized to `[0.0, 1.0]` (or `[-1.0, 1.0]` for health delta) before weighting.
+The reward function leverages an **exploit-proof zero-sum implementation**. All per-step combat evaluations rely cleanly on tracking entity elimination and time survival, directly incentivizing aggressive victory conditions over point farming.
 
 ### Formula
-```
-reward = 0.25 × survival + 0.25 × kill + 0.15 × territory + 0.15 × health_Δ + 0.20 × flanking
+```text
+reward = time_penalty + kill_trading + terminal_bonus + survival_bonus
 ```
 
 ### Components
 
-| # | Component | Weight | Range | Signal |
-|---|-----------|--------|-------|--------|
-| 1 | **Survival** | 0.25 | [0, 1] | `1.0` if own faction count > 0, else `0.0` |
-| 2 | **Kill** | 0.25 | [0, 1] | `min((prev_enemy − curr_enemy) / 10, 1.0)` — big burst kills = high reward |
-| 3 | **Territory** | 0.15 | [0, 1] | `nonzero_cells / 2500` — fraction of 50×50 grid with own density > 0.01 |
-| 4 | **Health Delta** | 0.15 | [-1, 1] | `clamp((curr_avg_health − prev_avg_health) / 10, -1, 1)` — penalizes health loss |
-| 5 | **Flanking Bonus** | 0.20 | [0, 1] | Max flanking score across all active sub-factions (see below) |
+Calculated per evaluating interval (`curr` - `prev_snapshot`):
 
-### Flanking Bonus (P5-Protected)
+| # | Component | Factor/Value | Signal Logic |
+|---|-----------|--------|--------|
+| 1 | **Time penalty** | `-0.01` per step | Applied every evaluation loop strictly to incentivize swift action and punish coward/idle behaviors. |
+| 2 | **Kill trading** | `+0.05` per killed, `-0.03` per dead| Raw numeric advantage calculation leveraging `enemies_killed` vs `own_lost`. |
+| 3 | **Terminal Condition** | `+10.0` or `-10.0` | Emitted conditionally on total enemy wipeout or total friendly loss respectively to firmly end gradients. |
+| 4 | **Survival bonus** | `+5.0` multiplier | Factors remaining survivor proportion (`curr_own / starting_entities`) onto the `Terminal: Win` completion to restrict pyrrhic sacrifices. |
 
-Measures how effectively a sub-faction has outflanked the enemy:
-
-1. **Compute centroids** of main faction, sub-faction, and enemy from density grids
-2. **Cosine similarity** between (main→enemy) and (main→sub) vectors
-3. **Projection check**: sub-faction must be *beyond* the enemy (projection ratio > 1.0)
-4. **P5a: Distance cutoff** — sub-faction must be within 15 grid cells (~300 world units) of enemy centroid, otherwise `0.0`
-5. **P5b: Distance attenuation** — bonus decays linearly: `(max_range − dist) / max_range`
-6. Final: `raw_bonus × proximity_multiplier`
-
-> This prevents the "Pacifist Flank" exploit where the agent parks a sub-faction at the map corner for free geometry-based reward.
-
-### Reward Interpretation
-
-| Scenario | Expected Reward |
-|----------|----------------|
-| Idle (both alive, no kills) | ~0.25 (survival only) |
-| Killing enemies | 0.25 + 0.25 = ~0.50 |
-| Killing + territory control | ~0.65 |
-| Full flank + kills | ~0.85 |
-| Dead (own faction = 0) | 0.0 |
+*(Note: Prior heuristic flanking formulas are available in `rewards.py` contextually, but active simulation profiles rely purely on zero-sum structures for reliable baseline behavior).*
 
 ---
 
 ## How to Train
 
+Run the automated bootstrapping launch script for single-command orchestration:
+
 ```bash
-# 1. Start Rust simulation (must be running for ZMQ)
-cd micro-core && cargo run
-
-# 2. In another terminal — start training
-cd macro-brain
-source venv/bin/activate
-
-# Stage 1 only (flat map, actions 0-3)
-python -m src.training.train --timesteps 100000
-
-# With curriculum (auto-promotes to Stage 2)
-python -m src.training.train --timesteps 100000 --curriculum
-
-# Monitor with TensorBoard
-tensorboard --logdir=./tb_logs/
+./train.sh --profile profiles/default_swarm_combat.json --timesteps 500000 --curriculum
 ```
+
+This sequence:
+1. Validates the profile parameters.
+2. Auto-builds the Rust Micro-Core binary and launches it detached on port `5555`.
+3. Creates a unique, timestamped `runs/` tracking directory.
+4. Triggers Python iterative RL training.
 
 ### Output Locations
 | Artifact | Path | Purpose |
 |----------|------|---------|
-| Checkpoints | `macro-brain/checkpoints/` | Model snapshots (every 10K steps) |
-| TensorBoard | `macro-brain/tb_logs/` | Reward curves, loss, episode stats |
+| Runs Base | `runs/run_<timestamp>_<uuid>/`| Contains all generated artifacts isolated per training launch. |
+| Checkpoints | `runs/.../checkpoints/` | Periodic model weight snapshots. |
+| TensorBoard | `runs/.../tb_logs/` | Real-time reward curves, loss, logic stats. |
+| Artifacts | `runs/.../profile_snapshot.json`| Locked copy of initialized configurations to audit parameters. |
 
 ---
 
@@ -205,19 +181,7 @@ tensorboard --logdir=./tb_logs/
 
 | Suite | Count | Command |
 |-------|-------|---------|
-| Rust unit/integration | 180 | `cd micro-core && cargo test` |
-| Python unit | 33 | `cd macro-brain && python -m pytest tests/ -v` |
-| Smoke test | — | `cd micro-core && cargo run -- --smoke-test` |
+| Rust unit/integration | 195 | `cd micro-core && cargo test` |
+| Python unit | 63 | `cd macro-brain && python -m pytest tests/ -v` |
+| Smoke test | — | `./train.sh --timesteps 0` |
 | Full dev stack | — | `./dev.sh` |
-
----
-
-## Archived Implementation
-
-All Phase 3 task briefs, changelogs, QA reports, dispatch prompts, and implementation plans are archived in:
-```
-.agents/history/20260406_181600_phase_3_multi_master_arbitration_rl_training/
-├── implementation_plan*.md   ← 6 plan files
-├── task_state.json           ← final state (all 12 COMPLETE)
-└── tasks_pending/            ← 35 task briefs + changelogs + QA reports
-```

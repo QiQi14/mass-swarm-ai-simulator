@@ -1,0 +1,1 @@
+episode,timestep,result,own_alive,enemy_alive,ep_steps,ep_reward,kills,deaths,act_hold,act_nav,act_frenzy,act_retreat,act_zone,act_split,act_merge,act_aggro,win_rate_100,avg_survivors_100,avg_ep_len_100,timeout_rate_100,flanking_score_100,retreat_usage,split_usage,stage,timestamp

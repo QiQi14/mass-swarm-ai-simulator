@@ -176,6 +176,46 @@ def get_stage4_spawns(rng=None, profile: GameProfile | None = None):
     return spawns
 
 
+def get_stage5_spawns(rng=None, profile: GameProfile | None = None):
+    """Stage 5: Fully random spawns for both factions.
+
+    Both factions can appear anywhere. Multiple groups per faction.
+    Forces the agent to handle arbitrary starting conditions.
+    """
+    if rng is None:
+        rng = random
+
+    brain_count = _faction_count(profile, 0)
+    bot_count = _faction_count(profile, 1)
+
+    # Brain: 1-2 spawn groups, random positions
+    brain_groups = rng.choice([1, 2])
+    brain_counts = _split_count(brain_count, brain_groups)
+    spawns = []
+    for count in brain_counts:
+        spawns.append({
+            "faction_id": 0,
+            "count": count,
+            "x": rng.uniform(100.0, 900.0),
+            "y": rng.uniform(100.0, 900.0),
+            "spread": 60.0,
+            "stats": _faction_stats(profile, 0),
+        })
+
+    # Bot: 2-4 spawn groups, random positions
+    bot_groups = rng.choice([2, 3, 4])
+    bot_counts = _split_count(bot_count, bot_groups)
+    positions = _generate_scattered_positions(bot_groups, rng)
+    for count, (px, py) in zip(bot_counts, positions):
+        spawns.append({
+            "faction_id": 1, "count": count,
+            "x": px, "y": py, "spread": 40.0,
+            "stats": _faction_stats(profile, 1),
+        })
+
+    return spawns
+
+
 def _split_count(total, num_groups):
     """Split total into num_groups with minimum 5 per group."""
     min_per = max(1, total // (num_groups * 2))
@@ -220,7 +260,8 @@ def get_spawns_for_stage(
         return get_stage2_spawns(rng=rng, profile=profile)
     elif stage == 3:
         return get_stage3_spawns(rng=rng, profile=profile)
-    else:
+    elif stage == 4:
         return get_stage4_spawns(rng=rng, profile=profile)
-
+    else:  # Stage 5+
+        return get_stage5_spawns(rng=rng, profile=profile)
 

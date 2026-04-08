@@ -33,40 +33,58 @@ def make_env(profile, args):
 
 def main():
     parser = argparse.ArgumentParser(description="Mass-Swarm AI Training")
-    parser.add_argument(
-        "--profile", type=str,
-        default="profiles/default_swarm_combat.json",
-        help="Path to game profile JSON (default: profiles/default_swarm_combat.json)",
-    )
+    parser.add_argument("--profile", type=str,
+        default="profiles/default_swarm_combat.json")
     parser.add_argument("--timesteps", type=int, default=100_000)
-    parser.add_argument("--checkpoint-dir", default="./checkpoints")
+    parser.add_argument("--runs-dir", default="./runs")
     args = parser.parse_args()
 
-    # Load the game profile — single source of truth for everything
+    # 1. Load and VALIDATE profile
+    from src.config.validator import validate_profile
     profile = load_profile(args.profile)
-    print(f"📋 Loaded profile: {profile.meta.name} v{profile.meta.version}")
-    print(f"   {profile.meta.description}")
-    print(f"   Factions: {', '.join(f.name for f in profile.factions)}")
-    print(f"   Actions:  {profile.num_actions}")
-    print(f"   Stages:   {len(profile.training.curriculum)}")
+    result = validate_profile(profile)
+    if not result.valid:
+        import sys
+        print("❌ Profile validation failed:")
+        for e in result.errors:
+            print(f"  ERROR: {e}")
+        sys.exit(1)
+    for w in result.warnings:
+        print(f"  ⚠️  {w}")
 
-    vec_env = DummyVecEnv([make_env(profile, args)])
-
-    print(f"Using cpu device")
-    model = MaskablePPO(
-        "MultiInputPolicy",
-        vec_env,
-        verbose=1,
-        tensorboard_log="./tb_logs/",
+    # 2. Create run directory
+    from src.training.run_manager import create_run
+    run = create_run(
+        profile_path=args.profile,
+        profile_name=profile.meta.name,
+        runs_dir=args.runs_dir,
     )
 
-    # Create episode logger first — curriculum reads from it
-    episode_logger = EpisodeLogCallback(log_path="./episode_log.csv")
+    # 3. Print banner
+    print(f"{'='*60}")
+    print(f"🚀 Training Run: {run.run_id}")
+    print(f"   Profile:     {profile.meta.name} v{profile.meta.version}")
+    print(f"   Factions:    {', '.join(f.name for f in profile.factions)}")
+    print(f"   Actions:     {profile.num_actions}")
+    print(f"   Stages:      {len(profile.training.curriculum)}")
+    print(f"   Output:      {run.base_dir}")
+    print(f"{'='*60}")
+
+    # 4. Setup env, model, callbacks with run paths
+    vec_env = DummyVecEnv([make_env(profile, args)])
+
+    model = MaskablePPO(
+        "MultiInputPolicy", vec_env,
+        verbose=1,
+        tensorboard_log=str(run.tensorboard_dir),
+    )
+
+    episode_logger = EpisodeLogCallback(log_path=str(run.episode_log_path))
 
     callbacks = [
         CheckpointCallback(
             save_freq=10000,
-            save_path=args.checkpoint_dir,
+            save_path=str(run.checkpoint_dir),
             name_prefix="ppo_swarm",
         ),
         EnvStatCallback(),

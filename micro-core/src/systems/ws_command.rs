@@ -403,12 +403,12 @@ pub fn ws_command_system(
                             cmd.params.get("epicenter_x").and_then(|v| v.as_f64()),
                             cmd.params.get("epicenter_y").and_then(|v| v.as_f64()),
                         ) {
-                            ld.directive = Some(MacroDirective::SplitFaction {
+                            ld.directives = vec![MacroDirective::SplitFaction {
                                 source_faction: source as u32,
                                 new_sub_faction: target as u32,
                                 percentage: pct as f32,
                                 epicenter: [ex as f32, ey as f32],
-                            });
+                            }];
                             println!("[WS Command] Sent SplitFaction");
                         }
                     }
@@ -419,10 +419,10 @@ pub fn ws_command_system(
                             cmd.params.get("source_faction").and_then(|v| v.as_u64()),
                             cmd.params.get("target_faction").and_then(|v| v.as_u64()),
                         ) {
-                            ld.directive = Some(MacroDirective::MergeFaction {
+                            ld.directives = vec![MacroDirective::MergeFaction {
                                 source_faction: source as u32,
                                 target_faction: target as u32,
-                            });
+                            }];
                             println!("[WS Command] Sent MergeFaction");
                         }
                     }
@@ -448,7 +448,7 @@ pub fn ws_command_system(
                             if let Ok(dir) =
                                 serde_json::from_value::<MacroDirective>(dir_val.clone())
                             {
-                                ld.directive = Some(dir);
+                                ld.directives = vec![dir];
                                 println!("[WS Command] Injected Raw MacroDirective");
                             } else {
                                 eprintln!("[WS Command] Failed to parse MacroDirective");

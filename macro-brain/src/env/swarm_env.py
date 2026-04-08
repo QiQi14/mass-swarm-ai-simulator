@@ -25,6 +25,7 @@ from src.env.spaces import (
     ACTION_ZONE_MODIFIER, ACTION_SPLIT_FACTION, ACTION_MERGE_FACTION,
     ACTION_SET_AGGRO_MASK,
 )
+from src.env.bot_controller import BotController
 from src.utils.vectorizer import vectorize_snapshot
 
 
@@ -77,6 +78,8 @@ class SwarmEnv(gym.Env):
         self._last_aggro_state: bool = True
         self._last_snapshot: dict | None = None
         self._step_count: int = 0
+
+        self._bot_controller = BotController()
 
         self._ctx = zmq.Context()
         self._socket: zmq.Socket | None = None
@@ -157,7 +160,18 @@ class SwarmEnv(gym.Env):
             "terrain_thresholds": self.profile.terrain_thresholds_payload(),
             "removal_rules": self.profile.removal_rules_payload(),
             "navigation_rules": self.profile.navigation_rules_payload(),
+            "bot_behaviors": self.profile.bot_behaviors_payload(self.curriculum_stage),
         }))
+
+        bot_behavior = self.profile.get_bot_behavior_for_stage(
+            self.enemy_faction, self.curriculum_stage
+        )
+        self._bot_controller.configure(
+            behavior=bot_behavior,
+            target_faction=self.brain_faction,
+            starting_count=int(self.profile.bot_factions[0].default_count),
+            rng=self.np_random,
+        )
 
         # Cycle 2: recv fresh post-reset snapshot → send Hold
         try:
@@ -172,9 +186,11 @@ class SwarmEnv(gym.Env):
         self._active_sub_factions = snapshot.get("active_sub_factions", [])
 
         obs = vectorize_snapshot(snapshot, self.brain_faction)
-        self._socket.send_string(json.dumps(
-            {"type": "macro_directive", "directive": "Hold"}
-        ))
+        hold_batch = {
+            "type": "macro_directives",
+            "directives": [{"directive": "Hold"}, {"directive": "Hold"}]
+        }
+        self._socket.send_string(json.dumps(hold_batch))
         return obs, {}
 
     def step(self, action: int):
@@ -195,11 +211,18 @@ class SwarmEnv(gym.Env):
         self._active_sub_factions = snapshot.get("active_sub_factions", [])
 
         # Build and send directive
-        directive = self._action_to_directive(action)
+        brain_directive = self._action_to_directive(action)
+        bot_directive = self._bot_controller.compute_directive(snapshot)
+        bot_directive = self._validate_bot_directive(bot_directive)
+
+        batch = {
+            "type": "macro_directives",
+            "directives": [brain_directive, bot_directive],
+        }
 
         # P8: Tick swallowing for engine interventions
         while True:
-            self._socket.send_string(json.dumps(directive))
+            self._socket.send_string(json.dumps(batch))
             try:
                 maybe_tick = self._socket.recv_string()
             except zmq.Again:
@@ -211,7 +234,10 @@ class SwarmEnv(gym.Env):
                 self._last_snapshot = snapshot
                 self._active_sub_factions = snapshot.get("active_sub_factions", [])
                 break
-            directive = {"type": "macro_directive", "directive": "Hold"}
+            batch = {
+                "type": "macro_directives",
+                "directives": [{"directive": "Hold"}, {"directive": "Hold"}]
+            }
 
         obs = vectorize_snapshot(snapshot, self.brain_faction)
         reward = self._compute_reward(snapshot, prev_snapshot)
@@ -235,6 +261,29 @@ class SwarmEnv(gym.Env):
         }
 
         return obs, reward, terminated, truncated, info
+
+    def _validate_bot_directive(self, directive: dict) -> dict:
+        """PATCH 2: Prevent bot from hijacking brain faction.
+
+        Checks all faction-referencing fields in the directive.
+        If ANY field targets the brain faction, the entire directive
+        is replaced with Hold and a warning is logged.
+        """
+        import logging
+        faction_fields = [
+            "follower_faction", "faction", "source_faction", "target_faction"
+        ]
+        brain_id = self.profile.brain_faction.id
+
+        for field in faction_fields:
+            if directive.get(field) == brain_id:
+                logging.getLogger(__name__).warning(
+                    f"Bot directive tried to control brain faction {brain_id} "
+                    f"via '{field}' — BLOCKED. Directive: {directive}"
+                )
+                return {"directive": "Hold"}
+
+        return directive
 
     def _action_to_directive(self, action: int) -> dict:
         """Map discrete action index to MacroDirective JSON.

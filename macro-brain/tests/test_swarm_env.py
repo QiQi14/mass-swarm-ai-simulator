@@ -177,9 +177,15 @@ def test_patch8_intervention_swallowing(mock_env):
     
     assert mock_env._socket.send_string.call_count == 2
     args1, _ = mock_env._socket.send_string.call_args_list[0]
-    assert json.loads(args1[0]) == {"type": "macro_directive", "directive": "Hold"}
+    batch1 = json.loads(args1[0])
+    assert batch1["type"] == "macro_directives"
+    assert batch1["directives"][0] == {"type": "macro_directive", "directive": "Hold"}
+    
     args2, _ = mock_env._socket.send_string.call_args_list[1]
-    assert json.loads(args2[0]) == {"type": "macro_directive", "directive": "Hold"}
+    batch2 = json.loads(args2[0])
+    assert batch2["type"] == "macro_directives"
+    assert batch2["directives"][0] == {"directive": "Hold"}
+    assert batch2["directives"][1] == {"directive": "Hold"}
 
 def test_patch8_zmq_timeout_truncates(mock_env):
     """Test that zmq timeout raises error and truncates."""
