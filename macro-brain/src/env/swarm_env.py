@@ -91,11 +91,14 @@ class SwarmEnv(gym.Env):
         self._bot_controllers: dict[int, BotController] = {}
 
         # ── Debuff tracking ─────────────────────────────────────
-        self._group_a_engaged = False  # Has brain fought patrol group?
+        self._trap_engaged = False     # Has brain fought trap group?
         self._debuff_applied = False   # Was debuff sent this episode?
-        self._patrol_faction = 1       # Faction ID of patrol group
-        self._target_faction = 2       # Faction ID of target group
-        self._patrol_starting_count = 0
+        self._trap_faction = 1         # Faction ID of trap group (50 units)
+        self._target_faction = 2       # Faction ID of target group (20 units)
+        self._trap_starting_count = 0
+
+        # ── Approach reward tracking ────────────────────────────
+        self._prev_min_enemy_dist: float | None = None
 
         self._ctx = zmq.Context()
         self._socket: zmq.Socket | None = None
@@ -141,8 +144,9 @@ class SwarmEnv(gym.Env):
         self._step_count = 0
         self._active_sub_factions = []
         self._last_snapshot = None
-        self._group_a_engaged = False
+        self._trap_engaged = False
         self._debuff_applied = False
+        self._prev_min_enemy_dist = None
 
         from src.utils.terrain_generator import generate_terrain_for_stage
         from src.training.curriculum import get_spawns_for_stage
@@ -157,21 +161,18 @@ class SwarmEnv(gym.Env):
             profile=self.profile,
         )
 
-        # Track patrol starting count from spawns
-        self._patrol_starting_count = sum(
-            s["count"] for s in spawns if s["faction_id"] == self._patrol_faction
+        # Track trap starting count from spawns
+        self._trap_starting_count = sum(
+            s["count"] for s in spawns if s["faction_id"] == self._trap_faction
         )
 
         # Stage 1 Tactical navigation rules:
-        # - Patrol (faction 1) chases Brain (faction 0) — they're the obstacle
-        # - Target (faction 2) stays stationary — no nav rule
-        # - Brain (faction 0) has no auto-nav — action space controls targeting
-        tactical_nav_rules = [
-            {
-                "follower_faction": self._patrol_faction,
-                "target": {"type": "Faction", "faction_id": self.brain_faction},
-            }
-        ]
+        # NO nav rules at all. Each faction's movement is controlled by:
+        # - Brain: action space (Hold/AttackA/AttackB directives)
+        # - Patrol: bot controller Retreat directives (vertical patrol)
+        # - Target: bot controller Idle (stays at spawn)
+        # Combat is still proximity-based via combat_rules (nav ≠ combat).
+        tactical_nav_rules = []
 
         payload = {
             "type": "reset_environment",
@@ -267,6 +268,13 @@ class SwarmEnv(gym.Env):
         )
         reward = self._compute_reward(snapshot, prev_snapshot)
 
+        # ── Approach reward (anti-toggle) ───────────────────────
+        # Small per-step reward for getting closer to nearest enemy.
+        # Toggling between targets = net zero progress = no reward.
+        # Committing to one target = consistent positive signal.
+        approach_reward = self._compute_approach_reward(snapshot)
+        reward += approach_reward
+
         # Win: ALL enemy factions eliminated
         total_enemy = self._get_total_enemy_count(snapshot)
         own_count = self._get_own_count(snapshot)
@@ -279,61 +287,66 @@ class SwarmEnv(gym.Env):
             terminated = own_count == 0 or total_enemy == 0
         truncated = self._step_count >= self.max_steps
 
+        # Timeout penalty: treat timeout as a loss to prevent
+        # "kill patrol + hold until timeout" exploit.
+        # Without this: timeout ≈ -4.0      loss ≈ -11.0 (model avoids target)
+        # With this:    timeout ≈ -14.0      loss ≈ -11.0 (model must fight target)
+        if truncated and not terminated:
+            reward += self.profile.training.rewards.loss_terminal
+
         info = {
             "tick": snapshot.get("tick", 0),
             "own_count": own_count,
             "enemy_count": total_enemy,
-            "patrol_count": self._get_faction_count(snapshot, self._patrol_faction),
+            "trap_count": self._get_faction_count(snapshot, self._trap_faction),
             "target_count": self._get_faction_count(snapshot, self._target_faction),
             "debuff_applied": self._debuff_applied,
-            "group_a_engaged": self._group_a_engaged,
+            "trap_engaged": self._trap_engaged,
         }
 
         return obs, reward, terminated, truncated, info
 
     def _check_debuff_condition(self, snapshot: dict):
-        """Track patrol engagement and apply debuff when conditions are met.
+        """Apply debuff when Target is eliminated while Trap is still alive.
 
-        Debuff triggers when brain attacks the target WITHOUT having
-        engaged the patrol group first.
+        Simple rule: if target_count == 0 and trap is still mostly alive,
+        the brain chose the correct target first → reward with debuff.
 
-        Engagement detection uses faction_avg_stats (average HP) instead
-        of entity counts. Entity counts have a "death delay" — entities
-        take ~4 seconds to die, so the brain could clip the patrol,
-        exchange fire, and reach the target before any patrol units die.
-        Average HP updates instantly on any damage taken.
+        Previous design tracked "engagement" (any HP loss on trap) but
+        this was too strict — random exploration always clips the trap
+        briefly, permanently setting trap_engaged=True.
+
+        The new rule captures the real objective: "kill the small group
+        first, then the big group collapses."
         """
+        # Track trap engagement for logging (not for debuff gating)
+        avg_stats = snapshot.get("summary", {}).get("faction_avg_stats", {})
+        trap_key = str(self._trap_faction)
+        if trap_key in avg_stats:
+            hp_list = avg_stats[trap_key]
+            trap_hp = hp_list[0] if hp_list else 100.0
+            if trap_hp < 99.9:
+                self._trap_engaged = True
+
+        trap_count = self._get_faction_count(snapshot, self._trap_faction)
+        if trap_count < self._trap_starting_count:
+            self._trap_engaged = True
+
+        # Only apply debuff once
         if self._debuff_applied:
             return
 
-        # Check if patrol has been engaged via average HP drop
-        avg_stats = snapshot.get("summary", {}).get("faction_avg_stats", {})
-        group_a_hp = 100.0
-        patrol_key = str(self._patrol_faction)
-        if patrol_key in avg_stats:
-            hp_list = avg_stats[patrol_key]
-            group_a_hp = hp_list[0] if hp_list else 100.0
+        # Debuff fires when: Target eliminated AND Trap still has
+        # at least half its starting units alive (didn't primarily fight trap)
+        target_count = self._get_faction_count(snapshot, self._target_faction)
+        trap_threshold = self._trap_starting_count * 0.5  # at least half alive
 
-        if group_a_hp < 99.9:
-            self._group_a_engaged = True
+        if target_count == 0 and trap_count >= trap_threshold:
+            self._debuff_applied = True
+            self._apply_trap_debuff()
 
-        # If brain hasn't engaged patrol, check if brain is approaching target
-        if not self._group_a_engaged:
-            brain_centroid = self._get_density_centroid(snapshot, self.brain_faction)
-            target_centroid = self._get_density_centroid(snapshot, self._target_faction)
-
-            if brain_centroid is not None and target_centroid is not None:
-                bx, by = brain_centroid
-                tx, ty = target_centroid
-                dist = ((bx - tx) ** 2 + (by - ty) ** 2) ** 0.5
-
-                if dist < 200.0:
-                    # Brain reached target without engaging patrol → apply debuff
-                    self._debuff_applied = True
-                    self._apply_target_debuff()
-
-    def _apply_target_debuff(self):
-        """Send ActivateBuff to halve target group's HP.
+    def _apply_trap_debuff(self):
+        """Send ActivateBuff to halve the Trap group's HP.
 
         Uses the activate_buff config from the profile which is
         pre-configured with a 0.5x HP multiplier.
@@ -343,24 +356,47 @@ class SwarmEnv(gym.Env):
         debuff_directive = {
             "type": "macro_directive",
             "directive": "ActivateBuff",
-            "faction": self._target_faction,
+            "faction": self._trap_faction,
             "modifiers": [asdict(m) for m in activate_buff.modifiers],
             "duration_ticks": activate_buff.duration_ticks,
             "targets": [],
         }
         logger.info(
-            "🎯 Debuff applied! Brain reached Target without engaging Patrol. "
-            "Target HP halved."
+            "🎯 Debuff applied! Brain killed Target first → Trap HP halved."
         )
-        # The debuff will be sent as part of the next step's batch
         self._pending_debuff = debuff_directive
 
+    def _get_enemy_factions_by_distance(self, snapshot: dict) -> list[int]:
+        """Return enemy faction IDs sorted by distance from brain centroid.
+
+        Nearest first, furthest last. Only includes alive factions.
+        """
+        brain_c = self._get_density_centroid(snapshot, self.brain_faction)
+        if brain_c is None:
+            return list(self.enemy_faction_ids)
+
+        bx, by = brain_c
+        distances = []
+        for fid in self.enemy_faction_ids:
+            count = self._get_faction_count(snapshot, fid)
+            if count <= 0:
+                continue
+            ec = self._get_density_centroid(snapshot, fid)
+            if ec is None:
+                continue
+            ex, ey = ec
+            dist = ((bx - ex) ** 2 + (by - ey) ** 2) ** 0.5
+            distances.append((fid, dist))
+
+        distances.sort(key=lambda x: x[1])
+        return [fid for fid, _ in distances]
+
     def _action_to_directive(self, action: int) -> dict | list[dict]:
-        """Map Stage 1 tactical actions to directives.
+        """Map Stage 1 actions to directives.
 
         0 = Hold (active brake — stops swarm movement)
-        1 = Attack Group A (Navigate → faction 1)
-        2 = Attack Group B (Navigate → faction 2)
+        1 = Attack Nearest (navigate to closest alive enemy faction)
+        2 = Attack Furthest (navigate to farthest alive enemy faction)
         """
         from src.env.actions import build_hold_directive, build_update_nav_directive
 
@@ -373,10 +409,18 @@ class SwarmEnv(gym.Env):
 
         if action == 0:  # Hold (active brake)
             directives.append(build_hold_directive(self.brain_faction))
-        elif action == 1:  # Attack Group A (Patrol)
-            directives.append(build_update_nav_directive(self.brain_faction, self._patrol_faction))
-        elif action == 2:  # Attack Group B (Target)
-            directives.append(build_update_nav_directive(self.brain_faction, self._target_faction))
+        elif action == 1:  # Attack Nearest
+            sorted_factions = self._get_enemy_factions_by_distance(
+                self._last_snapshot or {}
+            )
+            target = sorted_factions[0] if sorted_factions else self._target_faction
+            directives.append(build_update_nav_directive(self.brain_faction, target))
+        elif action == 2:  # Attack Furthest
+            sorted_factions = self._get_enemy_factions_by_distance(
+                self._last_snapshot or {}
+            )
+            target = sorted_factions[-1] if sorted_factions else self._trap_faction
+            directives.append(build_update_nav_directive(self.brain_faction, target))
         else:
             directives.append(build_hold_directive(self.brain_faction))
 
@@ -403,6 +447,51 @@ class SwarmEnv(gym.Env):
             self._get_faction_count(snapshot, fid)
             for fid in self.enemy_faction_ids
         )
+
+    def _compute_approach_reward(self, snapshot: dict) -> float:
+        """Reward for getting closer to the nearest enemy.
+
+        Prevents the toggle exploit: zig-zagging between two targets
+        produces net-zero distance change = zero approach reward.
+        Committing to one target = consistent positive signal per step.
+
+        Scale: 0.02 per world unit of distance closed.
+        At movement speed 60 units/sec and 30 ticks/eval = 0.5 sec/step:
+          max approach per step ≈ 30 units → max reward ≈ 0.6/step
+          This dominates the -0.01 time penalty, making approach always
+          better than standing still.
+        """
+        APPROACH_SCALE = 0.02  # reward per world unit closer
+
+        brain_c = self._get_density_centroid(snapshot, self.brain_faction)
+        if brain_c is None:
+            return 0.0
+
+        # Find minimum distance to any alive enemy faction
+        bx, by = brain_c
+        min_dist = float("inf")
+        for fid in self.enemy_faction_ids:
+            if self._get_faction_count(snapshot, fid) <= 0:
+                continue
+            ec = self._get_density_centroid(snapshot, fid)
+            if ec is None:
+                continue
+            ex, ey = ec
+            dist = ((bx - ex) ** 2 + (by - ey) ** 2) ** 0.5
+            min_dist = min(min_dist, dist)
+
+        if min_dist == float("inf"):
+            self._prev_min_enemy_dist = None
+            return 0.0
+
+        # Compute delta (positive = approaching, negative = retreating)
+        reward = 0.0
+        if self._prev_min_enemy_dist is not None:
+            delta = self._prev_min_enemy_dist - min_dist  # positive when closing
+            reward = delta * APPROACH_SCALE
+
+        self._prev_min_enemy_dist = min_dist
+        return reward
 
     def _compute_reward(self, snapshot: dict, prev_snapshot: dict | None) -> float:
         from src.env.rewards import compute_shaped_reward

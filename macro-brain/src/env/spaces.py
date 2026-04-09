@@ -72,10 +72,10 @@ ACTION_SPLIT_FACTION = 6
 ACTION_MERGE_FACTION = 7
 ACTION_SET_AGGRO_MASK = 8
 
-# Stage 1 Tactical action constants (3-action space)
+# Stage 1 action constants (3-action space)
 ACTION_S1_HOLD = 0
-ACTION_S1_ATTACK_A = 1
-ACTION_S1_ATTACK_B = 2
+ACTION_S1_ATTACK_NEAREST = 1
+ACTION_S1_ATTACK_FURTHEST = 2
 
 # Grid defaults (overridden by profile)
 GRID_WIDTH = 50

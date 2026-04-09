@@ -9,7 +9,7 @@ if TYPE_CHECKING:
     from src.config.game_profile import GameProfile
 
 # Must match curriculum.py
-ACTION_NAMES = ["Hold", "AttackA", "AttackB"]
+ACTION_NAMES = ["Hold", "AttackNearest", "AttackFurthest"]
 
 
 class EnvStatCallback(BaseCallback):
@@ -37,7 +37,7 @@ class EpisodeLogCallback(BaseCallback):
     - Rolling avg reward > threshold for N consecutive episodes
     """
 
-    WINDOW = 100  # Rolling window for stats
+    WINDOW = 300  # Rolling window for stats (must be >= graduation window)
     GRADUATION_STREAK = 20  # Consecutive episodes above threshold
 
     def __init__(self, log_path: str = "./episode_log.csv",
@@ -68,14 +68,14 @@ class EpisodeLogCallback(BaseCallback):
         self._writer = csv.writer(self._file)
         header = [
             "episode", "timestep", "result", "own_alive", "enemy_alive",
-            "patrol_alive", "target_alive",
+            "trap_alive", "target_alive",
             "ep_steps", "ep_reward",
         ]
         for i in range(self.num_actions):
             name = ACTION_NAMES[i] if i < len(ACTION_NAMES) else f"act_{i}"
             header.append(f"act_{name}")
         header.extend([
-            "debuff_applied", "group_a_engaged",
+            "debuff_applied", "trap_engaged",
             "win_rate_100", "avg_survivors_100", "avg_ep_len_100",
             "avg_reward_100", "graduation_streak",
             "stage", "timestamp",
@@ -106,10 +106,10 @@ class EpisodeLogCallback(BaseCallback):
             info = infos[0] if infos else {}
             own = info.get("own_count", -1)
             enemy = info.get("enemy_count", -1)
-            patrol = info.get("patrol_count", -1)
+            patrol = info.get("trap_count", -1)
             target = info.get("target_count", -1)
             debuff = info.get("debuff_applied", False)
-            engaged = info.get("group_a_engaged", False)
+            engaged = info.get("trap_engaged", False)
 
             # Determine result
             if own == 0 and enemy > 0:
@@ -211,24 +211,31 @@ class EpisodeLogCallback(BaseCallback):
 
 
 class CurriculumCallback(BaseCallback):
-    """Stage 1 graduation: rolling avg reward > threshold for N consecutive episodes.
+    """Sub-stage graduation: advances curriculum when win rate threshold is met.
 
-    Simplified from the multi-stage mastery system — only checks one condition.
+    Monitors rolling win rate from the EpisodeLogCallback:
+    - Win rate >= threshold for N consecutive checks → graduate to next sub-stage
+    - Updates the env's curriculum_stage so spawns change on next reset
+    - Resets rolling stats to give the model a clean slate at each new stage
+
+    Sub-stage progression: 1 → 2 → 3 (max)
     """
 
     def __init__(
         self,
         episode_logger: EpisodeLogCallback | None = None,
         profile: 'GameProfile' | None = None,
-        reward_threshold: float = 12.0,
-        streak_required: int = 20,
+        win_rate_threshold: float = 0.80,
+        streak_required: int = 50,
+        max_substage: int = 3,
         verbose: int = 1,
     ):
         super().__init__(verbose)
         self.episode_logger = episode_logger
         self.profile = profile
-        self.reward_threshold = reward_threshold
+        self.win_rate_threshold = win_rate_threshold
         self.streak_required = streak_required
+        self.max_substage = max_substage
         self._last_checked_episode = 0
         self._consecutive_above = 0
 
@@ -241,9 +248,15 @@ class CurriculumCallback(BaseCallback):
             return True
         self._last_checked_episode = current_ep
 
-        # Check rolling average reward
-        avg_reward = self.episode_logger.rolling_avg_reward
-        if avg_reward >= self.reward_threshold:
+        # Need at least 200 episodes for stable win rate
+        if len(self.episode_logger._results) < 200:
+            return True
+
+        # Check rolling win rate (over last 200 episodes)
+        results = list(self.episode_logger._results)
+        recent = results[-200:]
+        win_rate = sum(recent) / len(recent)
+        if win_rate >= self.win_rate_threshold:
             self._consecutive_above += 1
         else:
             self._consecutive_above = 0
@@ -252,17 +265,53 @@ class CurriculumCallback(BaseCallback):
         self.episode_logger._consecutive_above_threshold = self._consecutive_above
 
         if self._consecutive_above >= self.streak_required:
+            self._graduate()
+
+        return True
+
+    def _graduate(self):
+        """Advance to the next sub-stage."""
+        # Get current stage from the env
+        current_stage = 1
+        env = None
+        if self.training_env and hasattr(self.training_env, 'envs'):
+            env = self.training_env.envs[0].unwrapped
+            if hasattr(env, 'curriculum_stage'):
+                current_stage = env.curriculum_stage
+
+        if current_stage >= self.max_substage:
             if self.verbose >= 1:
                 print(
                     f"\n{'='*60}\n"
-                    f"🎓 STAGE 1 GRADUATED!\n"
-                    f"   Episode:   {current_ep}\n"
-                    f"   Timesteps: {self.num_timesteps}\n"
-                    f"   Avg Reward: {avg_reward:.2f} >= {self.reward_threshold}\n"
-                    f"   Streak:     {self._consecutive_above} >= {self.streak_required}\n"
+                    f"🏆 ALL SUB-STAGES COMPLETE! (Stage {current_stage})\n"
+                    f"   Episode:  {self.episode_logger.episode_count}\n"
+                    f"   Win Rate: {self.episode_logger.rolling_win_rate:.0%}\n"
                     f"{'='*60}\n"
                 )
-            # Reset streak after graduation (prevents repeated printing)
             self._consecutive_above = 0
+            return
 
-        return True
+        next_stage = current_stage + 1
+
+        if self.verbose >= 1:
+            print(
+                f"\n{'='*60}\n"
+                f"🎓 SUB-STAGE {current_stage} → {next_stage} GRADUATED!\n"
+                f"   Episode:   {self.episode_logger.episode_count}\n"
+                f"   Timesteps: {self.num_timesteps}\n"
+                f"   Win Rate:  {self.episode_logger.rolling_win_rate:.0%}\n"
+                f"{'='*60}\n"
+            )
+
+        # Advance the env's curriculum stage
+        if env is not None:
+            env.curriculum_stage = next_stage
+
+        # Reset rolling stats for clean measurement at new stage
+        self.episode_logger._results.clear()
+        self.episode_logger._survivors.clear()
+        self.episode_logger._episode_lengths.clear()
+        self.episode_logger._rewards.clear()
+        self.episode_logger._debuff_applied.clear()
+        self._consecutive_above = 0
+
