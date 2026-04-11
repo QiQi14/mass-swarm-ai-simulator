@@ -19,7 +19,7 @@
 //! - Zero component overlap → safe simultaneous access
 //! - Zero heap allocations in the interaction loop
 
-use crate::components::{EntityId, FactionId, Position, StatBlock};
+use crate::components::{EntityId, FactionId, Position, StatBlock, UnitClassId};
 use crate::config::FactionBuffs;
 use crate::rules::InteractionRuleSet;
 use crate::spatial::SpatialHashGrid;
@@ -49,14 +49,18 @@ pub fn interaction_system(
     aggro: Res<crate::config::AggroMaskRegistry>,
     combat_buffs: Res<FactionBuffs>,
     buff_config: Res<crate::config::BuffConfig>,
+    mut cooldowns: ResMut<crate::config::CooldownTracker>,
     // Query 1: Purely immutable spatial data.
     // Safe to iterate AND random-access simultaneously (multiple &self borrows).
-    q_ro: Query<(Entity, &Position, &FactionId, &EntityId)>,
+    q_ro: Query<(Entity, &Position, &FactionId, &EntityId, &UnitClassId)>,
     // Query 2: Purely mutable stat data.
     // Disjoint from Query 1 (StatBlock ∩ {Position, FactionId} = ∅).
     mut q_rw: Query<&mut StatBlock>,
 ) {
     let start = telemetry.as_ref().map(|_| std::time::Instant::now());
+    
+    cooldowns.tick();
+
     if rules.rules.is_empty() {
         if let (Some(mut t), Some(s)) = (telemetry, start) {
             t.interaction_us = s.elapsed().as_micros() as u32;
@@ -67,17 +71,30 @@ pub fn interaction_system(
     // Pre-calculate fixed delta — ML determinism requires strict fixed timestep
     let tick_delta = 1.0 / 60.0;
 
-    for (source_entity, source_pos, source_faction, source_id) in q_ro.iter() {
-        for rule in &rules.rules {
+    for (source_entity, source_pos, source_faction, source_id, source_class) in q_ro.iter() {
+        for (rule_idx, rule) in rules.rules.iter().enumerate() {
             // Only process rules where this entity is the source faction
             if rule.source_faction != source_faction.0 {
                 continue;
+            }
+
+            // Unit class filtering — skip if source class doesn't match
+            if let Some(required_class) = rule.source_class {
+                if source_class.0 != required_class {
+                    continue;
+                }
             }
 
             // "The Blinders" — SetAggroMask can disable combat between
             // specific faction pairs (e.g., flanking unit ignores frontline)
             if !aggro.is_combat_allowed(rule.source_faction, rule.target_faction) {
                 continue;
+            }
+
+            if rule.cooldown_ticks.is_some() {
+                if !cooldowns.can_fire(source_id.id, rule_idx) {
+                    continue;
+                }
             }
 
             // Abstract damage multiplier via configurable stat index + entity targeting
@@ -88,9 +105,20 @@ pub fn interaction_system(
                 })
                 .unwrap_or(1.0);
 
+            let effective_range = if let Some(stat_idx) = rule.range_stat_index {
+                q_rw.get(source_entity)
+                    .ok()
+                    .and_then(|sb| sb.0.get(stat_idx).copied())
+                    .unwrap_or(rule.range)
+            } else {
+                rule.range
+            };
+
             // O(K) spatial lookup — only allocation is grid.query_radius's return Vec
             let center = Vec2::new(source_pos.x, source_pos.y);
-            let neighbors = grid.query_radius(center, rule.range);
+            let neighbors = grid.query_radius(center, effective_range);
+
+            let mut applied_any_effect = false;
 
             for &(neighbor_entity, _) in &neighbors {
                 // CRITICAL: Prevent self-interaction
@@ -99,21 +127,51 @@ pub fn interaction_system(
                 }
 
                 // O(1) read-only lookup inside iter() — safe: multiple &self borrows
-                if let Ok((_, _, neighbor_faction, _)) = q_ro.get(neighbor_entity) {
+                if let Ok((_, _, neighbor_faction, _, neighbor_class)) = q_ro.get(neighbor_entity) {
                     if neighbor_faction.0 != rule.target_faction {
                         continue;
                     }
 
-                    // O(1) mutable lookup — safe: disjoint component set from q_ro
-                    // Mut<StatBlock> is dropped at end of this scope before next get_mut()
-                    if let Ok(mut stat_block) = q_rw.get_mut(neighbor_entity) {
-                        for effect in &rule.effects {
+                    if let Some(required_class) = rule.target_class {
+                        if neighbor_class.0 != required_class {
+                            continue;
+                        }
+                    }
+
+                    for effect in &rule.effects {
+                        let base_delta = effect.delta_per_second * tick_delta * damage_mult;
+                        let final_delta = if let Some(ref mit) = rule.mitigation {
+                            // Read mitigation stat from target BEFORE get_mut
+                            let mit_value = q_rw.get(neighbor_entity)
+                                .ok()
+                                .and_then(|sb| sb.0.get(mit.stat_index).copied())
+                                .unwrap_or(0.0);
+                            match mit.mode {
+                                crate::rules::interaction::MitigationMode::PercentReduction => {
+                                    base_delta * (1.0 - mit_value.clamp(0.0, 1.0))
+                                }
+                                crate::rules::interaction::MitigationMode::FlatReduction => {
+                                    let abs_reduced = (base_delta.abs() - mit_value * tick_delta).max(0.0);
+                                    abs_reduced * base_delta.signum()
+                                }
+                            }
+                        } else {
+                            base_delta
+                        };
+
+                        if let Ok(mut stat_block) = q_rw.get_mut(neighbor_entity) {
                             if effect.stat_index < stat_block.0.len() {
-                                stat_block.0[effect.stat_index] +=
-                                    effect.delta_per_second * tick_delta * damage_mult;
+                                stat_block.0[effect.stat_index] += final_delta;
+                                applied_any_effect = true;
                             }
                         }
                     }
+                }
+            }
+
+            if let Some(cd_ticks) = rule.cooldown_ticks {
+                if applied_any_effect {
+                    cooldowns.start_cooldown(source_id.id, rule_idx, cd_ticks);
                 }
             }
         }
@@ -127,6 +185,7 @@ pub fn interaction_system(
 mod tests {
     use super::*;
     use crate::rules::{InteractionRule, StatEffect};
+    use crate::rules::interaction::{MitigationRule, MitigationMode};
 
     fn setup_app() -> App {
         let mut app = App::new();
@@ -135,6 +194,7 @@ mod tests {
         app.insert_resource(crate::config::AggroMaskRegistry::default());
         app.insert_resource(FactionBuffs::default());
         app.init_resource::<crate::config::BuffConfig>();
+        app.init_resource::<crate::config::CooldownTracker>();
         app.add_systems(Update, interaction_system);
         app
     }
@@ -150,19 +210,15 @@ mod tests {
                     source_faction: 0,
                     target_faction: 1,
                     range: 15.0,
-                    effects: vec![StatEffect {
-                        stat_index: 0,
-                        delta_per_second: -10.0,
-                    }],
+                    effects: vec![StatEffect { stat_index: 0, delta_per_second: -10.0 }],
+                    source_class: None, target_class: None, range_stat_index: None, mitigation: None, cooldown_ticks: None,
                 },
                 InteractionRule {
                     source_faction: 1,
                     target_faction: 0,
                     range: 15.0,
-                    effects: vec![StatEffect {
-                        stat_index: 0,
-                        delta_per_second: -20.0,
-                    }],
+                    effects: vec![StatEffect { stat_index: 0, delta_per_second: -20.0 }],
+                    source_class: None, target_class: None, range_stat_index: None, mitigation: None, cooldown_ticks: None,
                 },
             ],
         });
@@ -175,6 +231,7 @@ mod tests {
                 Position { x: 0.0, y: 0.0 },
                 FactionId(0),
                 StatBlock::with_defaults(&[(0, 100.0)]),
+                UnitClassId::default(),
             ))
             .id();
 
@@ -186,6 +243,7 @@ mod tests {
                 Position { x: 5.0, y: 0.0 },
                 FactionId(1),
                 StatBlock::with_defaults(&[(0, 100.0)]),
+                UnitClassId::default(),
             ))
             .id();
 
@@ -221,10 +279,8 @@ mod tests {
                 source_faction: 0,
                 target_faction: 1, // Doesn't match
                 range: 15.0,
-                effects: vec![StatEffect {
-                    stat_index: 0,
-                    delta_per_second: -10.0,
-                }],
+                effects: vec![StatEffect { stat_index: 0, delta_per_second: -10.0 }],
+                source_class: None, target_class: None, range_stat_index: None, mitigation: None, cooldown_ticks: None,
             }],
         });
 
@@ -235,6 +291,7 @@ mod tests {
                 Position { x: 0.0, y: 0.0 },
                 FactionId(0),
                 StatBlock::with_defaults(&[(0, 100.0)]),
+                UnitClassId::default(),
             ))
             .id();
 
@@ -245,6 +302,7 @@ mod tests {
                 Position { x: 5.0, y: 0.0 },
                 FactionId(0),
                 StatBlock::with_defaults(&[(0, 100.0)]),
+                UnitClassId::default(),
             ))
             .id();
 
@@ -271,10 +329,8 @@ mod tests {
                 source_faction: 0,
                 target_faction: 1,
                 range: 15.0,
-                effects: vec![StatEffect {
-                    stat_index: 0,
-                    delta_per_second: -10.0,
-                }],
+                effects: vec![StatEffect { stat_index: 0, delta_per_second: -10.0 }],
+                source_class: None, target_class: None, range_stat_index: None, mitigation: None, cooldown_ticks: None,
             }],
         });
 
@@ -285,6 +341,7 @@ mod tests {
                 Position { x: 0.0, y: 0.0 },
                 FactionId(0),
                 StatBlock::with_defaults(&[(0, 100.0)]),
+                UnitClassId::default(),
             ))
             .id();
 
@@ -295,6 +352,7 @@ mod tests {
                 Position { x: 20.0, y: 0.0 }, // Out of range
                 FactionId(1),
                 StatBlock::with_defaults(&[(0, 100.0)]),
+                UnitClassId::default(),
             ))
             .id();
 
@@ -322,10 +380,8 @@ mod tests {
                 source_faction: 0,
                 target_faction: 0,
                 range: 15.0,
-                effects: vec![StatEffect {
-                    stat_index: 0,
-                    delta_per_second: -10.0,
-                }],
+                effects: vec![StatEffect { stat_index: 0, delta_per_second: -10.0 }],
+                source_class: None, target_class: None, range_stat_index: None, mitigation: None, cooldown_ticks: None,
             }],
         });
 
@@ -336,6 +392,7 @@ mod tests {
                 Position { x: 0.0, y: 0.0 },
                 FactionId(0),
                 StatBlock::with_defaults(&[(0, 100.0)]),
+                UnitClassId::default(),
             ))
             .id();
 
@@ -348,5 +405,225 @@ mod tests {
 
         let stat = app.world().get::<StatBlock>(entity).unwrap();
         assert_eq!(stat.0[0], 100.0); // No self-harm
+    }
+
+    #[test]
+    fn test_class_filtering_source() {
+        let mut app = setup_app();
+        app.insert_resource(InteractionRuleSet {
+            rules: vec![InteractionRule {
+                source_faction: 0, target_faction: 1, range: 15.0,
+                effects: vec![StatEffect { stat_index: 0, delta_per_second: -10.0 }],
+                source_class: Some(1), target_class: None, range_stat_index: None, mitigation: None, cooldown_ticks: None,
+            }],
+        });
+        let source = app.world_mut().spawn((
+            EntityId { id: 1 }, Position { x: 0.0, y: 0.0 }, FactionId(0),
+            StatBlock::with_defaults(&[(0, 100.0)]), UnitClassId(0),
+        )).id();
+        let target = app.world_mut().spawn((
+            EntityId { id: 2 }, Position { x: 5.0, y: 0.0 }, FactionId(1),
+            StatBlock::with_defaults(&[(0, 100.0)]), UnitClassId::default(),
+        )).id();
+        {
+            let mut grid = app.world_mut().resource_mut::<SpatialHashGrid>();
+            grid.rebuild(&[(source, Vec2::new(0.0, 0.0)), (target, Vec2::new(5.0, 0.0))]);
+        }
+        app.update();
+        let stat = app.world().get::<StatBlock>(target).unwrap();
+        assert_eq!(stat.0[0], 100.0);
+
+        *app.world_mut().get_mut::<UnitClassId>(source).unwrap() = UnitClassId(1);
+        app.update();
+        let stat = app.world().get::<StatBlock>(target).unwrap();
+        assert!(stat.0[0] < 100.0);
+    }
+
+    #[test]
+    fn test_class_filtering_target() {
+        let mut app = setup_app();
+        app.insert_resource(InteractionRuleSet {
+            rules: vec![InteractionRule {
+                source_faction: 0, target_faction: 1, range: 15.0,
+                effects: vec![StatEffect { stat_index: 0, delta_per_second: -10.0 }],
+                source_class: None, target_class: Some(2), range_stat_index: None, mitigation: None, cooldown_ticks: None,
+            }],
+        });
+        let source = app.world_mut().spawn((
+            EntityId { id: 1 }, Position { x: 0.0, y: 0.0 }, FactionId(0),
+            StatBlock::with_defaults(&[(0, 100.0)]), UnitClassId::default(),
+        )).id();
+        let target = app.world_mut().spawn((
+            EntityId { id: 2 }, Position { x: 5.0, y: 0.0 }, FactionId(1),
+            StatBlock::with_defaults(&[(0, 100.0)]), UnitClassId(0),
+        )).id();
+        {
+            let mut grid = app.world_mut().resource_mut::<SpatialHashGrid>();
+            grid.rebuild(&[(source, Vec2::new(0.0, 0.0)), (target, Vec2::new(5.0, 0.0))]);
+        }
+        app.update();
+        let stat = app.world().get::<StatBlock>(target).unwrap();
+        assert_eq!(stat.0[0], 100.0);
+
+        *app.world_mut().get_mut::<UnitClassId>(target).unwrap() = UnitClassId(2);
+        app.update();
+        let stat = app.world().get::<StatBlock>(target).unwrap();
+        assert!(stat.0[0] < 100.0);
+    }
+
+    #[test]
+    fn test_dynamic_range() {
+        let mut app = setup_app();
+        app.insert_resource(InteractionRuleSet {
+            rules: vec![InteractionRule {
+                source_faction: 0, target_faction: 1, range: 10.0,
+                effects: vec![StatEffect { stat_index: 0, delta_per_second: -10.0 }],
+                source_class: None, target_class: None, range_stat_index: Some(3), mitigation: None, cooldown_ticks: None,
+            }],
+        });
+        let source = app.world_mut().spawn((
+            EntityId { id: 1 }, Position { x: 0.0, y: 0.0 }, FactionId(0),
+            StatBlock::with_defaults(&[(0, 100.0), (3, 50.0)]), UnitClassId::default(),
+        )).id();
+        let target = app.world_mut().spawn((
+            EntityId { id: 2 }, Position { x: 30.0, y: 0.0 }, FactionId(1),
+            StatBlock::with_defaults(&[(0, 100.0)]), UnitClassId::default(),
+        )).id();
+        {
+            let mut grid = app.world_mut().resource_mut::<SpatialHashGrid>();
+            grid.rebuild(&[(source, Vec2::new(0.0, 0.0)), (target, Vec2::new(30.0, 0.0))]);
+        }
+        app.update();
+        let stat = app.world().get::<StatBlock>(target).unwrap();
+        assert!(stat.0[0] < 100.0);
+    }
+
+    #[test]
+    fn test_mitigation_percent() {
+        let mut app = setup_app();
+        app.insert_resource(InteractionRuleSet {
+            rules: vec![InteractionRule {
+                source_faction: 0, target_faction: 1, range: 15.0,
+                effects: vec![StatEffect { stat_index: 0, delta_per_second: -10.0 }],
+                source_class: None, target_class: None, range_stat_index: None,
+                mitigation: Some(MitigationRule { stat_index: 4, mode: MitigationMode::PercentReduction }),
+                cooldown_ticks: None,
+            }],
+        });
+        let source = app.world_mut().spawn((
+            EntityId { id: 1 }, Position { x: 0.0, y: 0.0 }, FactionId(0),
+            StatBlock::with_defaults(&[(0, 100.0)]), UnitClassId::default(),
+        )).id();
+        let target = app.world_mut().spawn((
+            EntityId { id: 2 }, Position { x: 5.0, y: 0.0 }, FactionId(1),
+            StatBlock::with_defaults(&[(0, 100.0), (4, 0.5)]), UnitClassId::default(),
+        )).id();
+        {
+            let mut grid = app.world_mut().resource_mut::<SpatialHashGrid>();
+            grid.rebuild(&[(source, Vec2::new(0.0, 0.0)), (target, Vec2::new(5.0, 0.0))]);
+        }
+        app.update();
+        let stat = app.world().get::<StatBlock>(target).unwrap();
+        let expected = 100.0 - (10.0 * (1.0 / 60.0) * 0.5);
+        assert!((stat.0[0] - expected).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_mitigation_flat() {
+        let mut app = setup_app();
+        app.insert_resource(InteractionRuleSet {
+            rules: vec![InteractionRule {
+                source_faction: 0, target_faction: 1, range: 15.0,
+                effects: vec![StatEffect { stat_index: 0, delta_per_second: -10.0 }],
+                source_class: None, target_class: None, range_stat_index: None,
+                mitigation: Some(MitigationRule { stat_index: 4, mode: MitigationMode::FlatReduction }),
+                cooldown_ticks: None,
+            }],
+        });
+        let source = app.world_mut().spawn((
+            EntityId { id: 1 }, Position { x: 0.0, y: 0.0 }, FactionId(0),
+            StatBlock::with_defaults(&[(0, 100.0)]), UnitClassId::default(),
+        )).id();
+        let target = app.world_mut().spawn((
+            EntityId { id: 2 }, Position { x: 5.0, y: 0.0 }, FactionId(1),
+            StatBlock::with_defaults(&[(0, 100.0), (4, 5.0)]), UnitClassId::default(),
+        )).id();
+        {
+            let mut grid = app.world_mut().resource_mut::<SpatialHashGrid>();
+            grid.rebuild(&[(source, Vec2::new(0.0, 0.0)), (target, Vec2::new(5.0, 0.0))]);
+        }
+        app.update();
+        let stat = app.world().get::<StatBlock>(target).unwrap();
+        let expected = 100.0 - (5.0 * (1.0 / 60.0));
+        assert!((stat.0[0] - expected).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_cooldown_prevents_rapid_fire() {
+        let mut app = setup_app();
+        app.insert_resource(InteractionRuleSet {
+            rules: vec![InteractionRule {
+                source_faction: 0, target_faction: 1, range: 15.0,
+                effects: vec![StatEffect { stat_index: 0, delta_per_second: -60.0 }],
+                source_class: None, target_class: None, range_stat_index: None, mitigation: None, cooldown_ticks: Some(60),
+            }],
+        });
+        let source = app.world_mut().spawn((
+            EntityId { id: 1 }, Position { x: 0.0, y: 0.0 }, FactionId(0),
+            StatBlock::with_defaults(&[(0, 100.0)]), UnitClassId::default(),
+        )).id();
+        let target = app.world_mut().spawn((
+            EntityId { id: 2 }, Position { x: 5.0, y: 0.0 }, FactionId(1),
+            StatBlock::with_defaults(&[(0, 100.0)]), UnitClassId::default(),
+        )).id();
+        {
+            let mut grid = app.world_mut().resource_mut::<SpatialHashGrid>();
+            grid.rebuild(&[(source, Vec2::new(0.0, 0.0)), (target, Vec2::new(5.0, 0.0))]);
+        }
+        
+        // Frame 1: Should apply
+        app.update();
+        let stat = app.world().get::<StatBlock>(target).unwrap();
+        assert!((stat.0[0] - 99.0).abs() < 1e-4);
+
+        // Frame 2-60: Should NOT apply
+        for _ in 1..60 {
+            app.update();
+        }
+        let stat = app.world().get::<StatBlock>(target).unwrap();
+        assert!((stat.0[0] - 99.0).abs() < 1e-4);
+
+        // Frame 61: Cooldown over, should apply again
+        app.update();
+        let stat = app.world().get::<StatBlock>(target).unwrap();
+        assert!((stat.0[0] - 98.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_backward_compat_no_new_fields() {
+        let mut app = setup_app();
+        app.insert_resource(InteractionRuleSet {
+            rules: vec![InteractionRule {
+                source_faction: 0, target_faction: 1, range: 15.0,
+                effects: vec![StatEffect { stat_index: 0, delta_per_second: -10.0 }],
+                source_class: None, target_class: None, range_stat_index: None, mitigation: None, cooldown_ticks: None,
+            }],
+        });
+        let source = app.world_mut().spawn((
+            EntityId { id: 1 }, Position { x: 0.0, y: 0.0 }, FactionId(0),
+            StatBlock::with_defaults(&[(0, 100.0)]), UnitClassId::default(),
+        )).id();
+        let target = app.world_mut().spawn((
+            EntityId { id: 2 }, Position { x: 5.0, y: 0.0 }, FactionId(1),
+            StatBlock::with_defaults(&[(0, 100.0)]), UnitClassId::default(),
+        )).id();
+        {
+            let mut grid = app.world_mut().resource_mut::<SpatialHashGrid>();
+            grid.rebuild(&[(source, Vec2::new(0.0, 0.0)), (target, Vec2::new(5.0, 0.0))]);
+        }
+        app.update();
+        let stat = app.world().get::<StatBlock>(target).unwrap();
+        let expected = 100.0 - (10.0 * (1.0 / 60.0));
+        assert!((stat.0[0] - expected).abs() < 1e-4);
     }
 }

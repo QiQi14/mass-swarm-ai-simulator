@@ -12,7 +12,9 @@
     <link rel="stylesheet" href="css/panels.css">
     <link rel="stylesheet" href="css/controls.css">
     <link rel="stylesheet" href="css/canvas.css">
-    <link rel="stylesheet" href="css/animations.css"></head>
+    <link rel="stylesheet" href="css/animations.css">
+    <link rel="stylesheet" href="css/training-overlay.css">
+</head>
 <body>
     <div class="app-container">
         <!-- Main Canvas Area -->
@@ -423,5 +425,11 @@
 
     <!-- The actual visualization logic (ES modules) -->
     <script type="module" src="js/main.js"></script>
+
+    <!-- Training Overlay -->
+    <script type="module">
+        import { initTrainingOverlay } from './js/training-overlay.js';
+        initTrainingOverlay();
+    </script>
 </body>
 </html>

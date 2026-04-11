@@ -29,6 +29,30 @@ pub struct InteractionRule {
     pub range: f32,
     /// Effects to apply to the TARGET entity's StatBlock.
     pub effects: Vec<StatEffect>,
+
+    /// Filter: only apply this rule when the SOURCE entity has this class.
+    /// None = any class (backward compatible default).
+    #[serde(default)]
+    pub source_class: Option<u32>,
+
+    /// Filter: only apply this rule when the TARGET entity has this class.
+    /// None = any class (backward compatible default).
+    #[serde(default)]
+    pub target_class: Option<u32>,
+
+    /// If set, use the SOURCE entity's StatBlock[idx] as the combat range
+    /// instead of the fixed `range` field. Falls back to `range` if stat is missing.
+    #[serde(default)]
+    pub range_stat_index: Option<usize>,
+
+    /// Optional stat-driven damage mitigation on the TARGET.
+    #[serde(default)]
+    pub mitigation: Option<MitigationRule>,
+
+    /// If set, each source entity can only fire this rule every N ticks.
+    /// Tracked by `CooldownTracker` resource.
+    #[serde(default)]
+    pub cooldown_ticks: Option<u32>,
 }
 
 /// A single stat modification. Applied to target entity per tick.
@@ -39,6 +63,27 @@ pub struct StatEffect {
     /// Change per second. Negative = damage, positive = heal/buff.
     /// Normalized to per-tick by the interaction system: `delta * (1.0/60.0)`.
     pub delta_per_second: f32,
+}
+
+/// Stat-driven damage mitigation applied to the TARGET entity.
+/// The engine doesn't know what "armor" or "shield" means — it just math.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MitigationRule {
+    /// Stat index on the TARGET entity providing mitigation value.
+    pub stat_index: usize,
+    /// How mitigation is applied to damage.
+    pub mode: MitigationMode,
+}
+
+/// How damage mitigation math is computed.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum MitigationMode {
+    /// damage = base_damage * (1.0 - target_stat.clamp(0.0, 1.0))
+    /// Example: stat=0.3 → 30% damage reduction
+    PercentReduction,
+    /// damage = (base_damage.abs() - target_stat).max(0.0) * base_damage.signum()
+    /// Example: stat=10.0 → 10 flat damage absorbed
+    FlatReduction,
 }
 
 /// Accumulates entity IDs removed this tick for WebSocket broadcast.
@@ -73,6 +118,11 @@ mod tests {
                 target_faction: 1,
                 range: 10.0,
                 effects: vec![],
+                source_class: None,
+                target_class: None,
+                range_stat_index: None,
+                mitigation: None,
+                cooldown_ticks: None,
             }],
         };
         assert_eq!(ruleset.rules.len(), 1);
@@ -92,5 +142,40 @@ mod tests {
     fn test_removal_events_default() {
         let events = RemovalEvents::default();
         assert!(events.removed_ids.is_empty());
+    }
+
+    #[test]
+    fn test_mitigation_rule_serde_roundtrip() {
+        let rules = vec![
+            MitigationRule {
+                stat_index: 2,
+                mode: MitigationMode::PercentReduction,
+            },
+            MitigationRule {
+                stat_index: 3,
+                mode: MitigationMode::FlatReduction,
+            },
+        ];
+        
+        let serialized = serde_json::to_string(&rules).unwrap();
+        let deserialized: Vec<MitigationRule> = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(rules, deserialized);
+    }
+
+    #[test]
+    fn test_interaction_rule_backward_compat() {
+        let legacy_json = r#"{
+            "source_faction": 0,
+            "target_faction": 1,
+            "range": 10.0,
+            "effects": []
+        }"#;
+        
+        let deserialized: InteractionRule = serde_json::from_str(legacy_json).unwrap();
+        assert_eq!(deserialized.source_class, None);
+        assert_eq!(deserialized.target_class, None);
+        assert_eq!(deserialized.range_stat_index, None);
+        assert_eq!(deserialized.mitigation, None);
+        assert_eq!(deserialized.cooldown_ticks, None);
     }
 }

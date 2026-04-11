@@ -10,18 +10,21 @@
 graph LR
     P1["Phase 1 ✅\nVertical Slice\n(Core + Bridges + Visualizer)"]
     P2["Phase 2 ✅\nCore Algorithms\n(Spatial, Pathfinding, Combat)"]
-    P3["Phase 3.5 ✅\nMacro-Brain\n(Python RL & Prod Pipeline)"]
+    P3["Phase 3.5 🔄\nMacro-Brain\n(Python RL & Prod Pipeline)"]
+    P3b["Phase 3.6 ⬜\nTactical Curriculum\n(Stages 4-8)"]
     P4["Phase 4 ⬜\nIntegration\n& Scale"]
     P5["Phase 5 ⬜\nWeb Engine\nIntegration"]
 
     P1 --> P2
     P2 --> P3
-    P3 --> P4
+    P3 --> P3b
+    P3b --> P4
     P4 --> P5
 
     style P1 fill:#238636,stroke:#2ea043,color:#fff
     style P2 fill:#238636,stroke:#2ea043,color:#fff
-    style P3 fill:#238636,stroke:#2ea043,color:#fff
+    style P3 fill:#d29922,stroke:#e3b341,color:#000
+    style P3b fill:#8b949e,stroke:#6e7681,color:#fff
 ```
 
 > [!NOTE]
@@ -188,7 +191,8 @@ Prove the **"zero-gap engine integration"** thesis by consuming the Rust core an
 |-------|--------|-----------|------------------|
 | **Phase 1** | ✅ Complete | 2026-04-04 | Bevy 0.18 ECS, WS/ZMQ bridges, Debug Visualizer, bidirectional commands |
 | **Phase 2** | ✅ Complete | 2026-04-05 | Spatial hash grid, Chamfer flow fields, Boids steering, FoW, terrain, 111 unit tests |
-| **Phase 3.5** | ✅ Complete | 2026-04-08 | Multi-Master Arbitration, SB3 MaskablePPO, 5-stage curriculum, Bot Controller, prod pipeline, 195 Rust + 63 Python tests |
+| **Phase 3.5** | 🔄 In Progress | — | Tactical curriculum v3.2, Stages 0-3 complete. Stage 1 training. |
+| **Phase 3.6** | ⬜ Not Started | — | Stages 4-8: fog scouting, flanking, lure & ambush, protected target, generalization |
 | **Phase 4** | ⬜ Not Started | — | 10K scale test, serialization upgrade, full tri-node orchestration |
 | **Phase 5** | ⬜ Not Started | — | WASM compilation, ONNX export, Three.js 3D rendering |
 
@@ -227,3 +231,29 @@ Phase 3.5 was introduced to solidify the training pipeline before large scale ru
 > [!NOTE]
 > This roadmap was approved at the start of the project. Per-phase implementation plans are created via the `/planner` workflow and archived in `.agents/history/` after completion.
 
+### Phase 3.5 Tactical Curriculum Progress
+
+The 5-stage curriculum from Phase 3 was expanded to a 9-stage tactical curriculum (Stages 0-8):
+
+| Stage | Status | Description |
+|:---:|:---:|---|
+| 0 | ✅ Graduated | 1v1 Navigation — move to single target |
+| 1 | 🔄 Training | Target Selection — pick correct target among distractors |
+| 2 | ✅ Engine Ready | Pheromone Path — attract swarm through safe route |
+| 3 | ✅ Engine Ready | Repellent Field — push swarm away from danger zones |
+| 4 | ⬜ Needs Implementation | Fog Scouting + Retargeting — two-target sequential pursuit |
+| 5 | ⬜ Needs Architecture | Forced Flanking / Pincer — requires Micro-Core upgrades |
+| 6 | ⬜ Needs Architecture | Lure & Ambush — requires bait/kite bot rules |
+| 7 | ⬜ Needs Design | Protected Target — patrol + guard + HVT |
+| 8 | ⬜ Blocked | Randomized graduation — blocked on Stages 4-7 |
+
+**Key engine fixes deployed (v3.2, 2026-04-11):**
+- Zone modifier duration: configurable via profile (training: 1500 ticks ≈ 10 RL steps)
+- Repellent cost modifier: +50 → +200 (per conventions)
+- Stage 3 terrain exploit: danger zone hard_cost 300 → 100 (forces DropRepellent usage)
+- Navigation persistence: zone casts auto-replay last AttackCoord
+
+> [!WARNING]
+> **Stages 5-6 require significant Rust Micro-Core and Debug Visualizer upgrades** before they can be implemented. See `TRAINING_STATUS.md` for detailed designs.
+
+**Full curriculum design:** See [TRAINING_STATUS.md](file:///Users/manifera/Documents/GitHub/mass-swarm-ai-simulator/TRAINING_STATUS.md#remaining-curriculum-work)

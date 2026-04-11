@@ -84,7 +84,7 @@ Each stage requires sustained win rate (rolling window) + minimum episodes:
 - **Terrain:** Two-path map with wall band through center
   - Top path: fast (cost 100) but trap group blocks it
   - Bottom path: slow (mud, soft_cost 40) but safe
-  - Wall: permanent (65535) with two gaps
+  - Wall: permanent (65535) with gap at x=2-5
 - **Goal:** Use DropPheromone on bottom path to attract swarm through safe route
 - **New action:** DropPheromone (cost modifier -50, attracts flow field)
 
@@ -92,7 +92,7 @@ Each stage requires sustained win rate (rolling window) + minimum episodes:
 - **Brain:** 50 units, 100 HP, spawns at left edge
 - **Traps:** 2-3 groups of 20 units, 200 HP, scattered in danger zones
 - **Target:** 20 units, 60 HP, right edge
-- **Terrain:** Open field with 2-3 high-cost danger zones (hard_cost 300)
+- **Terrain:** Open field with danger zones at NORMAL cost (hard_cost 100, soft_cost 40 visual markers). Flow field routes THROUGH traps by default. Agent must DropRepellent (+200) to create avoidance zones.
 - **Goal:** Use DropRepellent on danger zones to push swarm away from trap engagements
 - **New action:** DropRepellent (cost modifier +200, repels flow field)
 - **Trap count randomized:** 2-3 groups to prevent memorization

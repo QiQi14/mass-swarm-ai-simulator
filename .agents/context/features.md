@@ -167,3 +167,13 @@ Randomizes Trap/Target faction IDs each episode (50% chance) to prevent the mode
 
 **Key files:** `macro-brain/profiles/tactical_curriculum.json`, `macro-brain/src/training/curriculum.py`, `macro-brain/src/env/swarm_env.py`
 **Depends on:** Tactical Swarm ECP Observation Hardening
+
+---
+
+### Curriculum Stage 2-3 Adjustment
+**Completed:** 2026-04-11 | **Archive:** `.agents/history/20260411_092145_curriculum_stage_2_3_adjustment/`
+
+Added configurable `zone_modifier_duration_ticks` to Rust `BuffConfig` and `AbilityConfigPayload` (default 120, tactical curriculum uses 1500). Updated Python terrain generators for Stage 2 (two-path wall map) and Stage 3 (open field with danger zones). Increased `DropRepellent` cost modifier to 200. Added navigation persistence so swarm maintains movement while casting zone abilities.
+
+**Key files:** `micro-core/src/config/buff.rs`, `micro-core/src/bridges/zmq_protocol/payloads.rs`, `macro-brain/src/training/curriculum.py`, `macro-brain/src/env/actions.py`
+**Depends on:** Randomized Faction Roles

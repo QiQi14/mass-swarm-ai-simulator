@@ -11,7 +11,8 @@
 //! - `crate::config::SimulationConfig`
 
 use crate::components::{
-    EntityId, FactionId, MovementConfig, NextEntityId, Position, StatBlock, Velocity, VisionRadius,
+    EntityId, FactionId, MovementConfig, NextEntityId, Position, StatBlock, UnitClassId, Velocity,
+    VisionRadius,
 };
 use crate::config::SimulationConfig;
 use bevy::prelude::*;
@@ -54,6 +55,7 @@ pub fn initial_spawn_system(
             StatBlock::with_defaults(&config.initial_stat_defaults),
             VisionRadius::default(),
             MovementConfig::default(),
+            UnitClassId::default(),
         ));
     }
 }

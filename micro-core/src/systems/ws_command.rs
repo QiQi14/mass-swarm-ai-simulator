@@ -24,7 +24,7 @@ use crate::bridges::ws_protocol::WsCommand;
 use crate::bridges::zmq_protocol::MacroDirective;
 use crate::components::{
     EngineOverride, EntityId, FactionId, MovementConfig, NextEntityId, Position, StatBlock,
-    Velocity, VisionRadius,
+    UnitClassId, Velocity, VisionRadius,
 };
 use crate::config::{
     ActiveZoneModifiers, AggroMaskRegistry, SimPaused, SimSpeed, SimStepRemaining,
@@ -176,6 +176,7 @@ pub fn ws_command_system(
                             StatBlock::with_defaults(&stats),
                             VisionRadius::default(),
                             default_mc,
+                            UnitClassId::default(),
                         ));
                         next_id.0 += 1;
                         spawned_count += 1;
@@ -339,6 +340,7 @@ pub fn ws_command_system(
                                     StatBlock(base_stats),
                                     VisionRadius::default(),
                                     MovementConfig::default(),
+                                    UnitClassId::default(),
                                 ));
                             }
                         }
@@ -549,6 +551,11 @@ pub fn ws_command_system(
                                     target_faction: target as u32,
                                     range: range as f32,
                                     effects,
+                                    source_class: None,
+                                    target_class: None,
+                                    range_stat_index: None,
+                                    mitigation: None,
+                                    cooldown_ticks: None,
                                 });
                             }
                         }

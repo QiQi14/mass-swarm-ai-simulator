@@ -9,7 +9,8 @@
 #
 # Usage:
 #   ./dev.sh              — Normal dev mode
-#   ./dev.sh --watch      — Visualizer only (no Rust core)
+#   ./dev.sh --watch      — Visualizer only (no Rust core, safe during training)
+#   ./dev.sh --training   — Alias for --watch (training monitor mode)
 #   ./dev.sh --smoke      — Run 300-tick smoke test then exit
 #   ./dev.sh --release    — Build and run with release optimizations
 #   ./dev.sh --prod       — Production build (no debug telemetry)
@@ -71,7 +72,7 @@ WATCH_ONLY=false
 
 for arg in "$@"; do
     case "$arg" in
-        --watch|--passive)
+        --watch|--passive|--training)
             WATCH_ONLY=true
             ;;
         --smoke)
@@ -167,7 +168,9 @@ if [ "$WATCH_ONLY" = true ]; then
     echo ""
     echo -e "  ${BOLD}Local Access:${RESET}      ${CYAN}http://127.0.0.1:$HTTP_PORT${RESET}"
     echo -e "  ${BOLD}Network Access:${RESET}    ${CYAN}http://$LOCAL_IP:$HTTP_PORT${RESET}"
+    echo -e "  ${BOLD}Training Overlay:${RESET}  ${YELLOW}Press 'T' in browser to toggle metrics${RESET}"
     echo -e "  ${DIM}Rust core and training must be started separately.${RESET}"
+    echo -e "  ${DIM}Training logs served from: logs/run_latest/episode_log.csv${RESET}"
     echo ""
     echo -e "  ${DIM}Press Ctrl+C to stop the visualizer.${RESET}"
     echo ""

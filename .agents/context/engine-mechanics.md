@@ -23,6 +23,18 @@ Every entity has:
 - **`Velocity { dx, dy }`** — current movement vector
 - **`EntityId { id: u32 }`** — unique entity identifier
 
+### Unit Classes
+
+Entities carry a `UnitClassId(u32)` component. Default: 0 (generic).
+
+The engine is **context-agnostic** — it doesn't know what class 0 or class 1 means.
+The game profile defines the mapping (e.g., class 0 = "Infantry", class 1 = "Sniper").
+
+UnitClassId is used by `InteractionRule` for class-specific combat targeting:
+- `source_class: Option<u32>` — only fire from entities of this class
+- `target_class: Option<u32>` — only hit entities of this class
+- When `None`, the rule matches any class (backward compatible)
+
 **Key files:** `micro-core/src/components/`
 
 ---
@@ -73,6 +85,45 @@ Time to kill = target_total_HP / attacker_total_DPS
 - Brain 50 units, each dealing 25 DPS → 1,250 total DPS
 - Trap 50 units × 200 HP = 10,000 total HP
 - Time to kill trap = 10,000 / 1,250 = 8 seconds
+
+### Dynamic Range
+
+InteractionRules can use a stat from the source entity as the combat range:
+- `range_stat_index: Option<usize>` — if set, `range = source.StatBlock[idx]`
+- Falls back to the fixed `range` field if stat is missing
+- Use case: Snipers (class with high stat[3]=200.0) vs Infantry (stat[3]=15.0)
+
+### Stat-Driven Mitigation
+
+InteractionRules can specify target-side damage mitigation:
+- `mitigation.stat_index` — which stat on the TARGET provides mitigation
+- `mitigation.mode`:
+  - `PercentReduction`: `damage = base * (1.0 - target_stat.clamp(0..1))`
+  - `FlatReduction`: `damage = (base.abs() - target_stat).max(0) * base.signum()`
+- Use case: Tanks (stat[4]=0.5 → 50% damage reduction)
+
+### Interaction Cooldowns
+
+InteractionRules can have per-entity cooldowns:
+- `cooldown_ticks: Option<u32>` — after firing, entity waits N ticks before firing again
+- Tracked by `CooldownTracker` resource (keyed by entity_id + rule_index)
+- Cleared on environment reset
+- Use case: Heavy artillery (fires every 120 ticks = 2 seconds)
+
+### Example: Heterogeneous Combat
+
+Given game profile:
+- Class 0 (Infantry): HP=100, Range=15, no mitigation
+- Class 1 (Sniper): HP=40, Range(stat[3])=200, cooldown=120 ticks
+- Class 2 (Tank): HP=300, Armor(stat[4])=0.5 (50% reduction)
+
+Rules:
+1. Infantry→Any: range=15, damage=-10/s, no class filter
+2. Sniper→Any: range_stat=3, damage=-50/s, cooldown=120, source_class=1
+3. Any→Tank: range=15, damage=-10/s, mitigation={stat:4, mode:PercentReduction}
+
+Result: Sniper hits from 200 units away, deals 50 damage burst every 2 sec.
+Tank takes 50% less damage from everything. Infantry is baseline.
 
 ---
 
@@ -224,9 +275,13 @@ Python sends a `SetZoneModifier` directive:
 }
 ```
 
+> **Duration:** The ticks_remaining is NOT set per-directive. It comes from
+> `BuffConfig.zone_modifier_duration_ticks` which is set during environment
+> reset via `AbilityConfigPayload.zone_modifier_duration_ticks`.
+
 - **Negative `cost_modifier`** = Pheromone (attract) — reduces terrain cost, making the flow field prefer this area
 - **Positive `cost_modifier`** = Repellent — increases terrain cost, making the flow field avoid this area
-- **`ticks_remaining: 120`** (hardcoded ~2 seconds) — zones are temporary
+- **`ticks_remaining`** — configurable via `zone_modifier_duration_ticks` in `AbilityConfigPayload` (sent in reset). Default: 120 ticks (~2 seconds). Tactical curriculum uses 1500 ticks (~25 seconds / ~10 RL steps).
 - Zones modify the flow field on next recalculation
 
 ### Flow Field Impact

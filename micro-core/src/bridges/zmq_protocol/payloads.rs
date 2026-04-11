@@ -23,6 +23,24 @@ pub struct CombatRulePayload {
     pub target_faction: u32,
     pub range: f32,
     pub effects: Vec<StatEffectPayload>,
+    #[serde(default)]
+    pub source_class: Option<u32>,
+    #[serde(default)]
+    pub target_class: Option<u32>,
+    #[serde(default)]
+    pub range_stat_index: Option<usize>,
+    #[serde(default)]
+    pub mitigation: Option<MitigationPayload>,
+    #[serde(default)]
+    pub cooldown_ticks: Option<u32>,
+}
+
+/// Mitigation configuration from game profile.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct MitigationPayload {
+    pub stat_index: usize,
+    /// "PercentReduction" or "FlatReduction"
+    pub mode: String,
 }
 
 /// Stat effect payload from game profile.
@@ -92,6 +110,10 @@ pub struct SpawnConfig {
     /// The adapter (game profile) should always provide explicit stat values.
     #[serde(default)]
     pub stats: Vec<SpawnStatEntry>,
+    /// Optional unit class ID for spawned entities. Default: 0 (generic).
+    /// When absent in JSON, entities spawn as class 0 (backward compatible).
+    #[serde(default)]
+    pub unit_class_id: u32,
 }
 
 /// A single stat override for spawn configuration.

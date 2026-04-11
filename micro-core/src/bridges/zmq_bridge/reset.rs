@@ -18,6 +18,7 @@ use rand::Rng;
 use crate::bridges::zmq_protocol::{SpawnConfig, TerrainPayload};
 use crate::components::{
     EntityId, FactionId, MovementConfig, NextEntityId, Position, StatBlock, Velocity, VisionRadius,
+    UnitClassId,
 };
 use crate::config::{ActiveSubFactions, ActiveZoneModifiers, AggroMaskRegistry, TickCounter};
 use crate::rules::NavigationRuleSet;
@@ -77,6 +78,7 @@ pub(crate) fn reset_environment_system(
     mut latest_directive: ResMut<LatestDirective>,
     mut buff_config: ResMut<crate::config::BuffConfig>,
     mut density_config: ResMut<crate::config::DensityConfig>,
+    mut cooldowns: ResMut<crate::config::CooldownTracker>,
     mut rules: ResetRules,
     training_mode: Res<crate::config::TrainingMode>,
 ) {
@@ -107,6 +109,7 @@ pub(crate) fn reset_environment_system(
     // 3. Reset game state
     tick.tick = 0;
     zones.zones.clear();
+    cooldowns.cooldowns.clear();
     *faction_buffs = Default::default();
     aggro.masks.clear();
     sub_factions.factions.clear();
@@ -172,6 +175,7 @@ pub(crate) fn reset_environment_system(
                 FactionId(spawn.faction_id),
                 StatBlock::with_defaults(&stat_defaults),
                 VisionRadius::default(),
+                UnitClassId(spawn.unit_class_id),
                 if let Some(ref mc) = reset.movement_config {
                     MovementConfig {
                         max_speed: mc.max_speed,
@@ -204,6 +208,17 @@ pub(crate) fn reset_environment_system(
                         delta_per_second: e.delta_per_second,
                     })
                     .collect(),
+                source_class: r.source_class,
+                target_class: r.target_class,
+                range_stat_index: r.range_stat_index,
+                mitigation: r.mitigation.as_ref().map(|m| crate::rules::interaction::MitigationRule {
+                    stat_index: m.stat_index,
+                    mode: match m.mode.as_str() {
+                        "FlatReduction" => crate::rules::interaction::MitigationMode::FlatReduction,
+                        _ => crate::rules::interaction::MitigationMode::PercentReduction,
+                    },
+                }),
+                cooldown_ticks: r.cooldown_ticks,
             });
         }
         if !training_mode.0 {

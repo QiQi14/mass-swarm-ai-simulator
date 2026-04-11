@@ -54,7 +54,14 @@ During execution, a human may intercept your work and propose changes, provide c
    - Any deviations from the original task brief caused by the intervention
 3. **DO NOT silently incorporate changes.** The QA agent and Architect must be able to trace exactly what came from the spec vs. what came from a human mid-flight. Untracked changes are invisible to the verification pipeline.
 
----
+### Rule 5: Live System Safety
+The training pipeline (`macro-brain` → ZMQ → `micro-core`) may be running during your execution.
+
+- **Rust tasks:** DO NOT run `cargo build` or `cargo test` — use `cargo check` only. Full testing is QA's job in a controlled window. See `execution-lifecycle.md` Step 1b.
+- **Python tasks:** ONLY ADD new optional code. Never modify existing signatures or remove symbols. All new fields must have defaults.
+- **Profile files:** DO NOT modify any `.json` profile in `macro-brain/profiles/`.
+
+
 
 ## Context Loading (Tier-Dependent)
 

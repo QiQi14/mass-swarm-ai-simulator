@@ -44,11 +44,12 @@ knowledge/
 | `gotcha_simstate_freezes_simulation.md` | medium | `SimState` gating can freeze simulation if systems incorrectly gated |
 | `gotcha_tick_timeout_overlap.md` | medium | ZMQ timeout (5s) can overlap with smoke test exit (300 ticks = 5s) — adjust thresholds |
 
-## `rust/` — Rust Conventions (1 file)
+## `rust/` — Rust Conventions (2 files)
 
 | File | Severity | Summary |
 |------|----------|---------|
 | `convention_rust_file_splitting.md` | medium | Split files >300 lines or with 3+ concerns; document rationale if choosing not to split |
+| `gotcha_mitigation_scaling_tick_delta.md` | medium | Flat mitigation per-second amounts must be scaled by `tick_delta` just like damage is, to avoid frame-dependent mitigation |
 
 ## `tooling/` — IDE & Build Tools (3 files)
 

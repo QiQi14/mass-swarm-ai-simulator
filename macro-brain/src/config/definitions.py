@@ -30,6 +30,19 @@ class FactionConfig:
     default_count: int
 
 
+@dataclass(frozen=True)
+class UnitClassConfig:
+    """Single unit class definition from game profile.
+    
+    The class_id is context-agnostic — the engine doesn't know
+    what 'Sniper' or 'Tank' means. The name is for humans only.
+    """
+    class_id: int
+    name: str  # For human readability only — engine ignores this
+    stats: FactionStats  # Default stats for this class
+    default_count: int = 0
+
+
 # ── Combat ──────────────────────────────────────────────────────────
 
 @dataclass(frozen=True)
@@ -39,11 +52,23 @@ class StatEffectConfig:
 
 
 @dataclass(frozen=True)
+class MitigationConfig:
+    """Stat-driven damage mitigation configuration."""
+    stat_index: int
+    mode: str  # "PercentReduction" or "FlatReduction"
+
+
+@dataclass(frozen=True)
 class CombatRuleConfig:
     source_faction: int
     target_faction: int
     range: float
     effects: list[StatEffectConfig]
+    source_class: int | None = None
+    target_class: int | None = None
+    range_stat_index: int | None = None
+    mitigation: MitigationConfig | None = None
+    cooldown_ticks: int | None = None
 
 
 @dataclass(frozen=True)

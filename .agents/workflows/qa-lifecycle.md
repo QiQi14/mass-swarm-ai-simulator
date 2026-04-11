@@ -26,6 +26,10 @@ Follow this 6-step workflow to certify a task and capture lessons:
 ### Step 3A: Build Gate (Prerequisite — Not Sufficient)
 - Run the build/compile check (`cargo build`, `cargo clippy`, etc.).
 - This is a **prerequisite**, not a pass condition. Passing this alone is NOT enough to certify.
+- **⚠️ Training Safety:** Before running `cargo test` or `cargo build`:
+  1. Check if training is running: `lsof -i :8080 2>/dev/null | grep -q LISTEN && echo "TRAINING ACTIVE — DO NOT cargo test"`
+  2. If training is active, ask the user to pause training first, OR use `cargo check` (compile-only, no linking, safe to run during training).
+  3. Only proceed with `cargo test` after confirming no active training session.
 
 ### Step 3B: Regression Scan (Reuse Prior Tests)
 - Before writing new tests, scan `.agents/history/*/tests/INDEX.md` for previously archived tests relevant to the same feature area or files.

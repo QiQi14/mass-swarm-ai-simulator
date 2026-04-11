@@ -85,7 +85,8 @@ Sent once at the start of each episode to configure the Rust simulation:
   "abilities": {
     "buff_cooldown_ticks": 180,
     "movement_speed_stat": 1,
-    "combat_damage_stat": 2
+    "combat_damage_stat": 2,
+    "zone_modifier_duration_ticks": 1500
   }
 }
 ```
@@ -94,6 +95,38 @@ Sent once at the start of each episode to configure the Rust simulation:
 - `spawns[].stats[]` — initial stat values per entity (index 0 = HP by convention)
 - `terrain` — optional, omitted for flat maps (defaults to all-100 costs)
 - `fog_enabled` — controls whether entities outside visibility are filtered from snapshot
+
+### SpawnConfig (expanded)
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| faction_id | u32 | yes | — | Faction ownership |
+| count | u32 | yes | — | Number to spawn |
+| x, y | f32 | yes | — | Spawn center |
+| spread | f32 | yes | — | Spawn radius |
+| stats | SpawnStatEntry[] | no | [] | Initial stat values |
+| unit_class_id | u32 | no | 0 | Unit class (0 = generic) |
+
+### CombatRulePayload (expanded)
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| source_faction | u32 | yes | — | Who attacks |
+| target_faction | u32 | yes | — | Who gets hit |
+| range | f32 | yes | — | Fixed combat range |
+| effects | StatEffect[] | yes | — | Stat modifications |
+| source_class | u32? | no | null | Filter: source must be this class |
+| target_class | u32? | no | null | Filter: target must be this class |
+| range_stat_index | usize? | no | null | Source stat index for dynamic range |
+| mitigation | MitigationPayload? | no | null | Target damage mitigation |
+| cooldown_ticks | u32? | no | null | Per-entity cooldown between fires |
+
+### MitigationPayload
+
+| Field | Type | Description |
+|-------|------|-------------|
+| stat_index | usize | Target stat providing mitigation value |
+| mode | string | "PercentReduction" or "FlatReduction" |
 
 ---
 
@@ -149,7 +182,7 @@ Sent every eval interval. Contains directives for ALL factions (brain + bots):
 }
 ```
 - Negative = pheromone (attract), positive = repellent (repel)
-- Duration is hardcoded at 120 ticks (~2 seconds)
+- Duration is configurable via `zone_modifier_duration_ticks` in `ability_config` (reset payload). Training default: 1500 ticks (~25 seconds).
 
 ---
 

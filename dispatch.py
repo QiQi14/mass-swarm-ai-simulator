@@ -553,7 +553,12 @@ def cmd_session(args: argparse.Namespace) -> None:
 
 
 def cmd_batch(args: argparse.Namespace) -> None:
-    """Generate session prompts for ALL ready tasks."""
+    """Generate session prompts for ready tasks in the CURRENT phase only.
+    
+    Phase-aware: only dispatches tasks from the earliest ready phase.
+    This prevents DAG dependency violations where Phase 2+ tasks run
+    before their Phase 1 dependencies complete.
+    """
     state = _load_state()
     ready = _get_ready_tasks(state)
 

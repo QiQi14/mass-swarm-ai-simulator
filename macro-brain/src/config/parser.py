@@ -9,6 +9,7 @@ from typing import Any
 
 from src.config.definitions import (
     WorldConfig, FactionStats, FactionConfig, StatEffectConfig,
+    MitigationConfig, UnitClassConfig,
     CombatRuleConfig, CombatConfig, MovementConfigDef, TerrainThresholdsDef,
     StatModifierDef, ActivateBuffDef, AbilitiesDef, RemovalRuleDef,
     ActionDef, RewardWeights, GraduationConfig, DemotionConfig,
@@ -40,6 +41,38 @@ def _parse_profile(raw: dict[str, Any]):
             waypoint_threshold=raw_strat.get("waypoint_threshold", 50.0),
         )
 
+    def _parse_unit_registry(raw: dict) -> list[UnitClassConfig]:
+        """Parse optional unit_registry from game profile. Returns [] if absent."""
+        registry = raw.get("unit_registry", [])
+        return [
+            UnitClassConfig(
+                class_id=entry["class_id"],
+                name=entry["name"],
+                stats=FactionStats(hp=entry["stats"]["hp"]),
+                default_count=entry.get("default_count", 0),
+            )
+            for entry in registry
+        ]
+
+    def _parse_combat_rule(raw_rule: dict) -> CombatRuleConfig:
+        mitigation_raw = raw_rule.get("mitigation")
+        mitigation = MitigationConfig(
+            stat_index=mitigation_raw["stat_index"],
+            mode=mitigation_raw["mode"],
+        ) if mitigation_raw else None
+        
+        return CombatRuleConfig(
+            source_faction=raw_rule["source_faction"],
+            target_faction=raw_rule["target_faction"],
+            range=raw_rule["range"],
+            effects=[StatEffectConfig(**e) for e in raw_rule["effects"]],
+            source_class=raw_rule.get("source_class"),
+            target_class=raw_rule.get("target_class"),
+            range_stat_index=raw_rule.get("range_stat_index"),
+            mitigation=mitigation,
+            cooldown_ticks=raw_rule.get("cooldown_ticks"),
+        )
+
     meta = ProfileMeta(**raw["meta"])
 
     world = WorldConfig(**raw["world"])
@@ -56,15 +89,7 @@ def _parse_profile(raw: dict[str, Any]):
     ]
 
     combat = CombatConfig(
-        rules=[
-            CombatRuleConfig(
-                source_faction=r["source_faction"],
-                target_faction=r["target_faction"],
-                range=r["range"],
-                effects=[StatEffectConfig(**e) for e in r["effects"]],
-            )
-            for r in raw["combat"]["rules"]
-        ]
+        rules=[_parse_combat_rule(r) for r in raw["combat"]["rules"]]
     )
 
     movement = MovementConfigDef(**raw["movement"])
@@ -132,6 +157,8 @@ def _parse_profile(raw: dict[str, Any]):
         )
         for b in raw.get("bot_stage_behaviors", [])
     ]
+    
+    unit_registry = _parse_unit_registry(raw)
 
     return GameProfile(
         meta=meta,
@@ -145,4 +172,5 @@ def _parse_profile(raw: dict[str, Any]):
         actions=actions,
         training=training,
         bot_stage_behaviors=bot_stage_behaviors,
+        unit_registry=unit_registry,
     )

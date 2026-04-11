@@ -1,77 +1,77 @@
-# Strategy Brief: Curriculum Design for Stages 2 & 3
+# STRATEGY BRIEF: Real-World Adaptation & Mechanics Overhaul
 
-## Problem Statement
+## 1. Problem Classification
+**Type:** Design, Architecture, and Engine Upgrade Diagnosis
+**Goal:** Prepare the Tri-Node stack (Visualizer & Rust Micro-Core) for real-world application, playground interaction, and heterogeneous swarm mechanics (Stages 5-6 features).
 
-The tactical curriculum is advancing to Stage 2 (Pheromone Path) and Stage 3 (Repellent Field). The objective is to finalize the map configurations and reward calculations to ensure the reinforcement learning (RL) model is forced to learn `DropPheromone` and `DropRepellent` without finding any brute-force exploits or falling into local minima.
+---
 
-## Analysis & Diagnosis
+## 2. Analysis & Recommendations
 
-### 1. The Zone Mechanism Duration Mismatch (CRITICAL)
-- **Evidence:** `engine-mechanics.md` shows Pheromone/Repellent (`SetZoneModifier`) has a hardcoded `ticks_remaining: 120`. 
-- **Math:** 1 RL step correlates to `150 physics ticks` (from frame_skip=5 × 30 ticks/skip).
-- **Impact:** Any zone modifier the agent drops will disappear **before the next RL step evaluates**. The swarm mathematically cannot redirect and traverse a path in less than 1 RL step. Thus, the abilities are functionally useless right now.
+### A. Debug Visualizer Split: Training vs. Playground
+The current visualizer is a single HTML canvas optimized for raw debugging. To support both ML researchers and Game Designers/QA, we must split it into two decoupled modes.
 
-### 2. Action Persistence Error
-- **Issue:** If the RL model outputs `DropPheromone`, the Python envelope sends down `SetZoneModifier`. Because the system expects 1 directive per faction, sending a zone modifier drops the `UpdateNavigation` directive. The swarm will immediately idle.
-- **Fix Required:** Abilities should overlay on movement.
+**Problem:** Mixed concerns clutter the UI and limit usability for non-developers.
+**Solution:** Refactor into a tabbed layout or two separate routes (e.g., `index.html` and `playground.html`), backed by a modern lightweight framework (Vite/React or pure JS Modules) for better UI state management.
 
-### 3. Stage 2 (Pheromone Path) Brute-Force Check
-- **Analysis:** Top path is shortest (cost=100/cell) but blocked by a 40×200HP trap fleet. Bottom path is a detour (cost=100/cell base, soft_cost=40 mud speed reduction).
-- **Combat Math:** Brain (50×100HP, DPS=1250) vs Trap (40×200HP, DPS=1000). Brain head-on kill time = 6.4s, Trap kill time = 5.0s. The Brain dies.
-- **Conclusion:** Stage 2 is securely designed. Because normal pathfinding (Dijkstra) always chooses the shortest physical route, the swarm will naturally route top and die. They MUST use `DropPheromone` (-50 cost modifier) on the bottom path to dynamically make it cheapest, forcing the pathfinder to bypass the trap.
+1. **Training Mode (View-Only / Analytics UI)**
+   - **Focus:** Metrics, telemetry, and debugging.
+   - **Capabilities:** Hide interactive spawn/control tools. Expose real-time data received from Python via WebSocket overlays.
+   - **New Visuals:** Episode counters, rolling win rates, loss streaks, real-time reward charts. Flow-field vector rendering and fog-of-war memory (LKP) visualization.
 
-### 4. Stage 3 (Repellent Field) Brute-Force Vulnerability
-- **Issue in `curriculum.py`:** The `_terrain_open_with_danger_zones` sets the hard cost of the danger areas (where traps spawn) to `300`.
-- **The Exploit:** The Rust engine's flow field pathfinder operates on `hard_cost`. Since the danger zone costs 300/cell, the pathfinder will literally route around the traps *by default*. 
-- **Result:** The agent can survive and win the stage by simply issuing `AttackCoord Target`. The system will automatically avoid the traps for them. The model will never learn to use `DropRepellent`.
+2. **Playground Mode (Sandbox / Simulator)**
+   - **Focus:** Demonstrations, QA testing, and tactical validation.
+   - **Capabilities:** 
+     - **Profile Loader:** UI to upload and parse `tactical_curriculum.json` and hot-reload the Rust core.
+     - **Manual Control:** Allow a human player to take over `Faction 0`. Provide UI tools to select troops (drag box) and issue primitives (`AttackCoord`, `DropPheromone`, `Retreat` via mouse inputs).
+     - **Web-Inference:** Integration of `onnxruntime-web` (Phase 5 goal) to load `.onnx` model checkpoints. A designer can play as Faction 1 against the Swarm ML model playing as Faction 0 entirely in-browser.
 
-## Design Recommendations
+---
 
-### Option A: Refine the Terrain & Core Implementations (Recommended)
+### B. Rust Micro-Core: Supporting Multiple Unit Types
+Currently, the Rust ECS relies on **"Faction = Unit Type."** Interaction rules (`InteractionRuleSet`) dictate combat purely between `source_faction` and `target_faction`, using fixed ranges and flat DPS. 
 
-1. **Extend Zone Durations:**
-   Update the `SetZoneModifier` handler in Rust (or its corresponding emission in Python) to last for at least **1500 ticks** (10 RL steps). This gives the swarm plenty of time to leverage the new flow field.
+**Problem:** We cannot natively support "Tanks" and "Snipers" in the same faction behaving differently without complex architectural hacks.
+1. **Context-Agnostic Unit Types (`UnitClassId`)**
+   - Introduce a `UnitClassId(u32)` component to entities.
+   - The Rust Core will **not** know what a "Sniper" or "Tank" is. Instead, these classes are simply integers passed from the GameProfile JSON (via `UnitRegistry`) used to distinguish which interaction rules and movement configurations apply to which entity.
 
-2. **Patch the Stage 3 Terrain:**
-   In `macro-brain/src/training/curriculum.py`, the trap zones in Stage 3 (`_terrain_open_with_danger_zones`) must be set to `hard_cost = 100` (normal pathable ground) but visually demarcated (perhaps using `soft_cost = 40`).
-   *Rationale:* This makes the straightest route straight through the trap. The agent MUST explicitly cast `DropRepellent` (adds +200 cost) to push the local terrain over the threshold, creating the barrier themselves. 
+2. **Abstract Stat Math via `GameProfile`**
+   - The engine uses `StatBlock([f32; 8])`, and it must remain completely ignorant of what these slots represent (HP, Energy Shield, Armor). 
+   - Instead, we expand the `InteractionRule` payload in the GameProfile to allow complex abstract calculations. For instance, the profile can define a rule: `{"source_class": 1, "target_class": 2, "range_stat_index": 2, "mitigation_stat_index": 4, "effects": [...]}`. 
 
-3. **Persistent Navigation `SwarmEnv`:** 
-   Update `macro-brain/src/env/actions.py` so that casting a tactical ability (like Pheromone or Repellent) caches and rebroadcasts the factions's last known `AttackCoord` directive to prevent them from stopping when using skills.
+3. **`interaction.rs` Rule-Driven Overhaul**
+   - **Dynamic Targeting:** The `InteractionRule` will carry an optional `range_stat_index`. If provided, `grid.query_radius` dynamically pulls the range from the specified index in the source entity's `StatBlock`.
+   - **Abstract Mathematics:** Damage reduction (like Armor or Shields) isn't hardcoded as "subtract shielding first." Instead, we inject mathematical contracts (e.g., condition operators, multipliers) via the rules payload. The Rust core blindly executes the math operations on the requested stat indices.
+   - **Timers/Cooldowns:** High-damage, slow-speed interactions will be handled by a generic `CooldownBlock` or `TickTimer` component. A given `UnitClassId` can have a specific rule dictating "apply effect only when timer reaches 0."
 
-### Option B: Keep Current Stage 3, Introduce Hidden Traps (Not Recommended)
-We could leave the terrain at cost 300, but make the traps invisible. However, this conflates Fog-of-War (Stage 4) mechanics with Stage 3 goals, violating the "One new skill per stage" curriculum principle.
+4. **Sub-Faction Automatic Micro-Control**
+   - Since the RL model won't manually separate units, the Rust core's `DirectiveExecutor` must parse macro primitives (e.g. `AttackCoord`) and automatically assign unit classes to implicit behavior profiles based on their generic configuration properties defined in the Game Profile.
 
-### Recommended Option: A
-Fixes the root causes directly and mathematically compels the agent to use the target abilities.
+---
 
-## Reward Calculation Re-Alignment
+### C. Undiscovered Impact Areas (The Ripple Effect)
+The shift to mixed unit swarms introduces side-effects across the broader Tri-Node architecture:
 
-Currently, `rewards.py` uses a zero-sum reward function: Terminal Win/Loss plus small kill/death drips and time penalties. 
+1. **Grand Tactical Focus & Observation Space**
+   - **The Concern:** If the Brain faction introduces 4 unit types, does the RL model need density maps for *every* unit type (Observation Space Explosion)?
+   - **The Correction:** NO. The RL model operates strictly at the **Grand Tactical** level. It does not micro-manage unit classes. 
+   - **The Fix:** The Rust core will aggressively aggregate the dynamic unit stats (HP, DPS, Shield, Armor) into "stat brightness" (threat density) and project it onto the existing Observation Tensor channels (specifically ch7). The model just learns to match its "brightest blob" against the enemy's "brightest blob." Micro-control is delegated entirely to the Rust engine and predefined game logic.
 
-**Recommendation:** DO NOT add dense or proximity-based rewards for using these items.
-- *Why no dense tracking?* If we re-add Euclidean `approach_scale` (which appears stripped from the active `compute_shaped_reward`), the agent gets penalized for walking down the Stage 2 bottom detour path (since they aren't closing distance as fast).
-- *Why no "+1 for casting"?* It leads to rapid button-mashing policies where the bot spins in circles casting pheromones without navigating.
-- **Solution:** Standard terminal rewards are perfect. The environment organically kills agents that don't cast Pheromone (they run into the trap block) and those that don't cast Repellent (they walk through the trap). The surviving branches of the policy will inherently learn the association.
+2. **ZMQ Snapshot Size Limits**
+   - Increasing the complexity of `state_snapshot` (more faction groups to separate out density maps) will strain the ZeroMQ JSON bridge limit. 
+   - **The Fix:** It may necessitate accelerating the Phase 4 serialization upgrade (migrating from `serde_json` to `bincode` or `MessagePack`).
 
-## Brute-Force Summary
-- Stage 2 is brute-force proof.
-- Stage 3 was highly exploitable but is fixed by Recommendation 2.
+3. **Spatial Has Grid Bottleneck**
+   - Currently `cell_size` is optimized for a uniform combat range (around 20-30 units). If an artillery unit has an attack range of 200 units, the query radius will span hundreds of cells, drastically hurting interaction O(K) performance. 
+   - **The Fix:** A multi-layered spatial grid or a fallback spatial lookup approach for slow-firing long-range units.
 
-## Impact on Later Stages
-These underlying core mechanical changes (duration of zone modifiers, persistence of motion commands) will directly resolve potential blocking issues when Stage 4 and Stage 5 require the model to perform highly dynamic routing updates.
+---
 
-## Finalized Solutions & Refinements
+## 3. Recommended Next Steps
 
-Based on review, the following refinements are integrated into the design strategy:
+1. **Action:** Approve the `UnitClassId` and `StatBlock` expansion in the Rust core as the foundational PR.
+2. **Action:** Refactor `game_profile.json` (and `tactical_curriculum.json`) to define `unit_registry` rather than purely `faction_stats`.
+3. **Action:** Transition the Debug Visualizer repository to a formal layout (e.g. Vite) to support the Playground tooling.
 
-### Refinement 1: Solving "Action Spamming" Organically
-Instead of explicitly blocking actions (which disrupts tactical combination steps), we rely on **Flow-Field Normalization**.
-- **The Self-Correcting Mechanic:** If the AI spams `DropPheromone` continuously as it moves, it will cover the entire map in -50 cost zones. Since Dijkstra evaluates total path cost, if *every* cell is -50, the pathfinder mathematically defaults back to the physically shortest route. In Stage 2, that means routing straight through the Top Path trap and dying. 
-- **Conclusion:** Spamming zones naturally neutralizes their advantage. The RL model will learn that precise, localized tactical drops are the only way to create pathing differentials without corrupting the map layout. No hard cooldowns required.
-
-### Refinement 2: Radius Tweaking & Combat Attrition
-Regarding whether the 60-unit radius is enough to block the path seamlessly:
-- **The Combat Math Solution:** We don't need an airtight repulsor field. By sizing the actual target faction (the 60HP units they must kill to win) properly relative to the swarm's starting size, we can enforce **Attrition Checks**.
-- **Mechanic:** Swarm units naturally spread out due to Boids separation logic. If the AI doesn't properly place a Repellent to route the *entire* swarm cleanly around the danger zone, the outer edges of the swarm will clip the trap's 25-unit combat radius. 
-- **Result:** Those units will die. If the model allows 20-30% of its swarm to die by grazing the trap due to poor repellent placement, the surviving 70% will no longer have the DPS/HP required to defeat the final target. Strict math enforces precision.
+(User: Once reviewed, invoke `/planner` to convert this into implementation DAGs.)

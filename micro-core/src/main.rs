@@ -17,9 +17,9 @@ use bevy_state::prelude::in_state;
 use micro_core::bridges::zmq_bridge::ZmqBridgePlugin;
 use micro_core::components::NextEntityId;
 use micro_core::config::{
-    ActiveSubFactions, ActiveZoneModifiers, AggroMaskRegistry, BuffConfig, DensityConfig,
-    FactionBuffs, InterventionTracker, SimPaused, SimSpeed, SimStepRemaining, SimulationConfig,
-    TickCounter, TrainingMode,
+    ActiveSubFactions, ActiveZoneModifiers, AggroMaskRegistry, BuffConfig, CooldownTracker,
+    DensityConfig, FactionBuffs, InterventionTracker, SimPaused, SimSpeed, SimStepRemaining,
+    SimulationConfig, TickCounter, TrainingMode,
 };
 use micro_core::pathfinding::FlowFieldRegistry;
 use micro_core::rules::{
@@ -122,6 +122,7 @@ fn main() {
         .init_resource::<InterventionTracker>()
         .init_resource::<FactionBuffs>()
         .init_resource::<BuffConfig>()
+        .init_resource::<CooldownTracker>()
         .init_resource::<DensityConfig>()
         .init_resource::<AggroMaskRegistry>()
         .init_resource::<ActiveSubFactions>()

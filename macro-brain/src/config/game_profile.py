@@ -18,6 +18,7 @@ from typing import Any
 
 from src.config.definitions import (
     WorldConfig, FactionStats, FactionConfig, StatEffectConfig,
+    MitigationConfig, UnitClassConfig,
     CombatRuleConfig, CombatConfig, MovementConfigDef, TerrainThresholdsDef,
     StatModifierDef, ActivateBuffDef, AbilitiesDef, RemovalRuleDef,
     ActionDef, RewardWeights, GraduationConfig, DemotionConfig,
@@ -43,6 +44,37 @@ class GameProfile:
     actions: list[ActionDef]
     training: TrainingConfig
     bot_stage_behaviors: list[BotStageBehaviorDef] = field(default_factory=list)
+    unit_registry: list[UnitClassConfig] = field(default_factory=list)
+
+    def _build_spawn_config(self, faction: FactionConfig, unit_class_id: int = 0) -> dict:
+        return {
+            "faction_id": faction.id,
+            "count": faction.default_count,
+            "unit_class_id": unit_class_id,
+        }
+
+    def _build_combat_rule(self, rule: CombatRuleConfig) -> dict:
+        payload = {
+            "source_faction": rule.source_faction,
+            "target_faction": rule.target_faction,
+            "range": rule.range,
+            "effects": [{"stat_index": e.stat_index, "delta_per_second": e.delta_per_second} for e in rule.effects],
+        }
+        # Only include optional fields if set (reduces JSON size)
+        if rule.source_class is not None:
+            payload["source_class"] = rule.source_class
+        if rule.target_class is not None:
+            payload["target_class"] = rule.target_class
+        if rule.range_stat_index is not None:
+            payload["range_stat_index"] = rule.range_stat_index
+        if rule.mitigation is not None:
+            payload["mitigation"] = {
+                "stat_index": rule.mitigation.stat_index,
+                "mode": rule.mitigation.mode,
+            }
+        if rule.cooldown_ticks is not None:
+            payload["cooldown_ticks"] = rule.cooldown_ticks
+        return payload
 
     # ── Derived helpers ─────────────────────────────────────
 
@@ -73,18 +105,7 @@ class GameProfile:
 
     def combat_rules_payload(self) -> list[dict]:
         """Serialize combat rules for ZMQ ResetEnvironment payload."""
-        return [
-            {
-                "source_faction": r.source_faction,
-                "target_faction": r.target_faction,
-                "range": r.range,
-                "effects": [
-                    {"stat_index": e.stat_index, "delta_per_second": e.delta_per_second}
-                    for e in r.effects
-                ],
-            }
-            for r in self.combat.rules
-        ]
+        return [self._build_combat_rule(r) for r in self.combat.rules]
 
     def ability_config_payload(self) -> dict:
         """Serialize ability config for ZMQ ResetEnvironment payload."""

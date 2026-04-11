@@ -1,8 +1,8 @@
 # Mass-Swarm AI Simulator — Training Status
 
-> **Last Updated:** 2026-04-10 (22:00 local)
-> **Phase:** Tactical Training Curriculum v3.1 — Stage 1 (Target Selection)
-> **Codebase Health:** ✅ 181 Rust tests · 51+ Python tests · 0 warnings
+> **Last Updated:** 2026-04-11 (09:20 local)
+> **Phase:** Tactical Training Curriculum v3.2 — Stage 1 Training (Stages 2-3 engine fixes deployed)
+> **Codebase Health:** ✅ 191 Rust tests · 117 Python tests · 0 warnings
 
 ---
 
@@ -94,7 +94,9 @@
 - **Flattened coordinates:** `MultiDiscrete([8, 2500])` — single spatial index preserves 2D coherence.
 - **LKP Memory:** Feed-forward PPO has no temporal memory. LKP buffer decays last-known enemy density at −0.02/tick under fog.
 - **Debuff mechanic (stage 1):** Killing target first → trap DPS × 0.25 + trap enrages (charges brain). Brain CANNOT brute-force the trap.
-- **Terrain costs:** Default = 100. Mud = 40 (soft_cost). Danger zones = 300 (hard_cost). Walls = 65535 (impassable).
+- **Terrain costs:** Default = 100. Mud = 40 (soft_cost). Stage 3 danger zones = 100 hard_cost + 40 soft_cost (visual markers only — pathfinder routes THROUGH; agent must DropRepellent +200 to create avoidance). Walls = 65535 (impassable).
+- **Zone modifier duration:** Configurable via `zone_modifier_duration_ticks` in profile (training: 1500 ticks ≈ 10 RL steps). Was hardcoded at 120.
+- **Navigation persistence:** Zone abilities (Pheromone/Repellent) now auto-replay the last AttackCoord directive, preventing swarm idle during casts.
 
 ---
 
@@ -121,7 +123,7 @@
 ## Training History
 
 | Date | Event |
-|------|-------|
+|------|---------|
 | 2026-04-08 | Old `Discrete(3)` Stage 1 — oscillation bug discovered |
 | 2026-04-10 | Tactical curriculum v3 deployed — 11 tasks complete |
 | 2026-04-10 | Stage 0 graduated (85% WR in 30 episodes) |
@@ -131,6 +133,12 @@
 | 2026-04-10 | Stage 1 fix 3: trap charges brain after debuff (no retargeting needed) |
 | 2026-04-10 | Stages 2-3 implemented: Pheromone Path + Repellent Field terrain generators |
 | 2026-04-10 | Stage 1 training in progress (run_20260410_212655), first WIN at episode 9 |
+| 2026-04-11 | **Stage 2-3 engine fixes deployed** (3-task DAG, curriculum v3.2): |
+|            | — Zone modifier duration: 120 → 1500 ticks (configurable via profile) |
+|            | — Repellent cost_modifier: +50 → +200 (per conventions) |
+|            | — Stage 3 terrain: danger zone hard_cost 300 → 100 (pathfinder routes through) |
+|            | — Navigation persistence: zone casts auto-replay last AttackCoord |
+|            | — Stage 2 terrain: wired to new `generate_stage2_terrain` (two-path map) |
 
 ---
 
@@ -147,3 +155,49 @@
 
 > **For deep engine mechanics:** See `.agents/context/engine-mechanics.md`
 > **For curriculum design details:** See `.agents/context/training-curriculum.md`
+
+---
+
+## Remaining Curriculum Work
+
+### Stage 4: Fog Scouting + Retargeting — NEEDS IMPLEMENTATION
+
+**Proposed redesign: Two-phase sequential objective pursuit.**
+
+- **Map:** 800×800, 40×40 grid, Fog ON, no terrain obstacles (pure fog)
+- **Spawns:** Brain (50, 100HP) at center. Target A (15, 60HP) at random edge. Target B (15, 60HP) at DIFFERENT random edge.
+- **Win condition:** Kill BOTH targets.
+- **Required skill sequence:** Scout → discover A → AttackCoord → kill A → Scout → discover B → AttackCoord → kill B
+- **New action unlocked:** Scout (index 7)
+- **Key challenge:** Retargeting — after killing A, brain must switch direction entirely
+- **Debuff mechanic:** INACTIVE (no trap group in Stage 4)
+
+**Files to modify:** `curriculum.py` (spawns), `terrain_generator.py` (flat fog map), `swarm_env.py` (win condition for 2 targets), `tactical_curriculum.json` (Stage 4 description)
+
+> [!IMPORTANT]
+> **Open Questions (from strategist):**
+> 1. Should targets be equal (both 15×60HP) or different (A easier to build confidence)?
+> 2. Fixed edges (N/S) or fully random (all 4 edges)?
+
+---
+
+### Stages 5-7: Complex Tactical Scenarios — REQUIRES ARCHITECTURE UPGRADES
+
+> [!WARNING]
+> Stages 5 and 6 require **significant Rust Micro-Core and Debug Visualizer upgrades** — advanced multi-faction sub-group state, hazard interactions, bait/lure bot rules, and visualizer rendering for sub-faction splits, lure states, and Retreat vectors. Development will be split into multiple phased implementations.
+
+#### Stage 5: Forced Flanking / Pincer (`SplitToCoord`, `MergeBack`)
+- **Terrain:** V-shaped wall or extreme hazard swamp blocking head-on charge
+- **Spawns:** Enemy (40 units, HoldPosition) entrenched inside V-shape. Brain (60 units) in the open.
+- **Mechanics:** Head-on charge funnels through chokepoint → death. Brain MUST SplitToCoord to pincer from two open angles.
+
+#### Stage 6: Lure & Ambush (`Retreat`)
+- **Terrain:** Flat open map
+- **Spawns:** Brain Bait (10 units, mid-map) + Brain Main Army (80 units, hidden corner) + Enemy (100 tanky units, Charge, next to bait)
+- **Mechanics:** Enemy immediately aggros bait. Brain MUST Retreat bait group → kite enemy across map into hidden main army → MergeBack → crush.
+
+#### Stage 7: Protected Target (All actions, Scout)
+- **Design:** Patrol + guard + HVT scenario — needs detailed planning after Stage 5/6 architecture is in place.
+
+#### Stage 8: Randomized (Graduation)
+- **Design:** Randomized scenarios across all mechanics. Config placeholder exists in `tactical_curriculum.json`.

@@ -1,1 +1,0 @@
-episode,timestep,result,own_alive,enemy_alive,trap_alive,target_alive,ep_steps,ep_reward,act_Hold,act_AttackCoord,act_DropPheromone,act_DropRepellent,act_SplitToCoord,act_MergeBack,act_Retreat,act_Scout,debuff_applied,trap_engaged,fog_explored_pct,flanking_score,win_rate,avg_survivors,avg_ep_len,avg_reward,graduation_streak,stage,timestamp
