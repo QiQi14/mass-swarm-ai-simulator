@@ -3,7 +3,7 @@ from src.config.game_profile import load_profile
 
 def test_navigation_rules_payload():
     """Navigation rules should be generated from profile factions, not hardcoded."""
-    profile = load_profile("profiles/default_swarm_combat.json")
+    profile = load_profile("profiles/tactical_curriculum.json")
     rules = profile.navigation_rules_payload()
     
     # Should have bidirectional rules for each brain-bot pair

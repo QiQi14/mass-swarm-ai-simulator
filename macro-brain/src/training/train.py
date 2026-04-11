@@ -17,15 +17,18 @@ from src.config.game_profile import load_profile
 from src.env.swarm_env import SwarmEnv
 from src.training.callbacks import CurriculumCallback
 from src.training.callbacks import EnvStatCallback, EpisodeLogCallback
+from src.models.feature_extractor import TacticalExtractor
 
+from src.env.wrappers import FrameSkipWrapper
 
 def make_env(profile, args):
     def _init():
         env_config = {
             "profile": profile,
-            "curriculum_stage": 1,
+            "curriculum_stage": args.start_stage,
         }
         env = SwarmEnv(config=env_config)
+        env = FrameSkipWrapper(env, skip=5)
         env = ActionMasker(env, lambda e: e.action_masks())
         return env
     return _init
@@ -34,9 +37,13 @@ def make_env(profile, args):
 def main():
     parser = argparse.ArgumentParser(description="Mass-Swarm AI Training")
     parser.add_argument("--profile", type=str,
-        default="profiles/stage1_tactical.json")
+        default="profiles/tactical_curriculum.json")
     parser.add_argument("--timesteps", type=int, default=100_000)
     parser.add_argument("--runs-dir", default="./runs")
+    parser.add_argument("--load-checkpoint", type=str, default=None,
+        help="Path to a zip file to resume training from.")
+    parser.add_argument("--start-stage", type=int, default=0,
+        help="Curriculum stage to start from when resuming.")
     args = parser.parse_args()
 
     # 1. Load and VALIDATE profile
@@ -73,15 +80,39 @@ def main():
     # 4. Setup env, model, callbacks with run paths
     vec_env = DummyVecEnv([make_env(profile, args)])
 
-    model = MaskablePPO(
-        "MultiInputPolicy", vec_env,
-        verbose=1,
-        tensorboard_log=str(run.tensorboard_dir),
-    )
+    policy_kwargs = {
+        "features_extractor_class": TacticalExtractor,
+        "features_extractor_kwargs": {"features_dim": 256},
+    }
+
+    if args.load_checkpoint:
+        print(f"Loading model checkpoint from {args.load_checkpoint}...")
+        model = MaskablePPO.load(
+            args.load_checkpoint,
+            env=vec_env,
+            custom_objects={"policy_kwargs": policy_kwargs},
+        )
+        # Update tensorboard_log for new run (MaskablePPO's tensorboard logger might need to be refreshed, handled automatically by learn())
+    else:
+        model = MaskablePPO(
+            "MultiInputPolicy",
+            vec_env,
+            verbose=1,
+            tensorboard_log=str(run.tensorboard_dir),
+            policy_kwargs=policy_kwargs,
+            learning_rate=3e-4,
+            n_steps=2048,
+            batch_size=64,
+            n_epochs=10,
+            gamma=0.99,
+            gae_lambda=0.95,
+            clip_range=0.2,
+            ent_coef=0.01,
+        )
 
     episode_logger = EpisodeLogCallback(
         log_path=str(run.episode_log_path),
-        num_actions=profile.num_actions,
+        num_actions=8,  # was 3
     )
 
     callbacks = [
@@ -96,6 +127,7 @@ def main():
             episode_logger=episode_logger,
             profile=profile,
             verbose=1,
+            checkpoint_dir=str(run.checkpoint_dir),
         ),
     ]
 

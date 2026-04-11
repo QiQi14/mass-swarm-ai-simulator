@@ -78,6 +78,7 @@ pub(crate) fn reset_environment_system(
     mut buff_config: ResMut<crate::config::BuffConfig>,
     mut density_config: ResMut<crate::config::DensityConfig>,
     mut rules: ResetRules,
+    training_mode: Res<crate::config::TrainingMode>,
 ) {
     let Some(reset) = pending.request.take() else {
         return;
@@ -118,11 +119,13 @@ pub(crate) fn reset_environment_system(
                 target: r.target.clone(),
             });
         }
-        println!(
-            "[Reset] Applied {} navigation rules from game profile",
-            rules.nav.rules.len()
-        );
-    } else {
+        if !training_mode.0 {
+            println!(
+                "[Reset] Applied {} navigation rules from game profile",
+                rules.nav.rules.len()
+            );
+        }
+    } else if !training_mode.0 {
         println!(
             "[Reset] WARNING: No navigation_rules provided. Factions will not navigate. \
                   The adapter (game profile) should provide explicit navigation rules."
@@ -139,12 +142,14 @@ pub(crate) fn reset_environment_system(
     for spawn in &reset.spawns {
         // Build stat defaults from spawn config — adapter MUST provide explicit values
         let stat_defaults: Vec<(usize, f32)> = if spawn.stats.is_empty() {
-            println!(
-                "[Reset] WARNING: SpawnConfig for faction_{} has empty stats. \
-                 Entities will spawn with all-zero StatBlock. \
-                 The adapter (game profile) should provide explicit stat values.",
-                spawn.faction_id
-            );
+            if !training_mode.0 {
+                println!(
+                    "[Reset] WARNING: SpawnConfig for faction_{} has empty stats. \
+                     Entities will spawn with all-zero StatBlock. \
+                     The adapter (game profile) should provide explicit stat values.",
+                    spawn.faction_id
+                );
+            }
             vec![]
         } else {
             spawn.stats.iter().map(|e| (e.index, e.value)).collect()
@@ -201,10 +206,12 @@ pub(crate) fn reset_environment_system(
                     .collect(),
             });
         }
-        println!(
-            "[Reset] Applied {} combat rules from game profile",
-            rules.interaction.rules.len()
-        );
+        if !training_mode.0 {
+            println!(
+                "[Reset] Applied {} combat rules from game profile",
+                rules.interaction.rules.len()
+            );
+        }
     }
 
     // 6. Apply new Reset properties
@@ -212,6 +219,7 @@ pub(crate) fn reset_environment_system(
         buff_config.cooldown_ticks = cfg.buff_cooldown_ticks;
         buff_config.movement_speed_stat = cfg.movement_speed_stat;
         buff_config.combat_damage_stat = cfg.combat_damage_stat;
+        buff_config.zone_modifier_duration_ticks = cfg.zone_modifier_duration_ticks;
     }
     if let Some(den) = reset.max_density {
         density_config.max_density = den;
@@ -235,8 +243,10 @@ pub(crate) fn reset_environment_system(
         }
     }
 
-    println!(
-        "[Reset] Despawned {} entities, spawned {} new entities",
-        despawn_count, total_spawned
-    );
+    if !training_mode.0 {
+        println!(
+            "[Reset] Despawned {} entities, spawned {} new entities",
+            despawn_count, total_spawned
+        );
+    }
 }

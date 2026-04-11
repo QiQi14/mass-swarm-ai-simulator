@@ -8,9 +8,17 @@ pub async fn start_server(
     mut rx: tokio::sync::broadcast::Receiver<String>,
     cmd_tx: std::sync::mpsc::Sender<String>,
 ) {
-    let listener = TcpListener::bind("0.0.0.0:8080")
-        .await
-        .expect("Failed to bind WebSocket server");
+    let listener = match TcpListener::bind("0.0.0.0:8080").await {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!(
+                "[WS Server] Could not bind port 8080 ({}). \
+                 Visualizer disabled — training continues via ZMQ.",
+                e
+            );
+            return;
+        }
+    };
 
     type WsSink =
         futures_util::stream::SplitSink<tokio_tungstenite::WebSocketStream<TcpStream>, Message>;
@@ -34,10 +42,9 @@ pub async fn start_server(
                         let _ = clients_lock.remove(i);
                     }
                 }
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
                     // Buffer overflow — skip lost messages, keep running.
-                    // This happens when no WS clients are connected yet.
-                    eprintln!("[WS Server] Skipped {} lagged messages", n);
+                    // Expected during fast training with no WS clients.
                     continue;
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => {

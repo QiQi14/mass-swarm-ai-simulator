@@ -1,5 +1,10 @@
 # Study 013: Training Stage Refinement & Architectural Decoupling
 
+> [!NOTE]
+> **Historical document (Phase 3).** The 5-stage curriculum and `Frenzy` action described here
+> have been superseded by the 9-stage tactical curriculum (v3.1) with 8 atomic primitives.
+> See `.agents/context/training-curriculum.md` for the current design.
+
 ## Background
 
 During the execution of Phase 3, we noticed that while the foundational pipeline for `MaskablePPO` RL training was working, the training convergence rates were sub-optimal. The simulation would occasionally exhibit "Learned Helplessness" where the agent spammed `Hold` or `Retreat` infinitely. Furthermore, running training while visually debugging occasionally created resource contention between the `ResetEnvironment` commands and the default Bevy ECS wave spawners.

@@ -34,16 +34,14 @@ def mock_zmq_context():
 def test_swarm_env_action_masks(mock_zmq_context):
     env = SwarmEnv(config={"curriculum_stage": 1})
     masks = env.action_masks()
-    assert masks.shape == (8,)
-    # Stage 1: Hold(0), Navigate(1), ActivateBuff(2) unlocked; Retreat(3) locked
-    assert all(masks[0:3])  # 0,1,2 unlocked
-    assert not masks[3]     # Retreat locked (stage 2)
-    assert not any(masks[4:8])  # Stage 3-4 actions locked
+    assert masks.shape == (2508,)
+    assert all(masks[0:2])
+    assert not any(masks[2:8])
 
     env.curriculum_stage = 2
     masks = env.action_masks()
-    assert all(masks[0:4])  # 0,1,2,3 unlocked
-    assert not any(masks[4:8])  # Stage 3-4 still locked
+    assert all(masks[0:3])
+    assert not any(masks[3:8])
 
 def test_maskable_ppo_initialization(mock_zmq_context):
     # Just checking it initializes and runs one step without crashing

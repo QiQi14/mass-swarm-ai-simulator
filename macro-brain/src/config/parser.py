@@ -80,7 +80,8 @@ def _parse_profile(raw: dict[str, Any]):
         activate_buff=ActivateBuffDef(
             modifiers=[StatModifierDef(**m) for m in buff_raw["modifiers"]],
             duration_ticks=buff_raw["duration_ticks"]
-        )
+        ),
+        zone_modifier_duration_ticks=ab_raw.get("zone_modifier_duration_ticks", 1500),
     )
 
     removal_rules = [RemovalRuleDef(**r) for r in raw.get("removal_rules", [])]

@@ -4,25 +4,24 @@ from src.training.curriculum import get_spawns_for_stage
 from src.utils.terrain_generator import generate_terrain_for_stage
 
 def test_stage_5_spawns():
-    import random
-    rng = random.Random(42)
+    import numpy as np
+    rng = np.random.default_rng(42)
     
     profile = MagicMock()
     # Mock faction counts so the getters don't crash
-    # The curriculum code will try to iterate profile.factions
     faction_0 = MagicMock()
     faction_0.id = 0
-    faction_0.default_count = 50
+    faction_0.default_count = 60
     faction_0.stats.hp = 100
     
-    faction_1 = MagicMock()
-    faction_1.id = 1
-    faction_1.default_count = 50
-    faction_1.stats.hp = 100
+    faction_2 = MagicMock()
+    faction_2.id = 2
+    faction_2.default_count = 40
+    faction_2.stats.hp = 100
     
-    profile.factions = [faction_0, faction_1]
+    profile.factions = [faction_0, faction_2]
     
-    spawns = get_spawns_for_stage(5, rng, profile)
+    spawns, role_meta = get_spawns_for_stage(5, rng, profile)
     
     assert len(spawns) > 0
     
@@ -41,7 +40,7 @@ def test_stage_5_spawns():
         assert spawn_group['count'] > 0
         
     assert brain_spawns >= 1
-    assert bot_spawns >= 2
+    assert bot_spawns >= 1
 
 def test_stage_5_terrain():
     terrain = generate_terrain_for_stage(5)

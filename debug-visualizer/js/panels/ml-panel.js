@@ -49,3 +49,36 @@ export function updateMlBrainPanel(mlBrain) {
         }
     }
 }
+
+// ── Training Status Polling ──────────────────────────────────────────
+setInterval(async () => {
+    try {
+        const response = await fetch(`/logs/run_latest/training_status.json`, { cache: 'no-store' });
+        if (!response.ok) return;
+        
+        const data = await response.json();
+        
+        const container = document.getElementById('train-status-container');
+        if (container) container.style.display = 'block';
+        
+        if (data.stage !== undefined) {
+            const stageEl = document.getElementById('train-stage');
+            if (stageEl) stageEl.textContent = data.stage;
+        }
+        
+        const epEl = document.getElementById('train-ep');
+        if (data.episode !== undefined && epEl) epEl.textContent = data.episode;
+        
+        const wrEl = document.getElementById('train-wr');
+        if (data.win_rate !== undefined && wrEl) {
+            const wrNum = parseFloat(data.win_rate);
+            if (!isNaN(wrNum)) wrEl.textContent = Math.round(wrNum * 100) + '%';
+        }
+        
+        const streakEl = document.getElementById('train-streak');
+        if (data.grad_streak !== undefined && streakEl) streakEl.textContent = data.grad_streak;
+        
+    } catch (e) {
+        // Silently ignore if not running
+    }
+}, 1000);

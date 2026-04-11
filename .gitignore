@@ -53,3 +53,4 @@ micro-core/target/
 # Lock file (transient, per-machine)
 .dev.pids
 .task_state.lock
+.task_state

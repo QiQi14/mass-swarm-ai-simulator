@@ -71,6 +71,17 @@ impl Default for SimSpeed {
 #[derive(Resource, Debug, Clone, Default)]
 pub struct SimStepRemaining(pub u32);
 
+/// Whether the simulation is running in headless training mode.
+/// When true, verbose per-tick logs are suppressed.
+#[derive(Resource, Debug, Clone)]
+pub struct TrainingMode(pub bool);
+
+impl Default for TrainingMode {
+    fn default() -> Self {
+        Self(false)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

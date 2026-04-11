@@ -20,7 +20,12 @@ import zmq
 import gymnasium as gym
 
 from src.config.game_profile import GameProfile, load_profile
-from src.env.spaces import make_observation_space, make_action_space
+from src.env.spaces import (
+    make_observation_space, make_action_space, MAX_GRID_WIDTH, MAX_GRID_HEIGHT,
+    MAX_GRID_CELLS, SPATIAL_ACTIONS, ACTION_NAMES, make_coordinate_mask
+)
+from src.utils.lkp_buffer import LKPBuffer
+from src.env.actions import multidiscrete_to_directives
 from src.env.bot_controller import BotController
 from src.utils.vectorizer import vectorize_snapshot
 
@@ -52,7 +57,7 @@ class SwarmEnv(gym.Env):
         config = config or {}
 
         # ── Load Game Profile ───────────────────────────────────
-        profile_path = config.get("profile_path", "profiles/stage1_tactical.json")
+        profile_path = config.get("profile_path", "profiles/tactical_curriculum.json")
         if "profile" in config and isinstance(config["profile"], GameProfile):
             self.profile = config["profile"]
         else:
@@ -74,18 +79,26 @@ class SwarmEnv(gym.Env):
         self.curriculum_stage = config.get("curriculum_stage", 1)
 
         # ── Spaces from profile ─────────────────────────────────
-        self.observation_space = make_observation_space(
-            grid_width=self.grid_width,
-            grid_height=self.grid_height,
-            num_density_channels=self.profile.training.observation_channels - 1,
-        )
+        self.observation_space = make_observation_space()
         self.action_space = make_action_space(
-            num_actions=self.profile.num_actions,
+            num_actions=8, max_grid_cells=MAX_GRID_CELLS
         )
 
         self._active_sub_factions: list[int] = []
         self._last_snapshot: dict | None = None
         self._step_count: int = 0
+        self._last_nav_directive: dict | None = None
+        
+        self._lkp_buffer = LKPBuffer(grid_h=MAX_GRID_HEIGHT, grid_w=MAX_GRID_WIDTH, num_enemy_channels=2)
+        self._prev_fog_explored: np.ndarray | None = None
+        self._active_grid_w = MAX_GRID_WIDTH
+        self._active_grid_h = MAX_GRID_HEIGHT
+        self._pad_offset_x = 0
+        self._pad_offset_y = 0
+        self._cell_size = 20.0
+        self._fog_enabled = False
+        
+
 
         # ── Multi-bot controllers (one per bot faction) ─────────
         self._bot_controllers: dict[int, BotController] = {}
@@ -96,9 +109,15 @@ class SwarmEnv(gym.Env):
         self._trap_faction = 1         # Faction ID of trap group (50 units)
         self._target_faction = 2       # Faction ID of target group (20 units)
         self._trap_starting_count = 0
+        self._target_starting_count = 0
 
         # ── Approach reward tracking ────────────────────────────
         self._prev_min_enemy_dist: float | None = None
+
+        # ── Active enemy factions for this episode ──────────────
+        # Only factions actually spawned — prevents phantom rewards
+        # from unspawned factions counting as "eliminated"
+        self._active_enemy_factions: list[int] = []
 
         self._ctx = zmq.Context()
         self._socket: zmq.Socket | None = None
@@ -135,35 +154,81 @@ class SwarmEnv(gym.Env):
             return None
 
     def action_masks(self) -> np.ndarray:
-        """All actions always available in Stage 1 Tactical."""
-        mask = np.ones(self.profile.num_actions, dtype=bool)
-        return mask
+        # Action type mask
+        act_mask = np.ones(8, dtype=bool)
+        
+        if not self._active_sub_factions:
+            act_mask[5] = False  # MergeBack
+        if len(self._active_sub_factions) >= 2:
+            act_mask[4] = False  # SplitToCoord
+            act_mask[7] = False  # Scout
+        
+        # Stage-based action unlocking
+        stage_config = self._get_stage_action_unlock()
+        for i in range(8):
+            if not stage_config[i]:
+                act_mask[i] = False
+        
+        # Coordinate mask (only active arena cells)
+        coord_mask = make_coordinate_mask(
+            self._active_grid_w, self._active_grid_h,
+            MAX_GRID_WIDTH, MAX_GRID_HEIGHT,
+        )
+        
+        return np.concatenate([act_mask, coord_mask])
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         self._step_count = 0
         self._active_sub_factions = []
         self._last_snapshot = None
+        self._last_nav_directive = None
         self._trap_engaged = False
         self._debuff_applied = False
         self._prev_min_enemy_dist = None
+        
+        self._lkp_buffer.reset()
+        self._prev_fog_explored = None
+
 
         from src.utils.terrain_generator import generate_terrain_for_stage
-        from src.training.curriculum import get_spawns_for_stage
+        from src.training.curriculum import get_spawns_for_stage, get_map_config
+        
+        # Load stage map config from curriculum
+        stage_map_config = get_map_config(self.curriculum_stage)
+        self._active_grid_w = stage_map_config.active_grid_w
+        self._active_grid_h = stage_map_config.active_grid_h
+        self._cell_size = stage_map_config.cell_size
+        self._fog_enabled = stage_map_config.fog_enabled
+        self._pad_offset_x = (MAX_GRID_WIDTH - self._active_grid_w) // 2
+        self._pad_offset_y = (MAX_GRID_HEIGHT - self._active_grid_h) // 2
 
         terrain = generate_terrain_for_stage(
             self.curriculum_stage,
             seed=int(self.np_random.integers(0, 2**31)),
         )
-        spawns = get_spawns_for_stage(
+        spawns, role_meta = get_spawns_for_stage(
             self.curriculum_stage,
             rng=self.np_random,
             profile=self.profile,
         )
+        
+        self._trap_faction = role_meta.get("trap_faction", 1)
+        self._target_faction = role_meta.get("target_faction", 2)
+
+        # Track which enemy factions are ACTUALLY spawned this episode
+        # Prevents phantom threat_priority_bonus from unspawned factions
+        self._active_enemy_factions = [
+            s["faction_id"] for s in spawns
+            if s["faction_id"] != self.brain_faction
+        ]
 
         # Track trap starting count from spawns
         self._trap_starting_count = sum(
             s["count"] for s in spawns if s["faction_id"] == self._trap_faction
+        )
+        self._target_starting_count = sum(
+            s["count"] for s in spawns if s["faction_id"] == self._target_faction
         )
 
         # Stage 1 Tactical navigation rules:
@@ -210,20 +275,38 @@ class SwarmEnv(gym.Env):
         self._last_snapshot = snapshot
         self._active_sub_factions = snapshot.get("active_sub_factions", [])
 
+
+
         obs = vectorize_snapshot(
             snapshot, self.brain_faction,
             enemy_factions=self.enemy_faction_ids,
+            active_grid_w=self._active_grid_w,
+            active_grid_h=self._active_grid_h,
+            cell_size=self._cell_size,
+            fog_enabled=self._fog_enabled,
+            lkp_buffer=self._lkp_buffer,
         )
         return obs, {}
 
-    def step(self, action: int):
+    def step(self, action: np.ndarray):
         self._step_count += 1
         prev_snapshot = self._last_snapshot
 
         # Build brain directive
-        brain_directive = self._action_to_directive(action)
-        if isinstance(brain_directive, dict):
-            brain_directive = [brain_directive]
+        brain_directive, self._last_nav_directive = multidiscrete_to_directives(
+            action,
+            brain_faction=self.brain_faction,
+            active_sub_factions=self._active_sub_factions,
+            cell_size=self._cell_size,
+            pad_offset_x=self._pad_offset_x,
+            pad_offset_y=self._pad_offset_y,
+            last_nav_directive=self._last_nav_directive,
+        )
+        if hasattr(self, '_pending_debuff') and self._pending_debuff is not None:
+            brain_directive.insert(0, self._pending_debuff)
+            self._pending_debuff = None
+            
+
 
         # Build bot directives (one per bot faction)
         bot_directives = []
@@ -265,15 +348,39 @@ class SwarmEnv(gym.Env):
         obs = vectorize_snapshot(
             snapshot, self.brain_faction,
             enemy_factions=self.enemy_faction_ids,
+            active_grid_w=self._active_grid_w,
+            active_grid_h=self._active_grid_h,
+            cell_size=self._cell_size,
+            fog_enabled=self._fog_enabled,
+            lkp_buffer=self._lkp_buffer,
         )
-        reward = self._compute_reward(snapshot, prev_snapshot)
+        
 
-        # ── Approach reward (anti-toggle) ───────────────────────
-        # Small per-step reward for getting closer to nearest enemy.
-        # Toggling between targets = net zero progress = no reward.
-        # Committing to one target = consistent positive signal.
-        approach_reward = self._compute_approach_reward(snapshot)
-        reward += approach_reward
+            
+        # Flanking score
+        flanking_score = 0.0
+        if self._active_sub_factions:
+            sub_id = self._active_sub_factions[0]
+            brain_c = self._get_density_centroid(snapshot, self.brain_faction)
+            sub_c = self._get_density_centroid(snapshot, sub_id)
+            
+            # Find closest enemy to brain
+            enemy_centroids = []
+            for ef in self.enemy_faction_ids:
+                if self._get_faction_count(snapshot, ef) > 0:
+                    ec = self._get_density_centroid(snapshot, ef)
+                    if ec: enemy_centroids.append((ef, ec))
+            
+            if enemy_centroids and brain_c:
+                nearest = min(enemy_centroids, key=lambda x: (x[1][0]-brain_c[0])**2 + (x[1][1]-brain_c[1])**2)[1]
+                from src.env.rewards import compute_flanking_score
+                flanking_score = compute_flanking_score(brain_c, sub_c, nearest)
+
+        reward = self._compute_reward(snapshot, prev_snapshot, obs, flanking_score)
+
+        # Store prev fog explored for next step's exploration reward
+        if self._fog_enabled and "ch5" in obs:
+            self._prev_fog_explored = obs["ch5"].copy()
 
         # Win: ALL enemy factions eliminated
         total_enemy = self._get_total_enemy_count(snapshot)
@@ -336,20 +443,23 @@ class SwarmEnv(gym.Env):
         if self._debuff_applied:
             return
 
-        # Debuff fires when: Target eliminated AND Trap still has
+        # Debuff fires when: Target mostly eliminated (>70% killed) AND Trap still has
         # at least half its starting units alive (didn't primarily fight trap)
         target_count = self._get_faction_count(snapshot, self._target_faction)
         trap_threshold = self._trap_starting_count * 0.5  # at least half alive
+        target_threshold = self._target_starting_count * 0.3  # >70% killed
 
-        if target_count == 0 and trap_count >= trap_threshold:
+        if target_count <= target_threshold and trap_count >= trap_threshold:
             self._debuff_applied = True
             self._apply_trap_debuff()
 
     def _apply_trap_debuff(self):
-        """Send ActivateBuff to halve the Trap group's HP.
+        """Send ActivateBuff to reduce Trap group's damage output.
 
         Uses the activate_buff config from the profile which is
-        pre-configured with a 0.5x HP multiplier.
+        pre-configured with a 0.25x damage multiplier.  Also notifies
+        the trap's bot controller to switch from HoldPosition → Charge
+        so the weakened trap rushes the brain (no retargeting needed).
         """
         from dataclasses import asdict
         activate_buff = self.profile.abilities.activate_buff
@@ -362,9 +472,14 @@ class SwarmEnv(gym.Env):
             "targets": [],
         }
         logger.info(
-            "🎯 Debuff applied! Brain killed Target first → Trap HP halved."
+            "🎯 Debuff applied! Brain killed Target first → Trap DPS quartered."
         )
         self._pending_debuff = debuff_directive
+
+        # Notify trap bot controller to enrage (HoldPosition → Charge)
+        trap_ctrl = self._bot_controllers.get(self._trap_faction)
+        if trap_ctrl is not None:
+            trap_ctrl._debuff_applied = True
 
     def _get_enemy_factions_by_distance(self, snapshot: dict) -> list[int]:
         """Return enemy faction IDs sorted by distance from brain centroid.
@@ -391,40 +506,31 @@ class SwarmEnv(gym.Env):
         distances.sort(key=lambda x: x[1])
         return [fid for fid, _ in distances]
 
-    def _action_to_directive(self, action: int) -> dict | list[dict]:
-        """Map Stage 1 actions to directives.
+    def _get_stage_action_unlock(self) -> list[bool]:
+        """Which actions are unlocked at the current curriculum stage.
 
-        0 = Hold (active brake — stops swarm movement)
-        1 = Attack Nearest (navigate to closest alive enemy faction)
-        2 = Attack Furthest (navigate to farthest alive enemy faction)
+        Stage 0-1: Hold(0), AttackCoord(1)
+        Stage 2:   +DropPheromone(2)
+        Stage 3:   +DropRepellent(3)
+        Stage 4:   +Scout(7)                    — 10% recon split
+        Stage 5:   +SplitToCoord(4), +MergeBack(5) — 30% combat split
+        Stage 6+:  +Retreat(6)                   — full 8-action vocabulary
         """
-        from src.env.actions import build_hold_directive, build_update_nav_directive
+        s = self.curriculum_stage
+        unlock = [True, True, False, False, False, False, False, False]
+        if s >= 2:
+            unlock[2] = True   # DropPheromone
+        if s >= 3:
+            unlock[3] = True   # DropRepellent
+        if s >= 4:
+            unlock[7] = True   # Scout
+        if s >= 5:
+            unlock[4] = unlock[5] = True  # SplitToCoord, MergeBack
+        if s >= 6:
+            unlock[6] = True   # Retreat
+        return unlock
 
-        # Include pending debuff if any
-        directives = []
 
-        if hasattr(self, '_pending_debuff') and self._pending_debuff is not None:
-            directives.append(self._pending_debuff)
-            self._pending_debuff = None
-
-        if action == 0:  # Hold (active brake)
-            directives.append(build_hold_directive(self.brain_faction))
-        elif action == 1:  # Attack Nearest
-            sorted_factions = self._get_enemy_factions_by_distance(
-                self._last_snapshot or {}
-            )
-            target = sorted_factions[0] if sorted_factions else self._target_faction
-            directives.append(build_update_nav_directive(self.brain_faction, target))
-        elif action == 2:  # Attack Furthest
-            sorted_factions = self._get_enemy_factions_by_distance(
-                self._last_snapshot or {}
-            )
-            target = sorted_factions[-1] if sorted_factions else self._trap_faction
-            directives.append(build_update_nav_directive(self.brain_faction, target))
-        else:
-            directives.append(build_hold_directive(self.brain_faction))
-
-        return directives if len(directives) > 1 else directives[0]
 
     def _get_density_centroid(self, snapshot: dict, faction: int):
         """Get faction density centroid in world coordinates."""
@@ -448,60 +554,33 @@ class SwarmEnv(gym.Env):
             for fid in self.enemy_faction_ids
         )
 
-    def _compute_approach_reward(self, snapshot: dict) -> float:
-        """Reward for getting closer to the nearest enemy.
 
-        Prevents the toggle exploit: zig-zagging between two targets
-        produces net-zero distance change = zero approach reward.
-        Committing to one target = consistent positive signal per step.
 
-        Scale: 0.02 per world unit of distance closed.
-        At movement speed 60 units/sec and 30 ticks/eval = 0.5 sec/step:
-          max approach per step ≈ 30 units → max reward ≈ 0.6/step
-          This dominates the -0.01 time penalty, making approach always
-          better than standing still.
-        """
-        APPROACH_SCALE = 0.02  # reward per world unit closer
-
-        brain_c = self._get_density_centroid(snapshot, self.brain_faction)
-        if brain_c is None:
-            return 0.0
-
-        # Find minimum distance to any alive enemy faction
-        bx, by = brain_c
-        min_dist = float("inf")
-        for fid in self.enemy_faction_ids:
-            if self._get_faction_count(snapshot, fid) <= 0:
-                continue
-            ec = self._get_density_centroid(snapshot, fid)
-            if ec is None:
-                continue
-            ex, ey = ec
-            dist = ((bx - ex) ** 2 + (by - ey) ** 2) ** 0.5
-            min_dist = min(min_dist, dist)
-
-        if min_dist == float("inf"):
-            self._prev_min_enemy_dist = None
-            return 0.0
-
-        # Compute delta (positive = approaching, negative = retreating)
-        reward = 0.0
-        if self._prev_min_enemy_dist is not None:
-            delta = self._prev_min_enemy_dist - min_dist  # positive when closing
-            reward = delta * APPROACH_SCALE
-
-        self._prev_min_enemy_dist = min_dist
-        return reward
-
-    def _compute_reward(self, snapshot: dict, prev_snapshot: dict | None) -> float:
-        from src.env.rewards import compute_shaped_reward
+    def _compute_reward(self, snapshot: dict, prev_snapshot: dict | None, obs: dict, flanking_score: float) -> float:
+        from src.env.rewards import compute_shaped_reward, threat_priority_bonus
+        
+        # Only evaluate threat priority when 2+ enemy factions are spawned.
+        # Without this guard, unspawned factions (count=0) appear "dead",
+        # triggering +2.0/step phantom bonus (e.g., Stage 0: +1000 free reward).
+        threat_hit = False
+        if len(self._active_enemy_factions) >= 2:
+            threat_hit = threat_priority_bonus(
+                snapshot, prev_snapshot, self._active_enemy_factions
+            ) > 0.0
+        
         return compute_shaped_reward(
             snapshot=snapshot,
             prev_snapshot=prev_snapshot,
             brain_faction=self.brain_faction,
-            enemy_faction=self.enemy_faction_ids,
+            enemy_faction=self._active_enemy_factions,
             reward_weights=self.profile.training.rewards,
             starting_entities=self.starting_entities,
+            stage=self.curriculum_stage,
+            fog_explored=obs.get("ch5"),
+            prev_fog_explored=self._prev_fog_explored,
+            flanking_score=flanking_score,
+            lure_success=False,
+            threat_priority_hit=threat_hit,
         )
 
     def close(self):

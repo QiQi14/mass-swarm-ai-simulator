@@ -6,7 +6,7 @@ Rule Checks:
   V3: At least one faction with role == "bot" (Error)
   V4: Combat rule faction IDs exist in factions[].id (Error)
   V5: Action indices 0..N-1 contiguous, no gaps (Error)
-  V6: Curriculum stages sequential (1, 2, 3, ...) (Error)
+  V6: Curriculum stages sequential (0, 1, 2, ...) (Error)
   V7: Graduation action_usage keys match action names (Warning)
   V8: No action unlock_stage exceeds max curriculum stage (Warning)
   V9: cell_size * grid_width ≈ width (within 10% tolerance) (Warning)
@@ -60,11 +60,12 @@ def validate_profile(profile: GameProfile) -> ValidationResult:
     if action_indices != expected_indices:
         errors.append("V5: Action indices are not contiguous from 0 to N-1.")
 
-    # V6: Curriculum stages sequential
+    # V6: Curriculum stages sequential (starting from 0 or 1)
     stages = [s.stage for s in profile.training.curriculum]
-    expected_stages = list(range(1, len(stages) + 1))
+    start = stages[0] if stages else 0
+    expected_stages = list(range(start, start + len(stages)))
     if stages != expected_stages:
-        errors.append("V6: Curriculum stages are not sequential starting from 1.")
+        errors.append(f"V6: Curriculum stages are not sequential starting from {start}.")
 
     # V7: Graduation action_usage keys match action names
     action_names = {a.name for a in profile.actions}
@@ -142,8 +143,9 @@ def main():
                     print(f"  ✅ V5: Action indices contiguous (none)")
             elif code == "V6":
                 if profile.training.curriculum:
+                    min_stage = min(s.stage for s in profile.training.curriculum)
                     max_stage = max(s.stage for s in profile.training.curriculum)
-                    print(f"  ✅ V6: Curriculum stages sequential (1-{max_stage})")
+                    print(f"  ✅ V6: Curriculum stages sequential ({min_stage}-{max_stage})")
                 else:
                     print(f"  ✅ V6: Curriculum stages sequential (none)")
             else:

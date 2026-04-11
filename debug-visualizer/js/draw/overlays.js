@@ -87,3 +87,49 @@ export function drawFlowFieldArrows(ctx) {
         }
     }
 }
+
+export function drawArenaBounds(ctx) {
+    if (!S.showArenaBounds) return;
+
+    const b = S.arenaBounds;
+    const [x1, y1] = worldToCanvas(b.x, b.y);
+    const [x2, y2] = worldToCanvas(b.x + b.width, b.y + b.height);
+    const w = x2 - x1;
+    const h = y2 - y1;
+    const canvasW = ctx.canvas.width;
+    const canvasH = ctx.canvas.height;
+
+    // Dim the area OUTSIDE the arena (semi-transparent dark overlay)
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+    // Top strip
+    ctx.fillRect(0, 0, canvasW, y1);
+    // Bottom strip
+    ctx.fillRect(0, y2, canvasW, canvasH - y2);
+    // Left strip
+    ctx.fillRect(0, y1, x1, h);
+    // Right strip
+    ctx.fillRect(x2, y1, canvasW - x2, h);
+
+    // Draw dashed arena boundary
+    ctx.strokeStyle = '#00e5ff';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([8, 4]);
+    ctx.strokeRect(x1, y1, w, h);
+    ctx.setLineDash([]);
+
+    // Corner markers (small solid squares)
+    const markerSize = 6;
+    ctx.fillStyle = '#00e5ff';
+    ctx.fillRect(x1 - markerSize/2, y1 - markerSize/2, markerSize, markerSize);
+    ctx.fillRect(x2 - markerSize/2, y1 - markerSize/2, markerSize, markerSize);
+    ctx.fillRect(x1 - markerSize/2, y2 - markerSize/2, markerSize, markerSize);
+    ctx.fillRect(x2 - markerSize/2, y2 - markerSize/2, markerSize, markerSize);
+
+    // Label
+    const scale = getScaleFactor();
+    const fontSize = Math.max(10, 12 * scale);
+    ctx.font = `600 ${fontSize}px Inter, sans-serif`;
+    ctx.fillStyle = '#00e5ff';
+    ctx.textAlign = 'left';
+    ctx.fillText(`Arena ${b.width}\u00d7${b.height}`, x1 + 4, y1 - 6);
+}

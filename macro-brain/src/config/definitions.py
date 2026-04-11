@@ -89,6 +89,7 @@ class AbilitiesDef:
     movement_speed_stat: int | None
     combat_damage_stat: int | None
     activate_buff: ActivateBuffDef
+    zone_modifier_duration_ticks: int = 1500
 
 
 @dataclass(frozen=True)
@@ -117,6 +118,14 @@ class RewardWeights:
     win_terminal: float
     loss_terminal: float
     survival_bonus_multiplier: float
+    # New tactical reward weights
+    approach_scale: float = 0.02
+    exploration_reward: float = 0.005
+    exploration_decay_threshold: float = 0.8  # decay to 0 after 80% explored
+    threat_priority_bonus: float = 2.0
+    flanking_bonus_scale: float = 0.1
+    lure_success_bonus: float = 3.0
+    debuff_bonus: float = 2.0
 
 
 @dataclass(frozen=True)

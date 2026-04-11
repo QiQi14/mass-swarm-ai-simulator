@@ -2,6 +2,10 @@
 
 > For human developers. If you're an AI agent, read `.agents/context/architecture.md` instead.
 
+> [!WARNING]
+> **Parts of this document are outdated.** References to `Team`, `Health`, `FLANK_LEFT`, and `TRIGGER_FRENZY`
+> are from Phase 1-3. Current system uses `FactionId(u32)`, `StatBlock[8]`, and an 8-action `MultiDiscrete` vocabulary.
+> **For current details:** `.agents/context/engine-mechanics.md` and `.agents/context/training-curriculum.md`
 ## Overview
 
 The system is a **Tri-Node Decoupled Architecture** — three independent OS processes connected by message passing over localhost. No shared memory, no direct function calls, no tight coupling.

@@ -1,7 +1,13 @@
-# IPC Protocol Reference
+# IPC Protocol Reference (LEGACY)
+
+> [!CAUTION]
+> **THIS DOCUMENT IS OUTDATED (Phase 3, 2026-04-06).**
+> It contains legacy formats: `TriggerFrenzy`, normalized `health`, `swarm_count`/`defender_count`.
+> **Current protocol reference:** `.agents/context/ipc-protocol.md`
+> **Engine mechanics:** `.agents/context/engine-mechanics.md`
 
 > Complete message schema for all inter-process communication bridges.  
-> Last updated: Phase 3 (2026-04-06)
+> Last updated: Phase 3 (2026-04-06) — SUPERSEDED by `.agents/context/ipc-protocol.md`
 
 ## Overview
 

@@ -42,6 +42,7 @@ pub fn directive_executor_system(
     mut aggro: ResMut<AggroMaskRegistry>,
     mut sub_factions: ResMut<ActiveSubFactions>,
     mut faction_query: Query<(Entity, &Position, &mut FactionId)>,
+    buff_config: Res<crate::config::BuffConfig>,
 ) {
     let directives: Vec<MacroDirective> = std::mem::take(&mut latest.directives);
 
@@ -143,7 +144,7 @@ pub fn directive_executor_system(
                     y,
                     radius,
                     cost_modifier,
-                    ticks_remaining: 120, // ~2 seconds at 60 TPS
+                    ticks_remaining: buff_config.zone_modifier_duration_ticks,
                 });
             }
     

@@ -134,3 +134,12 @@ export function setIsPainting(v) { isPainting = v; }
 export let paintCellsBatch = [];
 export function resetPaintCellsBatch() { paintCellsBatch = []; }
 export function pushPaintCell(cell) { paintCellsBatch.push(cell); }
+
+// Arena bounds overlay — shows the active coordinate mask area
+export let showArenaBounds = true;
+export function setShowArenaBounds(v) { showArenaBounds = v; }
+
+// Active arena dimensions in world units (updated per curriculum stage)
+export let arenaBounds = { x: 0, y: 0, width: 400, height: 400 };
+export function setArenaBounds(bounds) { arenaBounds = { ...arenaBounds, ...bounds }; }
+

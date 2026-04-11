@@ -12,13 +12,14 @@
 //! - `std::time::Duration`
 
 use bevy::prelude::*;
+use bevy_state::prelude::in_state;
 
 use micro_core::bridges::zmq_bridge::ZmqBridgePlugin;
 use micro_core::components::NextEntityId;
 use micro_core::config::{
     ActiveSubFactions, ActiveZoneModifiers, AggroMaskRegistry, BuffConfig, DensityConfig,
     FactionBuffs, InterventionTracker, SimPaused, SimSpeed, SimStepRemaining, SimulationConfig,
-    TickCounter,
+    TickCounter, TrainingMode,
 };
 use micro_core::pathfinding::FlowFieldRegistry;
 use micro_core::rules::{
@@ -72,6 +73,17 @@ fn main() {
     });
 
     let mut app = App::new();
+
+    // Configure AI bridge timeout BEFORE the plugin builds.
+    // Training: long timeout (30s) — Rust must wait for Python inference.
+    // Manual play: short timeout (default 5s) — keeps the sim responsive.
+    if is_training {
+        app.insert_resource(micro_core::bridges::zmq_bridge::AiBridgeConfig {
+            send_interval_ticks: 30,
+            zmq_timeout_secs: 30,
+        });
+    }
+
     app.add_plugins(MinimalPlugins)
         .add_plugins(bevy_state::app::StatesPlugin)
         .set_runner(move |app| custom_runner(app, is_training, is_throttle))
@@ -92,6 +104,7 @@ fn main() {
         .init_resource::<TickCounter>()
         .init_resource::<NextEntityId>()
         .insert_resource(SimPaused(!is_training))
+        .insert_resource(TrainingMode(is_training))
         .init_resource::<SimSpeed>()
         .init_resource::<SimStepRemaining>()
         .init_resource::<RemovalEvents>()
@@ -122,50 +135,101 @@ fn main() {
         app.add_systems(Startup, initial_spawn_system);
     }
 
-    // Simulation systems — gated behind pause/step controls
+    // Simulation systems — gated behind pause/step controls.
+    // In TRAINING mode: also gated on SimState::Running for lock-step sync
+    //   → Rust freezes during WaitingForAI (PPO batch collection is deterministic)
+    // In PLAY mode: runs continuously regardless of AI state
+    //   → If Python is slow, entities keep their last directive (graceful degradation)
+    use micro_core::bridges::zmq_bridge::SimState;
     let sim_gate = |paused: Res<SimPaused>, step: Res<SimStepRemaining>| !paused.0 || step.0 > 0;
-    app.add_systems(
-        Update,
-        (
-            micro_core::systems::flow_field_update::flow_field_update_system,
-            micro_core::spatial::update_spatial_grid_system,
-            micro_core::systems::interaction::interaction_system,
-            micro_core::systems::removal::removal_system,
-            movement_system,
-        )
-            .chain()
-            .run_if(sim_gate),
-    );
 
-    app.add_systems(
-        Update,
-        (
-            directive_executor_system,
-            zone_tick_system,
-            buff_tick_system,
+    if is_training {
+        // ── Training: lock-step sync ────────────────────────
+        app.add_systems(
+            Update,
+            (
+                micro_core::systems::flow_field_update::flow_field_update_system,
+                micro_core::spatial::update_spatial_grid_system,
+                micro_core::systems::interaction::interaction_system,
+                micro_core::systems::removal::removal_system,
+                movement_system,
+            )
+                .chain()
+                .run_if(sim_gate)
+                .run_if(in_state(SimState::Running)),
+        );
+        app.add_systems(
+            Update,
+            (
+                directive_executor_system,
+                zone_tick_system,
+                buff_tick_system,
+            )
+                .chain()
+                .run_if(|paused: Res<SimPaused>, step: Res<SimStepRemaining>| !paused.0 || step.0 > 0)
+                .run_if(in_state(SimState::Running))
+                .before(movement_system),
         )
-            .chain()
-            .run_if(|paused: Res<SimPaused>, step: Res<SimStepRemaining>| !paused.0 || step.0 > 0)
-            .before(movement_system),
-    )
-    .add_systems(
-        Update,
-        engine_override_system
-            .after(movement_system)
-            .run_if(|paused: Res<SimPaused>, step: Res<SimStepRemaining>| !paused.0 || step.0 > 0),
-    )
-    // Always-running systems (work while paused for terrain painting and fog preview)
-    .add_systems(
-        Update,
-        (
-            tick_counter_system,
-            ws_command_system,
-            visibility_update_system,
-            step_tick_system.after(movement_system),
-            micro_core::systems::ws_sync::ws_sync_system,
-            log_system,
-        ),
-    );
+        .add_systems(
+            Update,
+            engine_override_system
+                .after(movement_system)
+                .run_if(|paused: Res<SimPaused>, step: Res<SimStepRemaining>| !paused.0 || step.0 > 0)
+                .run_if(in_state(SimState::Running)),
+        )
+        .add_systems(
+            Update,
+            (
+                tick_counter_system.run_if(in_state(SimState::Running)),
+                ws_command_system,
+                visibility_update_system,
+                step_tick_system.after(movement_system),
+                micro_core::systems::ws_sync::ws_sync_system,
+            ),
+        );
+    } else {
+        // ── Play mode: continuous simulation ────────────────
+        app.add_systems(
+            Update,
+            (
+                micro_core::systems::flow_field_update::flow_field_update_system,
+                micro_core::spatial::update_spatial_grid_system,
+                micro_core::systems::interaction::interaction_system,
+                micro_core::systems::removal::removal_system,
+                movement_system,
+            )
+                .chain()
+                .run_if(sim_gate),
+        );
+        app.add_systems(
+            Update,
+            (
+                directive_executor_system,
+                zone_tick_system,
+                buff_tick_system,
+            )
+                .chain()
+                .run_if(|paused: Res<SimPaused>, step: Res<SimStepRemaining>| !paused.0 || step.0 > 0)
+                .before(movement_system),
+        )
+        .add_systems(
+            Update,
+            engine_override_system
+                .after(movement_system)
+                .run_if(|paused: Res<SimPaused>, step: Res<SimStepRemaining>| !paused.0 || step.0 > 0),
+        )
+        .add_systems(
+            Update,
+            (
+                tick_counter_system,
+                ws_command_system,
+                visibility_update_system,
+                step_tick_system.after(movement_system),
+                micro_core::systems::ws_sync::ws_sync_system,
+                log_system,
+            ),
+        );
+    }
 
     #[cfg(feature = "debug-telemetry")]
     {

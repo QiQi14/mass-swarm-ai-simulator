@@ -61,6 +61,8 @@ pub struct NavigationRulePayload {
     pub target: super::NavigationTarget,
 }
 
+fn default_zone_duration() -> u32 { 120 }
+
 /// Ability configuration from game profile.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct AbilityConfigPayload {
@@ -69,6 +71,10 @@ pub struct AbilityConfigPayload {
     pub movement_speed_stat: Option<usize>,
     #[serde(default)]
     pub combat_damage_stat: Option<usize>,
+    /// Duration in ticks for SetZoneModifier effects.
+    /// Sent from Python game profile. Default: 120 (~2 seconds at 60 TPS).
+    #[serde(default = "default_zone_duration")]
+    pub zone_modifier_duration_ticks: u32,
 }
 
 /// Faction spawn configuration for environment reset.

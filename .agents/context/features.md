@@ -127,3 +127,43 @@ Extracted bot strategy logic entirely into Python (BotController) to enforce con
 
 **Key files:** `macro-brain/src/env/bot_controller.py`, `micro-core/src/systems/directive_executor/`, `train.sh`
 **Depends on:** Contextless Audit & Debug Visualizer Contract
+
+---
+
+### Stage 1 Training (Initial Curriculum)
+**Completed:** 2026-04-08 | **Archive:** `.agents/history/20260408_165805_start_training_stage_1/`
+
+First training run with Stage 1 target-selection curriculum using old `Discrete(3)` action space (Hold/AttackNearest/AttackFurthest). Identified the oscillation bug where AttackFurthest causes swarm to get stuck between two groups. Superseded by the tactical curriculum.
+
+**Key files:** `macro-brain/profiles/stage1_tactical.json` (deleted)
+**Depends on:** Phase 3.5
+
+---
+
+### Tactical Decision-Making Training Curriculum
+**Completed:** 2026-04-10 | **Archive:** `.agents/history/20260410_113140_tactical_decision_making_training_curriculum/`
+
+Complete rewrite of the RL training pipeline for tactical intelligence. `MultiDiscrete([8, 2500])` action space with flattened spatial coordinate (no Frankenstein bug). 8-action vocabulary: Hold, AttackCoord, DropPheromone, DropRepellent, SplitToCoord, MergeBack, Retreat, Scout. All actions are **atomic primitives** — the model composes them into tactics (see "The General" principle in conventions.md). 8-stage curriculum: target selection → fog scouting → wall navigation → pheromone flow → flanking → scout+retreat → combined → randomized. Custom `TacticalExtractor` CNN+MLP feature extractor for mixed Dict observations. `LKPBuffer` for fog-of-war memory (decaying last-known enemy positions). Fixed 50×50 observation tensor with center-padding for variable map sizes. Fog-of-war grids added to Rust ZMQ state snapshot.
+
+**Key files:** `macro-brain/src/env/spaces.py`, `macro-brain/src/env/actions.py`, `macro-brain/src/env/swarm_env.py`, `macro-brain/src/env/rewards.py`, `macro-brain/src/utils/vectorizer.py`, `macro-brain/src/utils/lkp_buffer.py`, `macro-brain/src/models/feature_extractor.py`, `macro-brain/src/training/curriculum.py`, `macro-brain/src/training/callbacks.py`, `macro-brain/src/training/train.py`, `macro-brain/profiles/tactical_curriculum.json`, `micro-core/src/bridges/zmq_protocol/types.rs`
+**Depends on:** Phase 3.5
+
+---
+
+### Tactical Swarm ECP Observation Hardening
+**Completed:** 2026-04-10 | **Archive:** `.agents/history/20260410_170700_tactical_ecp_hardening/`
+
+Refactored Rust micro-core to compute HP/DPS-weighted threat density maps via the `FactionBuffs` system using `combat_damage_stat` multipliers. Python macro-brain upgraded to ingest `ch7` (Threat Density) instead of raw enemy count, and `LKPBuffer` tracks 2 memory channels. Summary vectors stripped out targeted absolute faction counts replacing them with normalized HP totals to prevent identification exploits. The MaskablePPO CNN inherently learns complex tactical scenarios (high DPS threat vs. low DPS tank bait).
+
+**Key files:** `micro-core/src/systems/state_vectorizer.rs`, `macro-brain/src/utils/vectorizer.py`, `macro-brain/src/env/swarm_env.py`, `micro-core/src/bridges/zmq_bridge/systems.rs`
+**Depends on:** Tactical Decision-Making Training Curriculum
+
+---
+
+### Randomized Faction Roles
+**Completed:** 2026-04-10 | **Archive:** `.agents/history/20260410_222800_randomized_faction_roles/`
+
+Randomizes Trap/Target faction IDs each episode (50% chance) to prevent the model from learning a static faction ID bias. Maintains 3 distinct factions for debuff mechanics, while relying on the faction-blind ECP heatmap to drive target selection.
+
+**Key files:** `macro-brain/profiles/tactical_curriculum.json`, `macro-brain/src/training/curriculum.py`, `macro-brain/src/env/swarm_env.py`
+**Depends on:** Tactical Swarm ECP Observation Hardening

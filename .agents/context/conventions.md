@@ -53,11 +53,12 @@
 - **Commit scope prefixes:** `core` (Rust), `brain` (Python), `viz` (Web UI), `infra` (build/CI), `docs`
 
 ## IPC Conventions
-- **Message format:** JSON objects with a `"type"` discriminator field (e.g., `"state_snapshot"`, `"macro_action"`, `"command"`)
+- **Message format:** JSON objects with a `"type"` discriminator field (e.g., `"state_snapshot"`, `"macro_directives"`, `"reset"`)
 - **Entity IDs:** Unsigned 32-bit integers, globally unique within a simulation session
-- **Coordinates:** Floating-point `(x, y)`, origin at top-left `(0, 0)`, positive Y goes down
-- **Health:** Normalized `0.0` to `1.0`
-- **Team values:** `"swarm"` or `"defender"` (lowercase string in JSON)
+- **Faction IDs:** Unsigned 32-bit integers (0 = brain, 1+ = bot factions)
+- **Coordinates:** Floating-point `(x, y)`, origin at top-left `(0, 0)`, positive Y = down
+- **Stats:** `StatBlock[8]` — raw float values (NOT normalized). Index meaning defined by game profile (index 0 = HP by convention)
+- **Full directive/snapshot schemas:** See `ipc-protocol.md`
 
 ## File Organization & Module Splitting
 
@@ -136,3 +137,35 @@ When the Planner creates a task that will produce a file with 3+ concerns:
 - **C-ABI readiness:** Core logic functions should be structured to be exposable via `#[no_mangle] pub extern "C"` for future FFI
 - **WASM compatibility:** Micro-Core code must avoid APIs that prevent `wasm32-unknown-unknown` compilation (raw file I/O, `std::thread::spawn`, platform-specific syscalls). Use Bevy/Tokio abstractions instead.
 - **10K+ entity minimum:** The architecture exists to solve the 10,000+ entity problem. All design decisions (spatial grids, flow fields, delta sync) are justified by this scale target. Do not optimize for 1K — that works without any optimization.
+
+## RL Action Space Design — "The General" Principle
+
+> **The model is a General, not a state machine picker.**
+> It must learn to compose atomic primitives into complex tactics — not pick from a menu of pre-baked compound actions.
+
+### Rules for Action Design
+
+1. **Every action MUST be a single, atomic primitive.** One action = one effect on the simulation. Never combine multiple effects into one action index.
+2. **Actions MUST be universal.** Each action should be usable in many different tactical contexts, not designed for one specific scenario.
+3. **Complex tactics emerge from COMPOSITION.** The model learns multi-step sequences (e.g., Scout → AttackCoord → Retreat) on its own. Never pre-bake a combo.
+4. **No action should encode strategy.** "Split group + navigate + set aggro mask" is strategy. "Split group to coordinate" is a primitive. Only primitives belong in the action space.
+
+### Current 8-Action Vocabulary (v3.1)
+
+| Index | Name | Type | Effect |
+|-------|------|------|--------|
+| 0 | Hold | Non-spatial | Stop movement |
+| 1 | AttackCoord | Spatial | Navigate main force to (x,y) |
+| 2 | DropPheromone | Spatial | Attract zone at (x,y) |
+| 3 | DropRepellent | Spatial | Repel zone at (x,y) |
+| 4 | SplitToCoord | Spatial | Split 30% to (x,y) |
+| 5 | MergeBack | Non-spatial | Merge first sub-faction back |
+| 6 | Retreat | Spatial | Withdraw to (x,y) |
+| 7 | Scout | Spatial | Split 10% recon group to (x,y) |
+
+### Anti-Pattern: Compound Actions (DO NOT)
+
+The old `Lure` action violated these rules by combining 4 directives (Split + Navigate + AggroMask×2) into one action index. This made the model a "tactic picker" instead of a "tactician." It was replaced with `Scout` (atomic: split + navigate).
+
+**If you need a new tactic:** Add atomic primitives that enable it, not the tactic itself. Example: if you need "lure patrol away," the model should learn to combine `Scout(patrol_area) → AttackCoord(target) → Retreat(safe_zone)` on its own.
+

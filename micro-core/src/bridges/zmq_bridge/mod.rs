@@ -38,7 +38,10 @@ pub struct ZmqBridgePlugin;
 
 impl Plugin for ZmqBridgePlugin {
     fn build(&self, app: &mut App) {
-        let config = AiBridgeConfig::default();
+        // Use existing config if pre-inserted (e.g., training mode overrides),
+        // otherwise use default (manual play mode).
+        app.init_resource::<AiBridgeConfig>();
+        let config = app.world().get_resource::<AiBridgeConfig>().unwrap().clone();
         let timeout_secs = config.zmq_timeout_secs;
 
         let (state_tx, state_rx) = mpsc::sync_channel::<String>(1);
@@ -54,7 +57,6 @@ impl Plugin for ZmqBridgePlugin {
         app.init_resource::<PendingReset>();
 
         app.init_state::<SimState>()
-            .insert_resource(config)
             .insert_resource(AiBridgeChannels {
                 state_tx,
                 action_rx: Mutex::new(action_rx),

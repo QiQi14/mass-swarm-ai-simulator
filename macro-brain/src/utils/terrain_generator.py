@@ -268,18 +268,113 @@ def _to_payload(hard: np.ndarray, soft: np.ndarray) -> dict:
     }
 
 
+def generate_stage2_terrain(seed: int | None = None) -> dict:
+    """Stage 2: Two-path terrain for pheromone training.
+
+    Layout (30×30 grid within center of 50×50, cell_size=20 → 600×600 active world):
+      - Top half (y=0-12): open area — fast/short path — TRAP HERE
+      - Wall band at y=13-15: permanent wall (65535) with gap at x=2-5
+      - Bottom half (y=16-29): safe detour path with mud slow zone (soft_cost=40)
+
+    Brain spawns left, target spawns bottom-right.
+    Flow field naturally routes through top (shorter) → into trap.
+    Model must pheromone the bottom path to redirect.
+
+    NOTE: Uses the ACTIVE grid size (30×30) from StageMapConfig,
+    NOT the full 50×50 observation grid.
+    """
+    from src.training.curriculum import get_map_config
+    config = get_map_config(2)
+    w, h = config.active_grid_w, config.active_grid_h  # 30×30
+
+    hard = np.full((h, w), TIER0_PASSABLE, dtype=np.uint16)
+    soft = np.full((h, w), TIER0_PASSABLE, dtype=np.uint16)
+
+    rng = np.random.default_rng(seed)
+
+    # Horizontal wall band at y=13-15, with gap at x=2-5
+    wall_y_start = 13
+    wall_y_end = 15
+    gap_x_start = 2
+    gap_x_end = 5 + (seed % 3 if seed else 0)  # slight gap variation
+
+    for y in range(wall_y_start, wall_y_end + 1):
+        for x in range(w):
+            if not (gap_x_start <= x <= gap_x_end):
+                hard[y, x] = TIER2_PERMANENT
+
+    # Mud zone on bottom path (y=20-22, x=10-20)
+    for y in range(20, min(23, h)):
+        for x in range(10, min(21, w)):
+            soft[y, x] = 40
+
+    return {
+        "hard_costs": hard.flatten().tolist(),
+        "soft_costs": soft.flatten().tolist(),
+        "width": w,
+        "height": h,
+        "cell_size": config.cell_size,
+    }
+
+
+def generate_stage3_terrain(seed: int | None = None) -> dict:
+    """Stage 3: Open field — danger zones are NORMAL COST terrain.
+
+    The direct path goes straight through trap spawn positions at cost 100.
+    The flow field will route directly through them by default.
+    The agent MUST cast DropRepellent (+200 cost) on these zones to
+    push the flow field around the traps.
+
+    Danger centers are marked with soft_cost = 40 (visual mud markers)
+    so the observation space can detect them via the terrain channel,
+    but hard_cost stays at 100 (normal) — pathfinder routes THROUGH.
+
+    NOTE: Uses the ACTIVE grid size (30×30) from StageMapConfig.
+    """
+    from src.training.curriculum import get_map_config
+    config = get_map_config(3)
+    w, h = config.active_grid_w, config.active_grid_h  # 30×30
+
+    hard = np.full((h, w), TIER0_PASSABLE, dtype=np.uint16)
+    soft = np.full((h, w), TIER0_PASSABLE, dtype=np.uint16)
+
+    # Danger zones around trap spawn positions (in grid coords)
+    # Trap positions in world: (250,180), (200,350), (380,280)
+    # Convert to grid: world / cell_size = grid
+    danger_centers = [
+        (12, 9),   # (250/20, 180/20) ≈ (12, 9)
+        (10, 17),  # (200/20, 350/20) = (10, 17)
+        (19, 14),  # (380/20, 280/20) = (19, 14)
+    ]
+    danger_radius = 3
+
+    for cx, cy in danger_centers:
+        for dy in range(-danger_radius, danger_radius + 1):
+            for dx in range(-danger_radius, danger_radius + 1):
+                gx, gy = cx + dx, cy + dy
+                if 0 <= gx < w and 0 <= gy < h:
+                    if dx * dx + dy * dy <= danger_radius * danger_radius:
+                        # hard_cost stays 100 (normal) — pathfinder GOES THROUGH
+                        # soft_cost = 40 (visual marker in terrain observation channel)
+                        soft[gy, gx] = 40
+
+    return {
+        "hard_costs": hard.flatten().tolist(),
+        "soft_costs": soft.flatten().tolist(),
+        "width": w,
+        "height": h,
+        "cell_size": config.cell_size,
+    }
+
 # ── Stage-Aware Entry Point ────────────────────────────────────────
 
 def generate_terrain_for_stage(stage: int, seed: int | None = None) -> dict | None:
-    """Dispatch to the correct terrain generator based on curriculum stage.
-
-    Stage 1-2: None (flat)
-    Stage 3:   Simple (1-2 walls with gaps)
-    Stage 4+:  Complex (full procedural)
-    """
-    if stage <= 2:
+    """Dispatch to the correct terrain generator based on curriculum stage."""
+    if stage <= 1:
         return generate_flat_terrain()
+    elif stage == 2:
+        return generate_stage2_terrain(seed=seed)
     elif stage == 3:
-        return generate_simple_terrain(seed=seed)
+        return generate_stage3_terrain(seed=seed)
     else:
         return generate_complex_terrain(seed=seed)

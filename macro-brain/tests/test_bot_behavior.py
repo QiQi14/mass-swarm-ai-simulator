@@ -37,33 +37,31 @@ def test_mixed_to_dict():
 from src.config.game_profile import load_profile
 
 def test_profile_loads_and_parses_bot_behaviors():
-    profile = load_profile("profiles/default_swarm_combat.json")
+    profile = load_profile("profiles/tactical_curriculum.json")
     assert hasattr(profile, "bot_stage_behaviors")
-    assert len(profile.bot_stage_behaviors) == 5
+    assert len(profile.bot_stage_behaviors) == 16
 
     # Check stage 1
     payload1 = profile.bot_behaviors_payload(1)
-    assert len(payload1) == 1
-    assert payload1[0]["strategy"]["type"] == "Charge"
+    assert len(payload1) == 2
+    assert payload1[0]["strategy"]["type"] == "HoldPosition"
 
-    # Check stage 3
-    payload3 = profile.bot_behaviors_payload(3)
-    assert len(payload3) == 1
-    assert payload3[0]["strategy"]["type"] == "HoldPosition"
+    # Check stage 6
+    payload6 = profile.bot_behaviors_payload(6)
+    assert len(payload6) == 2
+    assert payload6[0]["strategy"]["type"] == "Charge"
 
-    # Check stage 5
-    payload5 = profile.bot_behaviors_payload(5)
-    assert len(payload5) == 1
-    assert payload5[0]["strategy"]["type"] == "Mixed"
-    assert len(payload5[0]["strategy"]["strategies"]) == 3
+    # Check stage 7
+    payload7 = profile.bot_behaviors_payload(7)
+    assert len(payload7) == 2
+    assert payload7[0]["strategy"]["type"] == "Patrol"
 
 def test_backward_compatibility():
     # Remove bot_stage_behaviors to act as an old profile
-    profile = load_profile("profiles/default_swarm_combat.json")
+    profile = load_profile("profiles/tactical_curriculum.json")
     profile.bot_stage_behaviors.clear()
     
-    # Should fallback to Charge
+    # Should fallback to HoldPosition
     payload = profile.bot_behaviors_payload(1)
-    assert len(payload) == 1
-    assert payload[0]["strategy"]["type"] == "Charge"
-    assert payload[0]["strategy"]["target_faction"] == profile.brain_faction.id
+    assert len(payload) == 2
+    assert payload[0]["strategy"]["type"] == "HoldPosition"

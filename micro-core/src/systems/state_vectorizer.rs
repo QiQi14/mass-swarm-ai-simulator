@@ -67,6 +67,52 @@ pub fn build_density_maps(
         .collect()
 }
 
+/// Builds Effective Combat Power (ECP) density heatmaps.
+///
+/// Each cell value = sum(entity_hp * entity_damage_mult) / max_ecp_per_cell
+/// clamped to [0.0, 1.0].
+///
+/// ECP captures both survivability (HP) and damage output (buff multiplier).
+/// Tankers (high HP, low DPS) produce moderate ECP.
+/// Glass cannons (low HP, high DPS) produce moderate ECP.
+/// Debuffed units (low HP * 0.25 mult) produce very low ECP.
+pub fn build_ecp_density_maps(
+    entities: &[(f32, f32, u32, f32, f32)], // (x, y, faction_id, hp, damage_mult)
+    grid_w: u32,
+    grid_h: u32,
+    cell_size: f32,
+    max_ecp_per_cell: f32,
+) -> HashMap<u32, Vec<f32>> {
+    let total_cells = (grid_w * grid_h) as usize;
+    let mut ecp_maps: HashMap<u32, Vec<f32>> = HashMap::new();
+
+    for &(x, y, faction, hp, damage_mult) in entities {
+        let cx = (x / cell_size).floor() as i32;
+        let cy = (y / cell_size).floor() as i32;
+
+        if cx < 0 || cx >= grid_w as i32 || cy < 0 || cy >= grid_h as i32 {
+            continue;
+        }
+
+        let idx = (cy as u32 * grid_w + cx as u32) as usize;
+        let ecps = ecp_maps
+            .entry(faction)
+            .or_insert_with(|| vec![0.0; total_cells]);
+        ecps[idx] += hp * damage_mult;
+    }
+
+    ecp_maps
+        .into_iter()
+        .map(|(faction, ecps)| {
+            let normalized: Vec<f32> = ecps
+                .iter()
+                .map(|&ecp| (ecp / max_ecp_per_cell).min(1.0))
+                .collect();
+            (faction, normalized)
+        })
+        .collect()
+}
+
 /// Builds summary statistics from entity data.
 ///
 /// Returns (own_count, enemy_count, own_avg_stat0, enemy_avg_stat0)
@@ -303,6 +349,89 @@ mod tests {
             stats,
             [0.0, 0.0, 0.0, 0.0],
             "Empty stats should return array of zero floats"
+        );
+    }
+
+    #[test]
+    fn test_ecp_density_single_entity() {
+        // Arrange
+        let entities = vec![
+            (15.0, 15.0, 0, 80.0, 1.0), // Faction 0
+        ];
+        let max_ecp = 1000.0;
+
+        // Act
+        let maps = build_ecp_density_maps(&entities, 10, 10, 10.0, max_ecp);
+
+        // Assert
+        let map = &maps[&0];
+        assert!(
+            (map[11] - (80.0 / 1000.0)).abs() < f32::EPSILON,
+            "ECP should be hp * mult / max_ecp"
+        );
+    }
+
+    #[test]
+    fn test_ecp_density_tanker_vs_glass_cannon() {
+        // Arrange
+        let entities = vec![
+            (15.0, 15.0, 0, 100.0, 1.0),   // Tanker (100 ECP)
+            (25.0, 15.0, 1, 20.0, 5.0),    // Glass Cannon (100 ECP)
+        ];
+        let max_ecp = 1000.0;
+
+        // Act
+        let maps = build_ecp_density_maps(&entities, 10, 10, 10.0, max_ecp);
+
+        // Assert
+        assert!(
+            (maps[&0][11] - 0.1).abs() < f32::EPSILON,
+            "Tanker ECP norm should be 0.1"
+        );
+        assert!(
+            (maps[&1][12] - 0.1).abs() < f32::EPSILON,
+            "Glass Cannon ECP norm should be 0.1"
+        );
+    }
+
+    #[test]
+    fn test_ecp_density_debuffed_units() {
+        // Arrange
+        let entities = vec![
+            (15.0, 15.0, 0, 50.0, 1.0),   // Normal (50 ECP)
+            (25.0, 15.0, 1, 50.0, 0.25),  // Debuffed (12.5 ECP)
+        ];
+        let max_ecp = 100.0;
+
+        // Act
+        let maps = build_ecp_density_maps(&entities, 10, 10, 10.0, max_ecp);
+
+        // Assert
+        assert!(
+            (maps[&0][11] - 0.5).abs() < f32::EPSILON,
+            "Normal unit ECP norm should be 0.5"
+        );
+        assert!(
+            (maps[&1][12] - 0.125).abs() < f32::EPSILON,
+            "Debuffed unit ECP norm should be 0.125"
+        );
+    }
+
+    #[test]
+    fn test_ecp_density_normalization() {
+        // Arrange
+        let entities = vec![
+            (15.0, 15.0, 0, 2000.0, 2.0), // 4000 ECP
+        ];
+        let max_ecp = 1000.0;
+
+        // Act
+        let maps = build_ecp_density_maps(&entities, 10, 10, 10.0, max_ecp);
+
+        // Assert
+        assert!(
+            (maps[&0][11] - 1.0).abs() < f32::EPSILON,
+            "Values exceeding max_ecp should be clamped to 1.0"
         );
     }
 }

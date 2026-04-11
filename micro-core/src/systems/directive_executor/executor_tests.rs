@@ -12,6 +12,7 @@ fn setup_app() -> App {
     app.insert_resource(ActiveZoneModifiers::default());
     app.insert_resource(AggroMaskRegistry::default());
     app.insert_resource(ActiveSubFactions::default());
+    app.insert_resource(crate::config::BuffConfig::default());
     app.add_systems(Update, directive_executor_system);
     app
 }

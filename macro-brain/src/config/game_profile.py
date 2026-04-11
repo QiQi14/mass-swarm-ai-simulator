@@ -92,6 +92,7 @@ class GameProfile:
             "buff_cooldown_ticks": self.abilities.buff_cooldown_ticks,
             "movement_speed_stat": self.abilities.movement_speed_stat,
             "combat_damage_stat": self.abilities.combat_damage_stat,
+            "zone_modifier_duration_ticks": self.abilities.zone_modifier_duration_ticks,
         }
 
     def movement_config_payload(self) -> dict:
@@ -135,11 +136,11 @@ class GameProfile:
         for b in self.bot_stage_behaviors:
             if b.faction_id == faction_id and b.stage == stage:
                 return b
-        # Fallback: charge toward brain
+        # Fallback: hold position (safe default — never auto-charge)
         return BotStageBehaviorDef(
             stage=stage,
             faction_id=faction_id,
-            strategy=BotStrategyDef(type="Charge", target_faction=self.brain_faction.id),
+            strategy=BotStrategyDef(type="HoldPosition"),
         )
 
     def bot_behaviors_payload(self, stage: int) -> list[dict]:

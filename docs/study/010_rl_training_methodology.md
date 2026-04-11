@@ -1,5 +1,11 @@
 # Study Notes: RL Training Methodology
 
+> [!NOTE]
+> **Historical document (Phase 3, 2026-04-06).** The 2-stage curriculum, `Frenzy` action, `Territory` reward,
+> and action masking code shown here are all superseded. Current system uses a 9-stage tactical curriculum
+> with 8 atomic primitives, `MultiDiscrete([8, 2500])` action space, and progressive stage-based action unlocking.
+> See `.agents/context/training-curriculum.md` and `.agents/context/engine-mechanics.md` for current design.
+
 > **Problem:** How to train a macro-strategy AI that controls 10,000+ swarm entities using Deep Reinforcement Learning, without the agent exploiting mathematical loopholes.
 
 ---

@@ -164,6 +164,21 @@ export function initControls() {
     document.getElementById('toggle-zone-modifiers').onchange = (e) => { S.setShowZoneModifiers(e.target.checked); };
     document.getElementById('toggle-override-markers').onchange = (e) => { S.setShowOverrideMarkers(e.target.checked); };
 
+    // Arena bounds toggle and size inputs
+    const arenaToggle = document.getElementById('toggle-arena-bounds');
+    if (arenaToggle) {
+        arenaToggle.onchange = (e) => { S.setShowArenaBounds(e.target.checked); };
+    }
+    const arenaW = document.getElementById('arena-width');
+    const arenaH = document.getElementById('arena-height');
+    if (arenaW && arenaH) {
+        const updateArena = () => {
+            S.setArenaBounds({ width: parseInt(arenaW.value) || 400, height: parseInt(arenaH.value) || 400 });
+        };
+        arenaW.onchange = updateArena;
+        arenaH.onchange = updateArena;
+    }
+
     // Range/number sync
     const syncPair = (sliderId, numberId) => {
         document.getElementById(sliderId).oninput = (e) => document.getElementById(numberId).value = e.target.value;

@@ -35,6 +35,7 @@ VISUALIZER_DIR="$SCRIPT_DIR/debug-visualizer"
 HTTP_PORT=3000
 WS_PORT=8080
 PID_FILE="$SCRIPT_DIR/.dev.pids"
+LOCAL_IP=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || echo "your-local-ip")
 
 # ── Port Cleanup Function ──────────────────────────────────────────────
 # Kills any process occupying the given port.
@@ -149,6 +150,7 @@ if [ "$WATCH_ONLY" = true ]; then
     kill_port "$HTTP_PORT"
 
     echo -e "${YELLOW}▸ Starting Debug Visualizer HTTP server on port $HTTP_PORT...${RESET}"
+    ln -sfn ../macro-brain/runs "$VISUALIZER_DIR/logs"
     python3 -m http.server "$HTTP_PORT" --bind 0.0.0.0 --directory "$VISUALIZER_DIR" 2>/dev/null &
     HTTP_PID=$!
     echo "$HTTP_PID" > "$PID_FILE"
@@ -163,7 +165,8 @@ if [ "$WATCH_ONLY" = true ]; then
     echo -e "${GREEN}${BOLD}  👁  Watch mode — Visualizer only${RESET}"
     echo -e "${GREEN}${BOLD}═══════════════════════════════════════════════════${RESET}"
     echo ""
-    echo -e "  ${BOLD}Debug Visualizer:${RESET}  ${CYAN}http://127.0.0.1:$HTTP_PORT${RESET}"
+    echo -e "  ${BOLD}Local Access:${RESET}      ${CYAN}http://127.0.0.1:$HTTP_PORT${RESET}"
+    echo -e "  ${BOLD}Network Access:${RESET}    ${CYAN}http://$LOCAL_IP:$HTTP_PORT${RESET}"
     echo -e "  ${DIM}Rust core and training must be started separately.${RESET}"
     echo ""
     echo -e "  ${DIM}Press Ctrl+C to stop the visualizer.${RESET}"
@@ -195,6 +198,7 @@ echo ""
 if [ "$SMOKE_TEST" = false ]; then
     echo -e "${YELLOW}▸ Starting Debug Visualizer HTTP server on port $HTTP_PORT...${RESET}"
     
+    ln -sfn ../macro-brain/runs "$VISUALIZER_DIR/logs"
     python3 -m http.server "$HTTP_PORT" --bind 0.0.0.0 --directory "$VISUALIZER_DIR" 2>/dev/null &
     HTTP_PID=$!
     
@@ -208,7 +212,7 @@ if [ "$SMOKE_TEST" = false ]; then
         echo -e "  ${DIM}Run: ./dev.sh --clean${RESET}"
         exit 1
     fi
-    echo -e "${GREEN}✔ Visualizer serving at http://127.0.0.1:$HTTP_PORT${RESET}"
+    echo -e "${GREEN}✔ Visualizer serving at http://127.0.0.1:$HTTP_PORT (Network: http://$LOCAL_IP:$HTTP_PORT)${RESET}"
     echo ""
 fi
 
@@ -247,8 +251,9 @@ else
     echo -e "${GREEN}${BOLD}  🚀 All services running!${RESET}"
     echo -e "${GREEN}${BOLD}═══════════════════════════════════════════════════${RESET}"
     echo ""
-    echo -e "  ${BOLD}Debug Visualizer:${RESET}  ${CYAN}http://127.0.0.1:$HTTP_PORT${RESET}"
-    echo -e "  ${BOLD}WebSocket Server:${RESET}  ${CYAN}ws://127.0.0.1:$WS_PORT${RESET}"
+    echo -e "  ${BOLD}Local Access:${RESET}      ${CYAN}http://127.0.0.1:$HTTP_PORT${RESET}"
+    echo -e "  ${BOLD}Network Access:${RESET}    ${CYAN}http://$LOCAL_IP:$HTTP_PORT${RESET}"
+    echo -e "  ${BOLD}WebSocket Server:${RESET}  ${CYAN}ws://0.0.0.0:$WS_PORT${RESET}"
     echo -e "  ${BOLD}Rust Logs:${RESET}         ${DIM}(streaming below)${RESET}"
     echo ""
     echo -e "  ${DIM}Press Ctrl+C to stop all services.${RESET}"

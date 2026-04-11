@@ -23,7 +23,7 @@ set -euo pipefail
 # ═══════════════════════════════════════════════════════════════
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROFILE="profiles/stage1_tactical.json"
+PROFILE="profiles/tactical_curriculum.json"
 TIMESTEPS=100000
 OPEN_VIZ=true
 TRAINING_MODE=false    # false = 60 TPS, true = max TPS
@@ -104,8 +104,8 @@ echo "   Timesteps: $TIMESTEPS"
 echo "   Speed:     $SPEED_LABEL"
 echo ""
 cd "$SCRIPT_DIR/macro-brain"
-source venv/bin/activate 2>/dev/null || true
-python -m src.training.train \
+source .venv/bin/activate 2>/dev/null || true
+.venv/bin/python -m src.training.train \
     --profile "$PROFILE" \
     --timesteps "$TIMESTEPS" \
     $EXTRA_ARGS

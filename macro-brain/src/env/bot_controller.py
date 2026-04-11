@@ -48,6 +48,9 @@ class BotController:
         # Patrol state
         self._patrol_waypoint_idx: int = 0
 
+        # Debuff-aware: when True, HoldPosition bots switch to Charge
+        self._debuff_applied: bool = False
+
     def configure(
         self,
         behavior: BotStageBehaviorDef,
@@ -67,6 +70,9 @@ class BotController:
 
         # Reset patrol to first waypoint
         self._patrol_waypoint_idx = 0
+
+        # Reset debuff flag
+        self._debuff_applied = False
 
         # For Mixed: select one strategy at episode start
         if behavior.strategy.type == "Mixed" and behavior.strategy.strategies:
@@ -95,8 +101,13 @@ class BotController:
             )
 
         elif strategy.type == "HoldPosition":
-            # Send Idle so entities stay at their spawn spread.
-            # Retreat would converge all entities to a single point.
+            if self._debuff_applied:
+                # Debuff fired → trap enrages and charges the brain
+                return _update_nav(
+                    self._faction_id,
+                    {"type": "Faction", "faction_id": self._target_faction},
+                )
+            # Normal: stay at spawn spread
             return _hold()
 
         elif strategy.type == "Adaptive":

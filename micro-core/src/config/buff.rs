@@ -5,7 +5,7 @@ use bevy::prelude::*;
 /// Maps abstract stat indices to engine system behaviors.
 /// The engine has movement and combat systems — those are engine mechanics.
 /// But WHICH stat index drives speed vs damage is game design.
-#[derive(Resource, Debug, Clone, Default)]
+#[derive(Resource, Debug, Clone)]
 pub struct BuffConfig {
     /// Cooldown ticks after any buff expires. Default: 0.
     pub cooldown_ticks: u32,
@@ -15,6 +15,19 @@ pub struct BuffConfig {
     /// Which stat_index in active buffs controls combat damage multiplier.
     /// None = buffs never affect combat damage.
     pub combat_damage_stat: Option<usize>,
+    /// Duration in ticks for SetZoneModifier effects. Default: 120.
+    pub zone_modifier_duration_ticks: u32,
+}
+
+impl Default for BuffConfig {
+    fn default() -> Self {
+        Self {
+            cooldown_ticks: 0,
+            movement_speed_stat: None,
+            combat_damage_stat: None,
+            zone_modifier_duration_ticks: 120,
+        }
+    }
 }
 
 /// Active stat-multiplier buffs per faction — fully abstract.

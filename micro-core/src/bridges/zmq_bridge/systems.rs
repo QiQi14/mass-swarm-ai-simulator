@@ -48,6 +48,8 @@ pub(super) fn ai_trigger_system(
     intervention: Res<InterventionTracker>,
     sub_factions: Res<ActiveSubFactions>,
     aggro: Res<AggroMaskRegistry>,
+    combat_buffs: Res<crate::config::FactionBuffs>,
+    buff_config: Res<crate::config::BuffConfig>,
     query: Query<(&EntityId, &Position, &FactionId, &StatBlock)>,
     mut next_state: ResMut<NextState<SimState>>,
 ) {
@@ -56,7 +58,7 @@ pub(super) fn ai_trigger_system(
     }
 
     // Default macro-brain runs for faction 0
-    let snapshot = build_state_snapshot(
+    let mut snapshot = build_state_snapshot(
         &tick,
         &sim_config,
         &query,
@@ -67,7 +69,28 @@ pub(super) fn ai_trigger_system(
         &intervention,
         &sub_factions,
         &aggro,
+        &combat_buffs,
+        &buff_config,
     );
+
+    let brain_faction = 0u32;
+    let total_cells = (visibility.grid_width * visibility.grid_height) as usize;
+    
+    let explored = visibility.explored.get(&brain_faction).map(|bits| {
+        (0..total_cells)
+            .map(|i| if FactionVisibility::get_bit(bits, i) { 1u8 } else { 0u8 })
+            .collect::<Vec<u8>>()
+    });
+    
+    let visible = visibility.visible.get(&brain_faction).map(|bits| {
+        (0..total_cells)
+            .map(|i| if FactionVisibility::get_bit(bits, i) { 1u8 } else { 0u8 })
+            .collect::<Vec<u8>>()
+    });
+    
+    snapshot.fog_explored = explored;
+    snapshot.fog_visible = visible;
+
     let json = serde_json::to_string(&snapshot).unwrap();
 
     // try_send is non-blocking. If the channel is full (previous request
@@ -92,14 +115,18 @@ pub(super) fn ai_trigger_system(
 /// hasn't responded yet, preventing the simulation from freezing
 /// when no Python AI is connected.
 pub(super) fn ai_poll_system(
+    config: Res<AiBridgeConfig>,
     channels: Res<AiBridgeChannels>,
     mut next_state: ResMut<NextState<SimState>>,
     mut latest_directive: ResMut<LatestDirective>,
     mut pending_reset: ResMut<crate::bridges::zmq_bridge::reset::PendingReset>,
     mut waiting_since: Local<Option<std::time::Instant>>,
+    training_mode: Res<crate::config::TrainingMode>,
 ) {
     // Track when we entered WaitingForAI
     let start = *waiting_since.get_or_insert_with(std::time::Instant::now);
+    // Use configured timeout (long for training, short for manual play)
+    let timeout = std::time::Duration::from_secs(config.zmq_timeout_secs);
 
     match channels.action_rx.lock().unwrap().try_recv() {
         Ok(reply_json) => {
@@ -113,10 +140,12 @@ pub(super) fn ai_poll_system(
             // Try new Batch format first
             if let Ok(batch) = serde_json::from_str::<BatchResponse>(&reply_json) {
                 if batch.msg_type == "macro_directives" {
-                    println!(
-                        "[AI Bridge] Received batch directives: {} directives (tick resume)",
-                        batch.directives.len()
-                    );
+                    if !training_mode.0 {
+                        println!(
+                            "[AI Bridge] Received batch directives: {} directives (tick resume)",
+                            batch.directives.len()
+                        );
+                    }
                     latest_directive.directives = batch.directives;
                     latest_directive.last_directive_json = Some(reply_json.clone());
                     *waiting_since = None;
@@ -138,7 +167,9 @@ pub(super) fn ai_poll_system(
                     removal_rules,
                     navigation_rules,
                 }) => {
-                    println!("[AI Bridge] Received reset_environment command (tick resume)");
+                    if !training_mode.0 {
+                        println!("[AI Bridge] Received reset_environment command (tick resume)");
+                    }
                     pending_reset.request = Some(crate::bridges::zmq_bridge::reset::ResetRequest {
                         terrain,
                         spawns,
@@ -169,8 +200,9 @@ pub(super) fn ai_poll_system(
             next_state.set(SimState::Running);
         }
         Err(mpsc::TryRecvError::Empty) => {
-            // Timeout: fall back to Running after 200ms to keep sim responsive
-            if start.elapsed() > std::time::Duration::from_millis(200) {
+            // Timeout: fall back to Running after zmq_timeout_secs to prevent hang
+            if start.elapsed() > timeout {
+                eprintln!("[AI Bridge] Timeout after {}s — falling back to Running", config.zmq_timeout_secs);
                 *waiting_since = None;
                 next_state.set(SimState::Running);
             }
@@ -218,6 +250,8 @@ mod tests {
         app.insert_resource(InterventionTracker::default());
         app.insert_resource(ActiveSubFactions::default());
         app.insert_resource(AggroMaskRegistry::default());
+        app.insert_resource(crate::config::FactionBuffs::default());
+        app.init_resource::<crate::config::BuffConfig>();
 
         app.add_systems(
             Update,
@@ -269,6 +303,8 @@ mod tests {
         app.insert_resource(InterventionTracker::default());
         app.insert_resource(ActiveSubFactions::default());
         app.insert_resource(AggroMaskRegistry::default());
+        app.insert_resource(crate::config::FactionBuffs::default());
+        app.init_resource::<crate::config::BuffConfig>();
 
         app.add_systems(
             Update,
@@ -307,8 +343,13 @@ mod tests {
             state_tx,
             action_rx: Mutex::new(action_rx),
         });
+        app.insert_resource(AiBridgeConfig {
+            send_interval_ticks: 30,
+            zmq_timeout_secs: 5,
+        });
         app.insert_resource(LatestDirective::default());
         app.insert_resource(crate::bridges::zmq_bridge::reset::PendingReset::default());
+        app.insert_resource(crate::config::TrainingMode(false));
 
         app.add_systems(
             Update,
@@ -386,8 +427,13 @@ mod tests {
             state_tx,
             action_rx: Mutex::new(action_rx),
         });
+        app.insert_resource(AiBridgeConfig {
+            send_interval_ticks: 30,
+            zmq_timeout_secs: 5,
+        });
         app.insert_resource(LatestDirective::default());
         app.insert_resource(crate::bridges::zmq_bridge::reset::PendingReset::default());
+        app.insert_resource(crate::config::TrainingMode(false));
 
         app.add_systems(
             Update,

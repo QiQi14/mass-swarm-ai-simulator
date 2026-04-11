@@ -78,6 +78,12 @@ function handleSyncDelta(msg) {
         }
     }
 
+    // Auto-detect arena bounds from entity positions on spawn events
+    // A spawn event = entity count jumps significantly (reset)
+    if (msg.moved && msg.moved.length > 10) {
+        autoDetectArenaBounds();
+    }
+
     if (msg.telemetry) {
         updatePerfBars(msg.telemetry);
     }
@@ -168,4 +174,34 @@ export function showToast(message, type = 'info') {
         toast.classList.remove('show');
         setTimeout(() => toast.remove(), 300);
     }, 2000);
+}
+
+/**
+ * Auto-detect arena bounds from current entity positions.
+ * Finds the bounding box, rounds up to nearest 100, and updates state.
+ */
+function autoDetectArenaBounds() {
+    if (S.entities.size < 2) return;
+
+    let maxX = 0, maxY = 0;
+    for (const ent of S.entities.values()) {
+        if (ent.x > maxX) maxX = ent.x;
+        if (ent.y > maxY) maxY = ent.y;
+    }
+
+    // Round up to nearest 100 (+ buffer for spread)
+    const w = Math.ceil((maxX + 50) / 100) * 100;
+    const h = Math.ceil((maxY + 50) / 100) * 100;
+
+    // Clamp to world bounds
+    const clampedW = Math.min(1000, Math.max(200, w));
+    const clampedH = Math.min(1000, Math.max(200, h));
+
+    S.setArenaBounds({ x: 0, y: 0, width: clampedW, height: clampedH });
+
+    // Update UI inputs
+    const wInput = document.getElementById('arena-width');
+    const hInput = document.getElementById('arena-height');
+    if (wInput) wInput.value = clampedW;
+    if (hInput) hInput.value = clampedH;
 }

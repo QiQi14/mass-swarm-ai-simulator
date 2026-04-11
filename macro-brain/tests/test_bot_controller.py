@@ -53,10 +53,7 @@ def test_hold_position_strategy():
     directive = controller.compute_directive(snapshot)
 
     assert directive == {
-        "directive": "Retreat",
-        "faction": 1,
-        "retreat_x": 100.0,
-        "retreat_y": 200.0
+        "directive": "Idle"
     }
 
 def test_adaptive_hysteresis():
@@ -147,10 +144,10 @@ def test_mixed_strategy():
     controller.configure(behavior, target_faction=0, starting_count=50, rng=FakeRng(1))
     # It should have chosen strategy 1 (HoldPosition)
     directive = controller.compute_directive(_make_snapshot({"1": 50}))
-    assert directive["directive"] == "Retreat"
+    assert directive["directive"] == "Idle"
 
 def test_builders():
-    assert _hold() == {"directive": "Hold"}
+    assert _hold() == {"directive": "Idle"}
     assert _update_nav(2, {"type": "Faction", "faction_id": 0}) == {
         "directive": "UpdateNavigation", "follower_faction": 2, "target": {"type": "Faction", "faction_id": 0}
     }
@@ -167,10 +164,10 @@ def test_get_faction_count():
 def test_fallback_hold():
     controller = BotController()
     # No configure call
-    assert controller.compute_directive({}) == {"directive": "Hold"}
+    assert controller.compute_directive({}) == {"directive": "Idle"}
 
     # Invalid strategy type
     strategy = MockBotStrategyDef("Unknown")
     behavior = MockBotStageBehaviorDef(faction_id=1, strategy=strategy)
     controller.configure(behavior, target_faction=0, starting_count=50)
-    assert controller.compute_directive({}) == {"directive": "Hold"}
+    assert controller.compute_directive({}) == {"directive": "Idle"}

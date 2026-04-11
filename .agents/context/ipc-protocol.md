@@ -1,128 +1,247 @@
-# IPC Protocol Reference
+# IPC Protocol Reference (v3.1)
 
-> **Audience:** Executor agents working on bridge code, message parsing, or serialization.
-> **Binding keyword:** `ipc`, `bridge`, `zmq`, `websocket`, `message`, `protocol`
+> **Audience:** Agents working on Python env, Rust bridge code, or training pipeline.
+> **Binding keywords:** `ipc`, `bridge`, `zmq`, `directive`, `snapshot`, `payload`, `protocol`
 
-## Message Envelope
+> [!IMPORTANT]
+> This document describes the CURRENT protocol. Legacy formats (team strings, FLANK_LEFT actions) 
+> are obsolete. See `features.md` for migration history.
 
-All IPC messages are JSON objects with a mandatory `"type"` field as the discriminator:
+---
 
-```json
-{
-  "type": "state_snapshot",
-  "tick": 1234,
-  "payload": { ... }
-}
+## 1. ZMQ Communication Model
+
+**Pattern:** REQ/REP over TCP (`tcp://127.0.0.1:5555`)
+
+```
+Python (REQ)                    Rust (REP)
+    |                               |
+    |--- macro_directives --------->|  (Python sends commands)
+    |                               |  Rust simulates N ticks
+    |<-- state_snapshot ------------|  (Rust sends new state)
+    |                               |
+    (repeat every ai_eval_interval_ticks)
 ```
 
-## Message Types
+- Python is the REQ client, Rust is the REP server
+- Each exchange: Python sends directives → Rust simulates → Rust replies with snapshot
+- Exchange rate: every `ai_eval_interval_ticks` (default: 30 ticks = 0.5 seconds at 60 TPS)
 
-### Rust → Python (ZMQ REQ)
+---
 
-| Type | Sent Every | Payload |
-|------|------------|---------|
-| `state_snapshot` | Every N ticks (configurable, default ~2 Hz) | Full or compressed state for RL inference |
+## 2. Reset Payload (Python → Rust)
 
-**State Snapshot Payload:**
+Sent once at the start of each episode to configure the Rust simulation:
+
 ```json
 {
-  "type": "state_snapshot",
-  "tick": 1234,
-  "world_size": { "w": 1000.0, "h": 1000.0 },
-  "entities": [
-    { "id": 1, "x": 150.3, "y": 200.1, "team": "swarm", "health": 0.85 },
-    { "id": 2, "x": 400.0, "y": 300.5, "team": "defender", "health": 1.0 }
+  "type": "reset",
+  "world_width": 500.0,
+  "world_height": 500.0,
+  "spawns": [
+    {
+      "faction_id": 0,
+      "count": 50,
+      "x": 80.0,
+      "y": 250.0,
+      "spread": 60.0,
+      "stats": [{ "index": 0, "value": 100.0 }]
+    },
+    {
+      "faction_id": 1,
+      "count": 50,
+      "x": 400.0,
+      "y": 80.0,
+      "spread": 50.0,
+      "stats": [{ "index": 0, "value": 200.0 }]
+    }
   ],
-  "summary": {
-    "swarm_count": 5000,
-    "defender_count": 200,
-    "avg_swarm_health": 0.72,
-    "avg_defender_health": 0.91
+  "interaction_rules": [
+    {
+      "source_faction": 0,
+      "target_faction": 1,
+      "range": 25.0,
+      "effects": [{ "stat_index": 0, "delta_per_second": -25.0 }]
+    }
+  ],
+  "removal_rules": [
+    { "stat_index": 0, "threshold": 0.0, "condition": "LessOrEqual" }
+  ],
+  "movement": {
+    "max_speed": 60.0,
+    "steering_factor": 5.0,
+    "separation_radius": 6.0,
+    "separation_weight": 1.5,
+    "flow_weight": 1.0
+  },
+  "terrain": {
+    "hard_costs": [100, 100, 65535, ...],
+    "soft_costs": [100, 40, 100, ...],
+    "width": 25,
+    "height": 25,
+    "cell_size": 20.0
+  },
+  "fog_enabled": true,
+  "abilities": {
+    "buff_cooldown_ticks": 180,
+    "movement_speed_stat": 1,
+    "combat_damage_stat": 2
   }
 }
 ```
 
-### Python → Rust (ZMQ REP)
+**Key fields:**
+- `spawns[].stats[]` — initial stat values per entity (index 0 = HP by convention)
+- `terrain` — optional, omitted for flat maps (defaults to all-100 costs)
+- `fog_enabled` — controls whether entities outside visibility are filtered from snapshot
 
-| Type | Description |
-|------|-------------|
-| `macro_action` | High-level strategic command for the swarm |
+---
 
-**Macro Action Payload:**
+## 3. Macro Directives (Python → Rust)
+
+Sent every eval interval. Contains directives for ALL factions (brain + bots):
+
 ```json
 {
-  "type": "macro_action",
-  "action": "FLANK_LEFT",
-  "params": { "intensity": 0.8 }
+  "type": "macro_directives",
+  "directives": [
+    {
+      "directive": "UpdateNavigation",
+      "follower_faction": 0,
+      "target": { "type": "Waypoint", "x": 300.0, "y": 200.0 }
+    },
+    { "directive": "Idle" },
+    { "directive": "Idle" }
+  ]
 }
 ```
 
-**Action Vocabulary (Phase 3):**
-- `HOLD` — Maintain current behavior
-- `TRIGGER_FRENZY` — All-out aggressive swarm push
-- `FLANK_LEFT` / `FLANK_RIGHT` — Redirect swarm flow field
-- `RETREAT` — Pull swarm back to spawn zone
-- `SURROUND` — Encircle defender positions
+### Directive Types
 
-### Rust → Browser (WebSocket, broadcast)
+| Directive | Fields | Description |
+|-----------|--------|-------------|
+| `Idle` | — | No-op (faction continues current behavior) |
+| `UpdateNavigation` | `follower_faction`, `target` | Set/update navigation (flow field recompute) |
+| `Hold` | `faction_id` | Remove navigation rule (stop movement) |
+| `ActivateBuff` | `faction`, `modifiers[]`, `duration_ticks`, `targets` | Apply stat modifiers to a faction |
+| `Retreat` | `faction`, `retreat_x`, `retreat_y` | Navigate to retreat waypoint |
+| `SetZoneModifier` | `target_faction`, `x`, `y`, `radius`, `cost_modifier` | Pheromone (negative) or repellent (positive) |
+| `SplitFaction` | `source_faction`, `new_sub_faction`, `percentage`, `epicenter` | Split N% of faction's entities into new sub-faction |
+| `MergeFaction` | `source_faction`, `target_faction` | Merge sub-faction back into parent |
+| `SetAggroMask` | `source_faction`, `target_faction`, `allow_combat` | Enable/disable combat between faction pair |
 
-| Type | Description |
-|------|-------------|
-| `delta_update` | Entities that changed since last broadcast |
-| `full_sync` | Complete state dump (sent on initial connection) |
+### Navigation Target Types
 
-**Delta Update Payload:**
+```json
+{ "type": "Waypoint", "x": 300.0, "y": 200.0 }
+{ "type": "Faction", "faction_id": 1 }
+```
+
+### Zone Modifier Details
+
+```json
+{
+  "directive": "SetZoneModifier",
+  "target_faction": 0,
+  "x": 200.0, "y": 300.0,
+  "radius": 60.0,
+  "cost_modifier": -50
+}
+```
+- Negative = pheromone (attract), positive = repellent (repel)
+- Duration is hardcoded at 120 ticks (~2 seconds)
+
+---
+
+## 4. State Snapshot (Rust → Python)
+
+Returned after each directive exchange:
+
+```json
+{
+  "type": "state_snapshot",
+  "tick": 1234,
+  "summary": {
+    "faction_counts": { "0": 48, "1": 45, "2": 18 },
+    "faction_centroids": {
+      "0": [150.3, 200.1],
+      "1": [400.0, 80.0]
+    }
+  },
+  "density_maps": {
+    "0": [0.0, 0.02, 0.15, ...],
+    "1": [0.0, 0.0, 0.5, ...],
+    "2": [0.0, 0.0, 0.0, ...]
+  },
+  "fog_explored": [1.0, 1.0, 0.0, ...],
+  "fog_visible": [1.0, 0.0, 0.0, ...]
+}
+```
+
+**Key fields:**
+- `faction_counts` — integer count of alive entities per faction
+- `density_maps` — normalized heatmaps per faction (grid cells), 0.0–1.0
+- `fog_explored` — binary grid: 1.0 = cell has been explored, 0.0 = never seen
+- `fog_visible` — binary grid: 1.0 = cell is currently visible, 0.0 = fog
+
+> [!NOTE]
+> When `fog_enabled: true`, density maps for enemy factions are **masked by fog_visible**.
+> Cells not currently visible show 0.0 density even if enemies are there.
+> Python uses `LKPBuffer` to remember last-known positions from previously visible cells.
+
+---
+
+## 5. WebSocket Protocol (Rust ↔ Browser)
+
+### Delta Sync (Rust → Browser)
+
 ```json
 {
   "type": "delta_update",
   "tick": 1235,
-  "spawned": [
-    { "id": 501, "x": 10.0, "y": 20.0, "team": "swarm", "health": 1.0 }
-  ],
-  "moved": [
-    { "id": 1, "x": 151.0, "y": 201.0 }
-  ],
+  "spawned": [{ "id": 501, "x": 10.0, "y": 20.0, "faction": 0, "stats": [100.0] }],
+  "moved": [{ "id": 1, "x": 151.0, "y": 201.0 }],
   "died": [42, 99, 107]
 }
 ```
 
-### Browser → Rust (WebSocket, command)
+### Commands (Browser → Rust)
 
-| Type | Description |
-|------|-------------|
-| `command` | User-initiated control action |
-
-**Command Payload:**
 ```json
-{
-  "type": "command",
-  "cmd": "spawn_wave",
-  "params": { "team": "swarm", "amount": 500, "x": 100.0, "y": 100.0 }
-}
+{ "type": "command", "cmd": "spawn_wave", "params": { "faction": 0, "amount": 500, "x": 100.0, "y": 100.0 } }
+{ "type": "command", "cmd": "pause" }
+{ "type": "command", "cmd": "resume" }
+{ "type": "command", "cmd": "set_speed", "params": { "multiplier": 2.0 } }
 ```
 
-**Commands (Phase 1):**
-- `spawn_wave` — Spawn a group of entities at a position
-- `pause` / `resume` — Toggle simulation tick loop
-- `set_speed` — Change simulation speed multiplier (e.g., `{ "multiplier": 2.0 }`)
-- `kill_all` — Remove all entities of a given team
+---
 
-## Data Types
+## 6. Python Action → Directive Mapping
 
-| Field | Type | Notes |
-|-------|------|-------|
-| `id` | `u32` | Globally unique within a session |
-| `x`, `y` | `f32` | Origin top-left `(0,0)`, positive Y = down |
-| `health` | `f32` | Normalized `0.0` to `1.0` |
-| `team` | `string` | `"swarm"` or `"defender"` |
-| `tick` | `u64` | Monotonically increasing simulation tick counter |
+**File:** `macro-brain/src/env/actions.py`
 
-## Serialization Roadmap
+The Python env produces a `MultiDiscrete([8, 2500])` action. The first element selects the action type, the second is a flattened spatial coordinate `(x * grid_w + y)`.
 
-| Phase | Format | Library |
-|-------|--------|---------|
-| Phase 1–3 | JSON | `serde_json` (Rust), `json` (Python), native (JS) |
-| Phase 4 | Bincode or MessagePack | `bincode` / `rmp-serde` (Rust), `msgpack` (Python) |
+| Action Index | Name | Directive(s) Produced |
+|-------------|------|-----------------------|
+| 0 | Hold | `Idle` |
+| 1 | AttackCoord | `UpdateNavigation(Waypoint)` |
+| 2 | DropPheromone | `SetZoneModifier(cost=-50)` |
+| 3 | DropRepellent | `SetZoneModifier(cost=+200)` |
+| 4 | SplitToCoord | `SplitFaction(30%)` + `UpdateNavigation` |
+| 5 | MergeBack | `MergeFaction` |
+| 6 | Retreat | `Retreat(x, y)` |
+| 7 | Scout | `SplitFaction(10%)` + `UpdateNavigation` |
 
-> [!NOTE]
-> JSON is used during prototype phases for debuggability — messages can be inspected in browser DevTools and Python REPL. Binary formats are introduced in Phase 4 strictly for throughput at 10K+ entities.
+### Action Unlock Schedule (Curriculum)
+
+| Stage | New Actions Unlocked |
+|-------|---------------------|
+| 0 | Hold, AttackCoord |
+| 2 | DropPheromone |
+| 3 | DropRepellent |
+| 4 | Scout |
+| 5 | SplitToCoord, MergeBack |
+| 6 | Retreat |
+
+Locked actions are masked out via `action_masks()` — the policy cannot select them.

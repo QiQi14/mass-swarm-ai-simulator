@@ -62,4 +62,17 @@ def create_run(
     # Snapshot the profile (reproducibility)
     shutil.copy2(profile_path, config.profile_snapshot_path)
 
+    # Create/update run_latest symlink
+    latest_symlink = Path(runs_dir) / "run_latest"
+    if latest_symlink.is_symlink() or latest_symlink.exists():
+        latest_symlink.unlink()
+    
+    # Use relative symlink so it's portable
+    # Note: Path.symlink_to() behaves differently on Windows vs Unix. This is unix-focused.
+    try:
+        latest_symlink.symlink_to(run_id, target_is_directory=True)
+    except OSError:
+        # Fallback for systems that don't support symlinks without admin
+        pass
+
     return config

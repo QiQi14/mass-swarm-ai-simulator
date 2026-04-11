@@ -1,8 +1,8 @@
 # Mass-Swarm AI Simulator — Training Status
 
-> **Last Updated:** 2026-04-08  
-> **Phase:** 3.5 Complete → Ready for Training  
-> **Codebase Health:** ✅ Rust 195 tests · Python 63 tests · 0 warnings
+> **Last Updated:** 2026-04-10 (22:00 local)
+> **Phase:** Tactical Training Curriculum v3.1 — Stage 1 (Target Selection)
+> **Codebase Health:** ✅ 181 Rust tests · 51+ Python tests · 0 warnings
 
 ---
 
@@ -19,169 +19,131 @@
 │  - 60 TPS physics, 10K+ entities                         │
 │  - Flow Fields, Boids, Terrain, Fog of War               │
 │  - Directive Executor (8-action vocabulary)               │
-│  - 3-Tier Terrain (Passable/Destructible/Permanent)      │
+│  - Fog-of-war grids in ZMQ state snapshot                │
+│  - Buff system: damage + speed multipliers               │
+│  - Terrain: hard_costs (pathfinding) + soft_costs (speed)│
 └───────────────────────┬─────────────────────────────────┘
-                        │ ZMQ REQ/REP (2 Hz)
+                        │ ZMQ REQ/REP (every 30 ticks)
 ┌───────────────────────┴─────────────────────────────────┐
 │                Macro-Brain (Python/SB3)                   │
-│  - MaskablePPO + 5-Stage Curriculum                      │
-│  - 50×50 density heatmaps (OGM)                          │
-│  - Terrain generator (BFS-verified)                      │
-│  - Exploit-proof zero-sum reward function                │
+│  - MaskablePPO + MultiDiscrete([8, 2500])                │
+│  - TacticalExtractor (CNN+MLP feature extractor)         │
+│  - 8-channel 50×50 observation tensor (fixed shape)      │
+│  - LKP fog-of-war memory buffer                          │
+│  - 9-stage tactical curriculum (0-8)                     │
+│  - Bot controller (Python-side heuristic AI for enemies) │
 └─────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Completed Phases
+## Current Model Configuration
 
-### Phase 1: Micro-Core (Rust ECS)
-- ✅ Bevy 0.18 headless 60 TPS loop
-- ✅ Fibonacci spiral spawning
-- ✅ Spatial hash grid + Boids separation
-- ✅ Flow field pathfinding (Dijkstra)
-- ✅ Terrain grid (dual hard/soft costs)
-- ✅ Fog of War (bit-packed, wall-aware)
-- ✅ Combat interaction system
-
-### Phase 2: IPC & Visualization
-- ✅ WebSocket server (real-time state stream)
-- ✅ Debug visualizer (HTML/Canvas)
-- ✅ ZMQ REQ/REP AI bridge
-
-### Phase 3: Multi-Master Arbitration & RL
-- ✅ `MacroDirective` — 8-action vocabulary (Hold, UpdateNav, Frenzy, Retreat, ZoneModifier, SplitFaction, MergeFaction, AggroMask)
-- ✅ `NavigationTarget` enum (Faction chasing / Waypoint)
-- ✅ `AiResponse` envelope (Directive vs ResetEnvironment)
-- ✅ Directive Executor system (Vaporization Guard, Moses Effect, Ghost State Cleanup)
-- ✅ Engine Override system (Tier 1 authority)
-- ✅ State Vectorizer (50×50 density heatmaps per faction)
-- ✅ `SwarmEnv` (Gymnasium-compatible, 13 safety tests)
-- ✅ `MaskablePPO` training with `sb3-contrib`
-- ✅ Phase 3 Safety Patches implemented
-
-### Phase 3.5: Training Pipeline Readiness
-- ✅ **Python BotController:** Extracted bot strategy logic into Python.
-- ✅ **ZMQ Batch Protocol:** Implemented `Vec<MacroDirective>` handling for mult-agent AI directive commands.
-- ✅ **GameProfile Validator CLI:** Protect constraints.
-- ✅ **Run Manager:** Centralized tracking of runs (`runs/`).
-- ✅ **Launch Script (`train.sh`):** Automates pipeline.
-- ✅ **5-Stage Curriculum:** 50v50 increments incorporating fully random procedural logic and mixed heuristics.
-
----
-
-## 5-Stage Curriculum Design
-
-| Stage | Map | Bot Behavior | Actions Unlocked | Graduation Condition |
-|-------|-----|-------------|------------------|---------------------|
-| **1** | Flat 1000×1000 | **Charge** — straight rush at brain | Hold, Navigate, ActivateBuff (0-2) | WR ≥ 80%, avg survivors ≥ 10.0, 100 eps |
-| **2** | Flat 1000×1000 | **Charge** — scattered 2-3 groups | +Retreat (0-3) | WR ≥ 85%, avg survivors ≥ 15.0, Retreat ≥ 5%, 100 eps |
-| **3** | Simple (1-2 walls) | **HoldPosition** — defends near spawn | +ZoneModifier, +SplitFaction (0-5) | WR ≥ 75%, Split ≥ 5%, avg_flanking_score_min: 0.0, 150 eps |
-| **4** | Complex (procedural) | **Adaptive** — retreats when losing, pushes when winning | +MergeFaction, +SetAggroMask (0-7) | WR ≥ 80%, timeout ≤ 5%, 250 eps |
-| **5** | Complex (procedural) | **Mixed** — random strategy each episode from pool | All 8 | WR ≥ 85%, timeout ≤ 5%, 300 eps |
-
-### Bot Behavior System
-The bot uses distinct strategies based on the current curriculum stage:
-- **Charge**: Always navigates toward the enemy faction.
-- **HoldPosition**: Retreats to a fixed defensive waypoint.
-- **Adaptive**: Charges when healthy, retreats to a designated area when health fraction falls below a configured threshold. Employs hysteresis mode-locking to prevent combat jitter/oscillation.
-- **Mixed**: Selects a behavior randomly from a configuration pool per episode to encourage the agent to deduce winning strategies rather than memorizing a single counter-strategy.
-
----
-
-## Training Configuration
-
-### Hyperparameters
 | Parameter | Value |
 |-----------|-------|
-| Algorithm | `MaskablePPO` (sb3-contrib) |
-| Policy | `MultiInputPolicy` (Dict obs) |
-| Observation | 5×50×50 grids + 6-dim summary |
-| Actions | `Discrete(8)` |
-| AI Frequency | 2 Hz (every 30 ticks) |
-| Max Steps | 500 per episode (increased for dynamic exploration) |
-| Entities | 50 vs 50 (100 total entities) |
+| **Algorithm** | `MaskablePPO` (sb3-contrib) |
+| **Policy** | `MultiInputPolicy` + `TacticalExtractor` |
+| **Action Space** | `MultiDiscrete([8, 2500])` — 8 action types × 50×50 flattened grid |
+| **Observation** | Dict: 8 × `Box(50,50)` + `Box(12)` |
+| **Feature Extractor** | CNN(8×50×50→128) + MLP(12→64) → 256-dim embedding |
+| **Learning Rate** | 3e-4 |
+| **Batch Size** | 64 |
+| **Steps/Update** | 2048 |
+| **Epochs** | 10 |
+| **Profile** | `profiles/tactical_curriculum.json` |
 
 ---
 
-## Reward Calculation
+## 8-Action Vocabulary
 
-The reward function leverages an **exploit-proof zero-sum implementation**. All per-step combat evaluations rely cleanly on tracking entity elimination and time survival, directly incentivizing aggressive victory conditions over point farming.
+| Idx | Action | Unlock Stage | Coords? | Description |
+|:---:|--------|:---:|:---:|-------------|
+| 0 | Hold | 0 | ❌ | Stop, hold position |
+| 1 | AttackCoord | 0 | ✅ | Move main force to grid coordinate |
+| 2 | DropPheromone | 2 | ✅ | Attract zone (flow field cost -50) |
+| 3 | DropRepellent | 3 | ✅ | Repel zone (flow field cost +200) |
+| 4 | SplitToCoord | 5 | ✅ | Detach 30% flanking group |
+| 5 | MergeBack | 5 | ❌ | Recombine split group |
+| 6 | Retreat | 6 | ✅ | Tactical withdrawal to coordinate |
+| 7 | Scout | 4 | ✅ | Detach 10% recon group |
 
-### Formula
-```text
-reward = time_penalty + kill_trading + terminal_bonus + survival_bonus
-```
-
-### Components
-
-Calculated per evaluating interval (`curr` - `prev_snapshot`):
-
-| # | Component | Factor/Value | Signal Logic |
-|---|-----------|--------|--------|
-| 1 | **Time penalty** | `-0.01` per step | Applied every evaluation loop strictly to incentivize swift action and punish coward/idle behaviors. |
-| 2 | **Kill trading** | `+0.05` per killed, `-0.03` per dead| Raw numeric advantage calculation leveraging `enemies_killed` vs `own_lost`. |
-| 3 | **Terminal Condition** | `+10.0` or `-10.0` | Emitted conditionally on total enemy wipeout or total friendly loss respectively to firmly end gradients. |
-| 4 | **Survival bonus** | `+5.0` multiplier | Factors remaining survivor proportion (`curr_own / starting_entities`) onto the `Terminal: Win` completion to restrict pyrrhic sacrifices. |
-
-*(Note: Prior heuristic flanking formulas are available in `rewards.py` contextually, but active simulation profiles rely purely on zero-sum structures for reliable baseline behavior).*
+> **Design Principle — "The General":** Every action is an atomic primitive.
+> Complex tactics (flank, lure, retreat-and-ambush) must emerge from the model composing primitives.
+> See `conventions.md` for full rules.
 
 ---
 
-## How to Train
+## 9-Stage Curriculum (0-8)
 
-Run the automated bootstrapping launch script for single-command orchestration:
+| Stage | Name | World | Grid | Fog? | New Actions | Key Lesson | Grad WR |
+|:---:|------|:---:|:---:|:---:|:---:|---|:---:|
+| 0 | 1v1 Navigation | 400² | 20² | ❌ | Hold, AttackCoord | Navigate to single target | 85% |
+| 1 | Target Selection | 500² | 25² | ❌ | — | Pick weak target over strong trap | 80% |
+| 2 | Pheromone Path | 600² | 30² | ❌ | DropPheromone | Route through safe path via attract | 80% |
+| 3 | Repellent Field | 600² | 30² | ❌ | DropRepellent | Push swarm away from danger zones | 80% |
+| 4 | Fog Scouting | 800² | 40² | ✅ | Scout | Find hidden targets with recon | 80% |
+| 5 | Flanking | 1000² | 50² | ✅ | Split, Merge | Pincer attack from two angles | 80% |
+| 6 | Full Tactics | 1000² | 50² | ✅ | Retreat | All 8 actions, combine primitives | 80% |
+| 7 | Protected Target | 1000² | 50² | ✅ | — | Full tactics vs guarded HVT | 75% |
+| 8 | Randomized | varies | varies | varies | — | Generalize across all scenarios | 80% |
 
-```bash
-./train.sh --profile profiles/default_swarm_combat.json --timesteps 500000 --curriculum
-```
+### Key Technical Details
 
-This sequence:
-1. Validates the profile parameters.
-2. Auto-builds the Rust Micro-Core binary and launches it detached on port `5555`.
-3. Creates a unique, timestamped `runs/` tracking directory.
-4. Triggers Python iterative RL training.
-
-### Output Locations
-| Artifact | Path | Purpose |
-|----------|------|---------|
-| Runs Base | `runs/run_<timestamp>_<uuid>/`| Contains all generated artifacts isolated per training launch. |
-| Checkpoints | `runs/.../checkpoints/` | Periodic model weight snapshots. |
-| TensorBoard | `runs/.../tb_logs/` | Real-time reward curves, loss, logic stats. |
-| Artifacts | `runs/.../profile_snapshot.json`| Locked copy of initialized configurations to audit parameters. |
-
----
-
-## Training Runs
-
-| # | Date | Timesteps | Curriculum | Notes | Status |
-|---|------|-----------|------------|-------|--------|
-| — | — | — | — | *No completed training runs yet* | — |
-
-> **Instructions:** After each training run, add a row with the run details and key metrics (mean reward, episode length, stage promotions).
+- **Fog schedule:** OFF for stages 0-3, ON from stage 4+
+- **Fixed tensor shape:** Observation always 50×50. Smaller maps center-padded with zeros.
+- **Flattened coordinates:** `MultiDiscrete([8, 2500])` — single spatial index preserves 2D coherence.
+- **LKP Memory:** Feed-forward PPO has no temporal memory. LKP buffer decays last-known enemy density at −0.02/tick under fog.
+- **Debuff mechanic (stage 1):** Killing target first → trap DPS × 0.25 + trap enrages (charges brain). Brain CANNOT brute-force the trap.
+- **Terrain costs:** Default = 100. Mud = 40 (soft_cost). Danger zones = 300 (hard_cost). Walls = 65535 (impassable).
 
 ---
 
-## Safety Patches (All Active)
+## Reward Components
 
-| # | Name | Protection |
-|---|------|-----------|
-| P1 | Vaporization Guard | `directive.take()` — consumed once per tick |
-| P2 | Moses Effect | `u16::MAX` tiles immune to cost modifiers |
-| P3 | Ghost State Cleanup | MergeFaction purges zones + buffs + aggro |
-| P4 | f32 Sort Panic | `select_nth_unstable_by` with `partial_cmp` |
-| P5 | Pacifist Flank Block | Distance cutoff + attenuation on flanking bonus |
-| P6 | Dynamic Epicenter | SplitFaction uses density centroid, not hardcoded |
-| P7 | Sub-Faction Desync | Read `active_sub_factions` from Rust snapshot |
-| P8 | ZMQ Deadlock Guard | Timeout → truncate episode; tick swallowing |
+| # | Component | Value | Stages |
+|---|-----------|-------|:---:|
+| 1 | Time penalty | −0.01 / step | All |
+| 2 | Kill reward | +0.05 per kill | All |
+| 3 | Death penalty | −0.03 per death | All |
+| 4 | Win terminal | +10.0 | All |
+| 5 | Loss terminal | −10.0 | All |
+| 6 | Survival bonus | +5.0 × (survivors/starting) | All |
+| 7 | Approach | +0.02 × dist_closed | All |
+| 8 | Exploration | +0.005 × new_cells (decay@80%) | 4+ (fog stages) |
+| 9 | Threat priority | +2.0 weaker group first | 1+ |
+| 10 | Flanking geometry | +0.1 × angle_score | 5+ |
+| 11 | Debuff bonus | +2.0 (target killed before trap) | 1+ |
+
+**Gradient:** Tactical Win (+18..+22) ≫ Brute Force (+8..+12) > Loss (−11..−13) ≈ Timeout
 
 ---
 
-## Test Health
+## Training History
 
-| Suite | Count | Command |
-|-------|-------|---------|
-| Rust unit/integration | 195 | `cd micro-core && cargo test` |
-| Python unit | 63 | `cd macro-brain && python -m pytest tests/ -v` |
-| Smoke test | — | `./train.sh --timesteps 0` |
-| Full dev stack | — | `./dev.sh` |
+| Date | Event |
+|------|-------|
+| 2026-04-08 | Old `Discrete(3)` Stage 1 — oscillation bug discovered |
+| 2026-04-10 | Tactical curriculum v3 deployed — 11 tasks complete |
+| 2026-04-10 | Stage 0 graduated (85% WR in 30 episodes) |
+| 2026-04-10 | Stage 1 initial run: 0% WR — spatial bug (trap/target too close) |
+| 2026-04-10 | Stage 1 fix 1: separated trap/target by 340+ units |
+| 2026-04-10 | Stage 1 fix 2: debuff was no-oping on HP (only damage matters) |
+| 2026-04-10 | Stage 1 fix 3: trap charges brain after debuff (no retargeting needed) |
+| 2026-04-10 | Stages 2-3 implemented: Pheromone Path + Repellent Field terrain generators |
+| 2026-04-10 | Stage 1 training in progress (run_20260410_212655), first WIN at episode 9 |
+
+---
+
+## Key Files
+
+| File | Purpose |
+|------|---------|
+| `profiles/tactical_curriculum.json` | Master game profile (factions, combat, rewards, stages) |
+| `macro-brain/src/training/curriculum.py` | Stage configs, spawn generators, terrain generators |
+| `macro-brain/src/env/swarm_env.py` | Gymnasium env, action masking, debuff logic |
+| `macro-brain/src/env/bot_controller.py` | Bot AI (HoldPosition, Charge, Patrol, debuff-aware) |
+| `macro-brain/src/training/train.py` | Training entrypoint (--load-checkpoint, --start-stage) |
+| `train.sh` | Shell wrapper for starting training runs |
+
+> **For deep engine mechanics:** See `.agents/context/engine-mechanics.md`
+> **For curriculum design details:** See `.agents/context/training-curriculum.md`

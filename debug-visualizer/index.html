@@ -110,6 +110,14 @@
                         <span class="stat-label">Intervention</span>
                         <span id="ml-intervention" class="stat-value mono">—</span>
                     </div>
+                    <div class="stat-box full-width" id="train-status-container" style="display: none; border-top: 1px solid var(--border-color); padding-top: 8px; margin-top: 4px;">
+                        <span class="stat-label" style="margin-bottom: 4px; display: block; color: var(--text-dim);">Training (Stage <span id="train-stage">1</span>)</span>
+                        <div style="display: flex; justify-content: space-between;">
+                            <div><span class="stat-label">Ep:</span> <span id="train-ep" class="stat-value mono">0</span></div>
+                            <div><span class="stat-label">WR:</span> <span id="train-wr" class="stat-value mono">0%</span></div>
+                            <div><span class="stat-label">Streak:</span> <span id="train-streak" class="stat-value mono">0</span></div>
+                        </div>
+                    </div>
                     <div class="stat-box full-width">
                         <span class="stat-label">Last Directive</span>
                         <span id="ml-last-directive" class="stat-value mono small">—</span>
@@ -366,6 +374,19 @@
                     </label>
                     <div id="fog-toggles-container">
                         <!-- Populated dynamically -->
+                    </div>
+                    <label class="toggle-control">
+                        <input type="checkbox" id="toggle-arena-bounds" checked>
+                        <span class="control-indicator"></span>
+                        <span class="control-label">Arena Bounds</span>
+                    </label>
+                    <div id="arena-bounds-controls" class="spawn-controls" style="margin-top: 4px; padding-left: 4px;">
+                        <div class="spawn-row">
+                            <label class="spawn-label" style="font-size: 0.75em;">Size</label>
+                            <input type="number" id="arena-width" class="input-field compact" value="400" min="100" max="1000" step="100">
+                            <span style="color: var(--text-dim); font-size: 0.8em;">×</span>
+                            <input type="number" id="arena-height" class="input-field compact" value="400" min="100" max="1000" step="100">
+                        </div>
                     </div>
                 </div>
             </section>

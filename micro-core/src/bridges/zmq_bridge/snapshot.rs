@@ -14,9 +14,9 @@ use crate::bridges::zmq_protocol::{
 use crate::components::{EntityId, FactionId, Position, StatBlock};
 use crate::config::{
     ActiveSubFactions, ActiveZoneModifiers, AggroMaskRegistry, InterventionTracker,
-    SimulationConfig, TickCounter,
+    SimulationConfig, TickCounter, FactionBuffs, BuffConfig,
 };
-use crate::systems::state_vectorizer::{DEFAULT_MAX_DENSITY, build_density_maps};
+use crate::systems::state_vectorizer::{DEFAULT_MAX_DENSITY, build_density_maps, build_ecp_density_maps};
 use crate::terrain::TerrainGrid;
 use crate::visibility::FactionVisibility;
 
@@ -50,6 +50,8 @@ pub(super) fn build_state_snapshot(
     intervention: &InterventionTracker,
     sub_factions: &ActiveSubFactions,
     aggro: &AggroMaskRegistry,
+    combat_buffs: &FactionBuffs,
+    buff_config: &BuffConfig,
 ) -> StateSnapshot {
     let mut faction_counts = std::collections::HashMap::new();
     let mut faction_sum_stats: std::collections::HashMap<u32, Vec<f32>> =
@@ -58,6 +60,7 @@ pub(super) fn build_state_snapshot(
 
     // Collect ALL entity positions for density map computation (unfiltered)
     let mut all_entity_positions: Vec<(f32, f32, u32)> = Vec::new();
+    let mut all_entity_ecp: Vec<(f32, f32, u32, f32, f32)> = Vec::new();
 
     let vis_grid = visibility.visible.get(&brain_faction);
     let exp_grid = visibility.explored.get(&brain_faction);
@@ -76,6 +79,12 @@ pub(super) fn build_state_snapshot(
         // Density maps use ALL entities (not fog-filtered) so the brain
         // has complete spatial awareness of its own forces
         all_entity_positions.push((pos.x, pos.y, faction.0));
+        
+        let hp = stat_block.0[0];
+        let damage_mult = buff_config.combat_damage_stat
+            .map(|stat_idx| combat_buffs.get_multiplier(faction.0, eid.id, stat_idx))
+            .unwrap_or(1.0);
+        all_entity_ecp.push((pos.x, pos.y, faction.0, hp, damage_mult));
 
         // Entity list is fog-filtered: own faction always visible, enemies only if in visible cells
         let mut is_visible = false;
@@ -126,6 +135,14 @@ pub(super) fn build_state_snapshot(
         DEFAULT_MAX_DENSITY,
     );
 
+    let ecp_density_maps = build_ecp_density_maps(
+        &all_entity_ecp,
+        terrain.width,
+        terrain.height,
+        terrain.cell_size,
+        DEFAULT_MAX_DENSITY * 100.0, // Assuming 100 max HP
+    );
+
     // Zone modifier snapshots for observation feedback
     let active_zones: Vec<ZoneModifierSnapshot> = zones
         .zones
@@ -161,12 +178,15 @@ pub(super) fn build_state_snapshot(
         },
         explored: exp_grid.cloned(),
         visible: vis_grid.cloned(),
+        fog_explored: None,
+        fog_visible: None,
         terrain_hard: terrain.hard_costs.clone(),
         terrain_soft: terrain.soft_costs.clone(),
         terrain_grid_w: terrain.width,
         terrain_grid_h: terrain.height,
         terrain_cell_size: terrain.cell_size,
         density_maps,
+        ecp_density_maps,
         intervention_active: intervention.active,
         active_zones,
         active_sub_factions: sub_factions.factions.clone(),
@@ -192,6 +212,8 @@ mod tests {
         intervention: Res<InterventionTracker>,
         sub_factions: Res<ActiveSubFactions>,
         aggro: Res<AggroMaskRegistry>,
+        combat_buffs: Res<FactionBuffs>,
+        buff_config: Res<BuffConfig>,
         query: Query<(&EntityId, &Position, &FactionId, &StatBlock)>,
         mut captured: ResMut<CapturedSnapshot>,
     ) {
@@ -206,6 +228,8 @@ mod tests {
             &intervention,
             &sub_factions,
             &aggro,
+            &combat_buffs,
+            &buff_config,
         ));
     }
 
@@ -220,6 +244,8 @@ mod tests {
         app.insert_resource(InterventionTracker::default());
         app.insert_resource(ActiveSubFactions::default());
         app.insert_resource(AggroMaskRegistry::default());
+        app.insert_resource(FactionBuffs::default());
+        app.init_resource::<BuffConfig>();
         app.insert_resource(CapturedSnapshot(None));
         app.add_systems(Update, capture_snapshot_system);
         app

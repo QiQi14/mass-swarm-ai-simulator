@@ -2,7 +2,7 @@
 // Initializes all modules and starts the render loop.
 
 import * as S from './state.js';
-import { initCanvases, resizeCanvas, drawEntities, drawFog, drawBackground } from './draw/index.js';
+import { initCanvases, resizeCanvas, drawEntities, drawFog, drawBackground, drawArenaBounds } from './draw/index.js';
 import { connectWebSocket, sendCommand } from './websocket.js';
 import { initControls } from './controls/index.js';
 import { updateInspectorPanel, startTelemetryLoop } from './panels/index.js';
@@ -25,6 +25,8 @@ S.setShowVelocity(document.getElementById("toggle-velocity").checked);
 S.setShowDensityHeatmap(document.getElementById("toggle-density-heatmap").checked);
 S.setShowZoneModifiers(document.getElementById("toggle-zone-modifiers").checked);
 S.setShowOverrideMarkers(document.getElementById("toggle-override-markers").checked);
+const arenaToggle = document.getElementById("toggle-arena-bounds");
+if (arenaToggle) S.setShowArenaBounds(arenaToggle.checked);
 
 // ── Wire Events ─────────────────────────────────────────────────────
 
@@ -45,6 +47,8 @@ function renderFrame() {
     if (S.showFog) {
         drawFog();
     }
+
+    drawArenaBounds(ctx);
 
     updateInspectorPanel();
 

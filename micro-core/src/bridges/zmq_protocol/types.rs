@@ -57,6 +57,20 @@ pub struct StateSnapshot {
     pub summary: SummarySnapshot,
     pub explored: Option<Vec<u32>>,
     pub visible: Option<Vec<u32>>,
+
+    /// Fog-of-war explored grid for the brain faction.
+    /// Flattened row-major (grid_h * grid_w). 
+    /// Values: 0 = unexplored, 1 = explored.
+    /// None when fog of war is disabled.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fog_explored: Option<Vec<u8>>,
+
+    /// Fog-of-war currently-visible grid for the brain faction.
+    /// Flattened row-major. Values: 0 = hidden, 1 = visible now.
+    /// None when fog of war is disabled.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fog_visible: Option<Vec<u8>>,
+
     #[serde(default)]
     pub terrain_hard: Vec<u16>,
     #[serde(default)]
@@ -69,6 +83,9 @@ pub struct StateSnapshot {
     pub terrain_cell_size: f32,
     #[serde(default)]
     pub density_maps: std::collections::HashMap<u32, Vec<f32>>,
+    /// Effective Combat Power density maps (HP * Damage Mult)
+    #[serde(default)]
+    pub ecp_density_maps: std::collections::HashMap<u32, Vec<f32>>,
     #[serde(default)]
     pub intervention_active: bool,
     #[serde(default)]
@@ -109,12 +126,15 @@ mod tests {
             },
             explored: Some(vec![1, 2, 3]),
             visible: Some(vec![4, 5, 6]),
+            fog_explored: Some(vec![1, 0, 1]),
+            fog_visible: Some(vec![0, 1, 0]),
             terrain_hard: vec![100],
             terrain_soft: vec![100],
             terrain_grid_w: 1,
             terrain_grid_h: 1,
             terrain_cell_size: 20.0,
             density_maps: std::collections::HashMap::new(),
+            ecp_density_maps: std::collections::HashMap::new(),
             intervention_active: false,
             active_zones: vec![ZoneModifierSnapshot {
                 target_faction: 0,
@@ -153,12 +173,15 @@ mod tests {
             },
             explored: None,
             visible: None,
+            fog_explored: None,
+            fog_visible: None,
             terrain_hard: vec![],
             terrain_soft: vec![],
             terrain_grid_w: 0,
             terrain_grid_h: 0,
             terrain_cell_size: 0.0,
             density_maps: std::collections::HashMap::new(),
+            ecp_density_maps: std::collections::HashMap::new(),
             intervention_active: false,
             active_zones: vec![],
             active_sub_factions: vec![],
