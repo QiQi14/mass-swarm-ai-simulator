@@ -121,21 +121,29 @@ def _spawns_stage1(rng: Generator | None = None, profile: GameProfile | None = N
     trap_count = 50
     target_count = 50
 
-    # Positions: trap and target on opposite corners of the right side
-    # This guarantees ≥300 unit separation so brain can reach target
-    # without clipping the trap's 25-unit combat range.
-    top_right = (400.0, 80.0)    # corner positions on right half
-    bot_right = (400.0, 420.0)
-
-    if rng is not None and rng.random() > 0.5:
-        trap_pos, target_pos = top_right, bot_right
+    # Positions: randomize Y so the model CANNOT memorize a fixed corner.
+    # Both groups spawn on the right side (x ~ 350-450) but at random Y
+    # coordinates, with a minimum 200-unit vertical separation to prevent
+    # overlapping combat ranges.
+    if rng is not None:
+        trap_x = 350.0 + rng.random() * 100.0   # 350–450
+        target_x = 350.0 + rng.random() * 100.0  # 350–450
+        # Pick two Y values with ≥200 separation
+        trap_y = 60.0 + rng.random() * 180.0  # 60–240 (top half)
+        target_y = 300.0 + rng.random() * 140.0  # 300–440 (bottom half)
+        if rng.random() > 0.5:
+            trap_y, target_y = target_y, trap_y  # flip top/bottom
     else:
-        trap_pos, target_pos = bot_right, top_right
+        trap_x, trap_y = 400.0, 100.0
+        target_x, target_y = 400.0, 400.0
+
+    # Brain also gets slight Y jitter to break spatial memorization
+    brain_y = 200.0 + (rng.random() * 100.0 if rng is not None else 50.0)
 
     spawns = [
-        {"faction_id": 0, "count": brain_count, "x": 80.0, "y": 250.0, "spread": 60.0, "stats": _faction_stats(profile, 0)},
-        {"faction_id": trap_fid, "count": trap_count, "x": trap_pos[0], "y": trap_pos[1], "spread": 50.0, "stats": [{"index": 0, "value": 200.0}]},
-        {"faction_id": target_fid, "count": target_count, "x": target_pos[0], "y": target_pos[1], "spread": 50.0, "stats": [{"index": 0, "value": 24.0}]},
+        {"faction_id": 0, "count": brain_count, "x": 80.0, "y": brain_y, "spread": 60.0, "stats": _faction_stats(profile, 0)},
+        {"faction_id": trap_fid, "count": trap_count, "x": trap_x, "y": trap_y, "spread": 50.0, "stats": [{"index": 0, "value": 200.0}]},
+        {"faction_id": target_fid, "count": target_count, "x": target_x, "y": target_y, "spread": 50.0, "stats": [{"index": 0, "value": 24.0}]},
     ]
     return spawns, {"trap_faction": trap_fid, "target_faction": target_fid}
 

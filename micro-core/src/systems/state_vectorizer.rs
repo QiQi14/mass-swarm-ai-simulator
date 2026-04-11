@@ -87,18 +87,22 @@ pub fn build_ecp_density_maps(
     let mut ecp_maps: HashMap<u32, Vec<f32>> = HashMap::new();
 
     for &(x, y, faction, hp, damage_mult) in entities {
+        // Clamp to valid grid range instead of skipping — prevents
+        // factions from being entirely absent when entities spawn
+        // near world boundaries (Bug B: Faction 2 missing).
         let cx = (x / cell_size).floor() as i32;
         let cy = (y / cell_size).floor() as i32;
+        let cx = cx.clamp(0, grid_w as i32 - 1) as u32;
+        let cy = cy.clamp(0, grid_h as i32 - 1) as u32;
 
-        if cx < 0 || cx >= grid_w as i32 || cy < 0 || cy >= grid_h as i32 {
-            continue;
-        }
-
-        let idx = (cy as u32 * grid_w + cx as u32) as usize;
+        let idx = (cy * grid_w + cx) as usize;
         let ecps = ecp_maps
             .entry(faction)
             .or_insert_with(|| vec![0.0; total_cells]);
-        ecps[idx] += hp * damage_mult;
+        // Floor of 1.0: alive entities always contribute at least
+        // presence-level ECP, even if hp × damage_mult ≈ 0
+        // (Bug A: zero ECP from edge-case stat initialization).
+        ecps[idx] += f32::max(hp * damage_mult, 1.0);
     }
 
     ecp_maps
@@ -432,6 +436,54 @@ mod tests {
         assert!(
             (maps[&0][11] - 1.0).abs() < f32::EPSILON,
             "Values exceeding max_ecp should be clamped to 1.0"
+        );
+    }
+
+    #[test]
+    fn test_ecp_density_out_of_bounds_clamped() {
+        // Arrange — entity at negative coords and beyond grid edge
+        let entities = vec![
+            (-5.0, -5.0, 2, 100.0, 1.0),   // OOB negative → clamped to (0,0)
+            (200.0, 200.0, 2, 100.0, 1.0),  // OOB positive → clamped to (9,9)
+        ];
+        let max_ecp = 1000.0;
+
+        // Act
+        let maps = build_ecp_density_maps(&entities, 10, 10, 10.0, max_ecp);
+
+        // Assert — faction 2 MUST be present (not skipped)
+        assert!(
+            maps.contains_key(&2),
+            "Faction 2 should be present even with OOB entities (clamped)"
+        );
+        let map = &maps[&2];
+        assert!(
+            map[0] > 0.0,
+            "Clamped entity at (-5,-5) should contribute to cell (0,0)"
+        );
+        assert!(
+            map[99] > 0.0,
+            "Clamped entity at (200,200) should contribute to cell (9,9)"
+        );
+    }
+
+    #[test]
+    fn test_ecp_density_floor_prevents_zero() {
+        // Arrange — entity with 0 HP (about to be removed)
+        let entities = vec![
+            (15.0, 15.0, 1, 0.0, 1.0), // Zero HP → ECP should be floor(1.0)
+        ];
+        let max_ecp = 1000.0;
+
+        // Act
+        let maps = build_ecp_density_maps(&entities, 10, 10, 10.0, max_ecp);
+
+        // Assert — entity contributes at least 1.0 / max_ecp
+        let map = &maps[&1];
+        assert!(
+            (map[11] - (1.0 / 1000.0)).abs() < f32::EPSILON,
+            "Zero-HP entity should contribute floor ECP of 1.0/max_ecp, got {}",
+            map[11]
         );
     }
 }

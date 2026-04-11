@@ -1,28 +1,72 @@
 # User Interface & Tooling
 
-Located in `js/ui-panels.js` and `js/controls.js`.
+Located in `src/panels/`, `src/controls/`, and `src/main.js`.
 
-## The DOM Tooling (`ui-panels.js`)
+## Dual-Mode Application Shell
 
-While the canvas renders the simulation, standard HTML/CSS draws the control panels (buttons, sliders, data tables).
+The app supports two modes selected via hash routing:
+- **`#training`** — Read-only monitoring during RL training sessions
+- **`#playground`** — Interactive sandbox for scenario design
 
-### How it works
-This file attaches `Event Listeners` to the HTML buttons. 
-- **Pause/Play**: Unlocks or locks the ECS tick flow.
-- **Wave Spawner**: Commands Rust to drop 500 new entities into a Fibonacci spiral.
-- **ML Brain Status**: Parses read-only telemetry coming down the WebSocket to display the current Win Rate or Curriculum Phase of the active training run.
+### Mode Router (`main.js`)
+Reads `window.location.hash` to determine mode. Each mode registers its own panels via the panel registry system. Mode switches preserve WebSocket connection and canvas state.
 
-## Input Controls (`controls.js`)
+## Panel System (`panels/registry.js`)
 
-This handles the terrifying math of dragging and manipulating a 2D camera viewport.
+Panels are self-contained ES modules that register via:
+```javascript
+registerPanel('training', 'telemetry-dashboard', {
+    label: 'Telemetry',
+    icon: '📊',
+    render: (container) => { ... },
+    update: (container) => { ... }
+});
+```
 
-### The Viewport Matrix
-When you scroll the mouse wheel, the entire 1000x1000 canvas zooms in. When you click and drag, it pans.
-To achieve this, `controls.js` tracks an `offsetX`, `offsetY`, and `scale`. 
+### Training Mode Panels
+| Panel | Purpose |
+|-------|---------|
+| **Telemetry Dashboard** | Episode count, win rate, reward meters, training stage |
+| **Faction Telemetry** | Per-faction unit counts, HP, centroids |
+| **Entity Inspector** | Click-select entity → anonymous stats with delta indicators |
+| **Viewport Layers** | Toggle observation channel overlays (Ch0, Ch1, Ch4, Ch7) |
+| **Perf Monitor** | Per-system microsecond timings (spatial, flow, interaction, etc.) |
 
-Before `draw.js` renders anything, it applies a `ctx.setTransform(scale, 0, 0, scale, offsetX, offsetY)`. This tells the graphics card to automatically stretch and move all subsequent draw commands, completely removing the need for us to manually multiply the X/Y coordinates of every single ant by zooming factors.
+### Playground Mode Panels
+| Panel | Purpose |
+|-------|---------|
+| **Game Setup** | Configure factions, terrain, rules before starting |
+| **Sim Controls** | Pause/resume, step, speed multiplier |
+| **Spawn Controls** | Drop entities at coordinates |
+| **Terrain Painter** | Paint wall/mud/push terrain cells |
+| **Zone Modifiers** | Place pheromone/repellent zones |
 
-### The Raycast Problem (Clicking an Entity)
-If you zoom in by 200%, pan right by 50px, and click the screen, where did your mouse actually click in the simulation's coordinate space?
+## Input Controls (`controls/`)
 
-`controls.js` computes an inverse translation matrix. It calculates your mouse's physical screen coordinates, subtracts the `offsetX`, and divides by the `scale`. It then sends that converted `World X / World Y` through the WebSocket to the Rust engine, allowing you to accurately drop a nuke right on an enemy's head, regardless of your camera view!
+### Camera Viewport (`split.js`)
+- **Scroll wheel:** Zoom in/out (centered on cursor position)
+- **Click + drag:** Pan the viewport
+- **Click (no drag):** Select entity → populates Entity Inspector
+- **Inverse transform:** Screen coordinates are converted to world coordinates via inverse of the viewport matrix
+
+### Entity Selection
+Single-click selects the nearest entity within selection radius. The Entity Inspector shows:
+- Anonymous stats (S0, S1, S2, ...) with real-time meter bars
+- Delta indicators (▲ buff / ▼ debuff) comparing current vs previous tick
+- Faction color and ID
+
+> [!NOTE]
+> A "pan-after-select" bug was fixed by ensuring mousedown selection does NOT set
+> the panning flag. The fix is in `split.js` — mousedown only sets selection state,
+> mousemove requires an explicit drag threshold before panning starts.
+
+## Design System
+
+The **Tactical Command Center** aesthetic:
+- **Font:** Geist (sans-serif, loaded from Google Fonts)
+- **Primary accent:** Electric cyan `#00d4ff`
+- **Surfaces:** Dark semi-transparent panels with `backdrop-filter: blur()`
+- **Borders:** 1px solid `rgba(255,255,255,0.06)`
+- **Animations:** Smooth transitions on hover, 200ms ease
+
+All tokens are in `src/styles/tokens.css`. Panel styling in `src/styles/panels.css`.

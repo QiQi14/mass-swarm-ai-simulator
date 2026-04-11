@@ -93,7 +93,7 @@
 - **Fixed tensor shape:** Observation always 50×50. Smaller maps center-padded with zeros.
 - **Flattened coordinates:** `MultiDiscrete([8, 2500])` — single spatial index preserves 2D coherence.
 - **LKP Memory:** Feed-forward PPO has no temporal memory. LKP buffer decays last-known enemy density at −0.02/tick under fog.
-- **Debuff mechanic (stage 1):** Killing target first → trap DPS × 0.25 + trap enrages (charges brain). Brain CANNOT brute-force the trap.
+- **Debuff & Spawn (stage 1):** Killing target first → trap DPS × 0.25 + trap enrages (charges brain). Brain CANNOT brute-force the trap. Trap and target Y-axis coordinates are randomized each episode to prevent spatial memorization blocking RL gradient.
 - **Terrain costs:** Default = 100. Mud = 40 (soft_cost). Stage 3 danger zones = 100 hard_cost + 40 soft_cost (visual markers only — pathfinder routes THROUGH; agent must DropRepellent +200 to create avoidance). Walls = 65535 (impassable).
 - **Zone modifier duration:** Configurable via `zone_modifier_duration_ticks` in profile (training: 1500 ticks ≈ 10 RL steps). Was hardcoded at 120.
 - **Navigation persistence:** Zone abilities (Pheromone/Repellent) now auto-replay the last AttackCoord directive, preventing swarm idle during casts.

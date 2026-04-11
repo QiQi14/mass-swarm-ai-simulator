@@ -437,3 +437,43 @@ With debuff (trap damage × 0.25):
   time_trap_kills_brain = 5,000 / 312.5 = 16.0s
   → Brain WINS at 8.0s (trap is dead, brain has ~2,500 HP remaining)
 ```
+
+---
+
+## 13. ECP Density Maps (Threat Visualization)
+
+**File:** `micro-core/src/systems/state_vectorizer.rs` (builder), `micro-core/src/systems/ws_sync.rs` (broadcast)
+
+### What It Does
+
+ECP (Effective Combat Power) density maps provide a spatial heatmap of combat threat intensity. Unlike raw density maps (entity headcount per cell), ECP weights each entity by its current HP and damage multiplier.
+
+### Calculation
+
+```
+For each alive entity:
+  ecp = max(hp × damage_mult, 1.0)   ← floor prevents zero-contribution
+  cell = clamp(position / cell_size, 0, grid_max-1)  ← clamped, never skipped
+  grid[faction][cell] += ecp
+
+Normalize: grid[faction][cell] / max_ecp_per_cell → [0.0, 1.0]
+```
+
+**Key design decisions:**
+- `max(ecp, 1.0)` — alive entities always contribute at least presence-level ECP, even if HP=0 (about to be removed) or damage_mult=0 (fully debuffed)
+- Coordinate **clamping** instead of skipping — prevents entire factions from being absent from the HashMap when entities spawn near world boundaries
+
+### WS Broadcast
+
+ECP maps are broadcast every 6 ticks inside the `SyncDelta` message under the `ecp_density_maps` field (requires `debug-telemetry` feature).
+
+**Architecture note:** The `ws_sync_system` bundles all 12 debug-telemetry resources into a `WsSyncTelemetry` SystemParam struct to stay under Bevy's 16-parameter limit. See knowledge item `gotcha_bevy_16_parameter_limit.md`.
+
+### Grid Configuration
+
+| Parameter | Source | Default |
+|-----------|--------|---------|
+| `grid_w` | `SimulationConfig.world_width / flow_field_cell_size` | 50 (1000/20) |
+| `grid_h` | `SimulationConfig.world_height / flow_field_cell_size` | 50 (1000/20) |
+| `max_ecp_per_cell` | `DensityConfig.max_density × 100.0` | 5000.0 |
+

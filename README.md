@@ -25,12 +25,12 @@ Can we build a 10,000+ entity AI simulation by splitting it into three independe
       ZeroMQ (REQ/REP)    WebSocket (async)
       ~2 Hz state snap    ~10 Hz delta sync
             │              │
-     ┌──────▼──────┐  ┌───▼──────────────────┐
-     │ Macro-Brain │  │  Debug Visualizer     │
-     │ (Python)    │  │  (Browser / Canvas)   │
-     │ PyTorch RL  │  │  Real-time inspection │
-     │ PPO Agent   │  │  Spawn / Edit tools   │
-     └─────────────┘  └──────────────────────┘
+     ┌──────▼──────┐  ┌───▼──────────────────────┐
+     │ Macro-Brain │  │  Debug Visualizer (Vite)  │
+     │ (Python)    │  │  Dual-mode: Training      │
+     │ PyTorch RL  │  │  + Playground UI          │
+     │ PPO Agent   │  │  Tactical HUD aesthetic   │
+     └─────────────┘  └──────────────────────────┘
 ```
 
 **The thesis:** Game engines (Unity, Unreal) are rendering-first architectures. When you need to simulate 10,000+ AI entities for machine learning training, the rendering pipeline becomes the bottleneck — consuming 90%+ of the frame budget on shaders, draw calls, and physics visualization while the actual game logic starves for CPU time.
@@ -200,10 +200,19 @@ mass-swarm-ai-simulator/
 │       ├── rules/             # Config-driven navigation, interaction, removal
 │       ├── systems/           # Movement, interaction, spawning, flow field, WS sync
 │       └── bridges/           # WebSocket server, ZMQ bridge
-├── debug-visualizer/          # Browser-based real-time visualizer
-│   ├── index.html             # Dual-canvas rendering, spawn tools, fog toggle
-│   ├── visualizer.js          # WebSocket client, entity renderer, terrain painter
-│   └── style.css              # Dark theme, glassmorphism, animations
+├── debug-visualizer/          # Browser-based real-time visualizer (Vite + Vanilla JS)
+│   ├── index.html             # Dual-mode app shell with tab navigation
+│   ├── vite.config.js         # Vite dev server config
+│   └── src/
+│       ├── main.js            # App entry, router, mode switching
+│       ├── router.js          # Hash-based mode router (#training / #playground)
+│       ├── components/        # Tabs, accordion, sparkline, toast
+│       ├── panels/            # Mode-aware panel registry
+│       │   ├── training/      # Dashboard, ML Brain, Perf
+│       │   ├── playground/    # Game Setup wizard, spawn, terrain, zones
+│       │   └── shared/        # Telemetry, Inspector, Viewport, Legend
+│       ├── draw/              # Canvas rendering (entities, terrain, fog, overlays)
+│       └── styles/            # "Tactical Command Center" design system
 ├── macro-brain/               # Python RL training (SB3 MaskablePPO)
 ├── docs/
 │   ├── architecture.md        # Architecture deep-dive
@@ -232,18 +241,19 @@ mass-swarm-ai-simulator/
 ## Quick Start
 
 ```bash
-# Prerequisites: Rust toolchain, Python 3 (for dev server)
+# Prerequisites: Rust toolchain, Node.js 18+
 git clone https://github.com/QiQi14/mass-swarm-ai-simulator.git
 cd mass-swarm-ai-simulator
 
-# Start everything (builds Rust, starts HTTP server, launches simulation)
+# Start everything (builds Rust, starts Vite dev server, launches simulation)
 ./dev.sh
 
-# Open the debug visualizer
-open http://127.0.0.1:3000
+# Open the debug visualizer (auto-opens via Vite)
+# Training mode: http://127.0.0.1:5173/#training
+# Playground mode: http://127.0.0.1:5173/#playground
 ```
 
-The visualizer connects automatically. Click `🎯 Spawn Mode` to add entities, toggle `Fog` to see per-faction visibility, use `🖌 Paint Mode` to draw terrain walls.
+The visualizer connects automatically. Use **Playground mode** (`#playground`) for spawn tools, terrain painting, and scenario design. Use **Training mode** (`#training`) to monitor ML training metrics, win rate, and reward history.
 
 ## Tech Stack
 
@@ -251,7 +261,7 @@ The visualizer connects automatically. Click `🎯 Spawn Mode` to add entities, 
 |:-----|:---------|:-----------------|
 | Micro-Core | Rust 2024 | Bevy 0.18 ECS, Tokio, tungstenite, ZeroMQ |
 | Macro-Brain | Python 3.14+ | PyTorch, Stable-Baselines3, sb3-contrib, Gymnasium |
-| Debug Visualizer | Vanilla JS | HTML5 Canvas, native WebSocket, zero build step |
+| Debug Visualizer | Vanilla JS | Vite, HTML5 Canvas, WebSocket, ES Modules |
 | Engine Integration | WASM + JS | wasm-pack, onnxruntime-web, Three.js *(Phase 5)* |
 
 ## Documentation

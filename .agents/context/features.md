@@ -177,3 +177,13 @@ Added configurable `zone_modifier_duration_ticks` to Rust `BuffConfig` and `Abil
 
 **Key files:** `micro-core/src/config/buff.rs`, `micro-core/src/bridges/zmq_protocol/payloads.rs`, `macro-brain/src/training/curriculum.py`, `macro-brain/src/env/actions.py`
 **Depends on:** Randomized Faction Roles
+
+---
+
+### Heterogeneous Swarm Mechanics & Training Visualizer
+**Completed:** 2026-04-11 | **Archive:** `.agents/history/20260411_111623_heterogeneous_swarm_mechanics_training_visualizer/`
+
+Upgraded Rust Micro-Core from homogeneous faction-based entities to heterogeneous unit classes via `UnitClassId(u32)` component. Expanded `InteractionRule` with class filtering (`source_class`/`target_class`), dynamic range from `StatBlock` indices, stat-driven `MitigationRule` (percent/flat reduction), and per-entity `CooldownTracker` resource. Added training metrics overlay to debug visualizer (CSV tail-read polling, episode/stage/win-rate/reward sparklines). All new fields use `serde(default)` for full backward compatibility.
+
+**Key files:** `micro-core/src/components/unit_class.rs`, `micro-core/src/rules/interaction.rs`, `micro-core/src/config/cooldown.rs`, `micro-core/src/systems/interaction.rs`, `macro-brain/src/config/definitions.py`, `debug-visualizer/js/training-overlay.js`
+**Depends on:** Curriculum Stage 2-3 Adjustment

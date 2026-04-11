@@ -90,9 +90,9 @@ def main():
         model = MaskablePPO.load(
             args.load_checkpoint,
             env=vec_env,
-            custom_objects={"policy_kwargs": policy_kwargs},
+            custom_objects={"policy_kwargs": policy_kwargs, "tensorboard_log": str(run.tensorboard_dir)},
         )
-        # Update tensorboard_log for new run (MaskablePPO's tensorboard logger might need to be refreshed, handled automatically by learn())
+        model.tensorboard_log = str(run.tensorboard_dir)
     else:
         model = MaskablePPO(
             "MultiInputPolicy",

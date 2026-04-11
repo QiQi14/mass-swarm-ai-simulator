@@ -3,433 +3,49 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mass-Swarm AI Debug Visualizer</title>
+    <title>SwarmControl — Debug Visualizer</title>
+    <meta name="description" content="Real-time debug visualizer for the Mass-Swarm AI Simulator">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="css/variables.css">
-    <link rel="stylesheet" href="css/layout.css">
-    <link rel="stylesheet" href="css/panels.css">
-    <link rel="stylesheet" href="css/controls.css">
-    <link rel="stylesheet" href="css/canvas.css">
-    <link rel="stylesheet" href="css/animations.css">
-    <link rel="stylesheet" href="css/training-overlay.css">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <!-- Geist preferred via @fontsource in CSS; DM Sans + IBM Plex Mono as HTML fallback -->
 </head>
 <body>
-    <div class="app-container">
-        <!-- Main Canvas Area -->
-        <main class="canvas-container">
+    <div class="app-container" id="app">
+        <!-- Canvas Area -->
+        <main class="canvas-area" id="canvas-area">
             <canvas id="canvas-bg"></canvas>
             <canvas id="canvas-entities"></canvas>
-            
-            <!-- Floating connection status -->
-            <div class="connection-status">
-                <div class="status-indicator">
-                    <div id="status-dot" class="dot disconnected"></div>
-                    <span id="status-text">Disconnected</span>
-                </div>
+            <div class="connection-badge" id="connection-badge">
+                <div class="status-dot" id="status-dot"></div>
+                <span id="status-text">Connecting…</span>
             </div>
-            
-            <!-- Canvas instruction overlay (hidden on interaction) -->
-            <div class="canvas-hint">
-                Pan: drag · Zoom: scroll · Use sidebar tools to spawn, paint, or inspect
+            <div class="canvas-hint" id="canvas-hint">
+                Pan: drag · Zoom: scroll · Double-click: reset view
             </div>
         </main>
 
-        <!-- Right Sidebar Panel -->
-        <aside class="control-panel">
-            <header class="panel-header">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="bottom-sheet-handle" id="bottom-sheet-handle">
+                <div class="handle-pill"></div>
+            </div>
+            
+            <header class="sidebar-header">
                 <div>
-                    <h1>Swarm<span>Control</span></h1>
-                    <span class="version-badge">v0.1.0</span>
+                    <h1>Swarm<span class="accent">Control</span></h1>
+                    <span class="version-badge">v0.2.0</span>
                 </div>
             </header>
-
-            <section class="panel-section">
-                <h2>Telemetry</h2>
-                <div class="stats-grid">
-                    <div class="stat-box">
-                        <span class="stat-label">TPS</span>
-                        <div class="stat-with-graph">
-                            <span id="stat-tps" class="stat-value mono">0</span>
-                            <canvas id="graph-tps" class="sparkline" width="60" height="24"></canvas>
-                        </div>
-                    </div>
-                    <div class="stat-box">
-                        <span class="stat-label">Tick</span>
-                        <span id="stat-tick" class="stat-value mono">0</span>
-                    </div>
-                    <div class="stat-box full-width">
-                        <span class="stat-label">Total Entities</span>
-                        <div class="stat-with-graph" style="justify-content: space-between; width: 100%;">
-                            <span id="stat-entities" class="stat-value mono">0</span>
-                            <canvas id="graph-entities" class="sparkline" width="60" height="24"></canvas>
-                        </div>
-                    </div>
-                    <div class="stat-box swarm">
-                        <span class="stat-label">Swarm</span>
-                        <span id="stat-swarm" class="stat-value mono">0</span>
-                    </div>
-                    <div class="stat-box defender">
-                        <span class="stat-label">Defender</span>
-                        <span id="stat-defender" class="stat-value mono">0</span>
-                    </div>
-                </div>
-            </section>
-
-            <section class="panel-section">
-                <h2>System Performance</h2>
-                <div id="perf-bars" class="perf-bar-chart">
-                    <!-- Populated dynamically from PerfTelemetry -->
-                </div>
-            </section>
-
-            <section id="inspector-panel" class="panel-section" style="display: none;">
-                <h2>Entity Inspector</h2>
-                <div class="inspector-grid">
-                    <span class="inspector-label">ID</span>
-                    <span id="insp-id" class="inspector-value mono">—</span>
-                    <span class="inspector-label">Faction</span>
-                    <span id="insp-faction" class="inspector-value mono">—</span>
-                    <span class="inspector-label">Position</span>
-                    <span id="insp-pos" class="inspector-value mono">—</span>
-                    <span class="inspector-label">Velocity</span>
-                    <span id="insp-vel" class="inspector-value mono">—</span>
-                    <span class="inspector-label">Stats</span>
-                    <span id="insp-stats" class="inspector-value mono">—</span>
-                </div>
-                <button id="insp-deselect" class="btn secondary" style="margin-top: 10px;">Deselect</button>
-            </section>
-
-            <section class="panel-section ml-status">
-                <h2>🧠 ML Brain</h2>
-                <div class="stats-grid">
-                    <div class="stat-box">
-                        <span class="stat-label">Python</span>
-                        <span id="ml-python-status" class="stat-value mono">—</span>
-                    </div>
-                    <div class="stat-box">
-                        <span class="stat-label">Intervention</span>
-                        <span id="ml-intervention" class="stat-value mono">—</span>
-                    </div>
-                    <div class="stat-box full-width" id="train-status-container" style="display: none; border-top: 1px solid var(--border-color); padding-top: 8px; margin-top: 4px;">
-                        <span class="stat-label" style="margin-bottom: 4px; display: block; color: var(--text-dim);">Training (Stage <span id="train-stage">1</span>)</span>
-                        <div style="display: flex; justify-content: space-between;">
-                            <div><span class="stat-label">Ep:</span> <span id="train-ep" class="stat-value mono">0</span></div>
-                            <div><span class="stat-label">WR:</span> <span id="train-wr" class="stat-value mono">0%</span></div>
-                            <div><span class="stat-label">Streak:</span> <span id="train-streak" class="stat-value mono">0</span></div>
-                        </div>
-                    </div>
-                    <div class="stat-box full-width">
-                        <span class="stat-label">Last Directive</span>
-                        <span id="ml-last-directive" class="stat-value mono small">—</span>
-                    </div>
-                </div>
-            </section>
-
-            <section class="panel-section">
-                <h2>Simulation Controls</h2>
-                <div class="controls-row">
-                    <button id="play-pause-btn" class="btn primary">Pause</button>
-                    <!-- Small decorative visualization -->
-                    <div class="pulse-ring"></div>
-                </div>
-                <div class="controls-row step-controls">
-                    <button id="step-btn" class="btn secondary">Step</button>
-                    <div class="input-wrapper">
-                        <input type="number" id="step-count-input" class="input-field" value="1" min="1" max="1000">
-                        <span class="input-suffix">ticks</span>
-                    </div>
-                </div>
-            </section>
-
-            <section class="panel-section">
-                <h2>Spawn Tools</h2>
-                <div class="spawn-controls">
-                    <div class="controls-row" style="margin-bottom: 8px;">
-                        <button id="spawn-mode-btn" class="btn secondary">🎯 Spawn Mode</button>
-                    </div>
-                    <div id="spawn-tools-body">
-                        <div class="spawn-row">
-                            <label class="spawn-label">Faction</label>
-                            <div class="faction-selector">
-                                <select id="spawn-faction" class="input-field"></select>
-                                <button id="add-faction-btn" class="btn icon-btn" title="Add faction">+</button>
-                                <button id="delete-faction-btn" class="btn icon-btn danger" title="Delete faction">−</button>
-                            </div>
-                        </div>
-                        <div class="spawn-row">
-                            <label class="spawn-label">Amount</label>
-                            <input type="range" id="spawn-amount-slider" min="1" max="500" value="50" class="slider">
-                            <input type="number" id="spawn-amount" class="input-field compact" value="50" min="1" max="10000">
-                        </div>
-                        <div class="spawn-row">
-                            <label class="spawn-label">Spread</label>
-                            <input type="range" id="spawn-spread-slider" min="0" max="200" value="30" class="slider">
-                            <input type="number" id="spawn-spread" class="input-field compact" value="30" min="0" max="400">
-                        </div>
-                    </div>
-                    <div id="spawn-hint" class="spawn-hint" style="display: none;">
-                        Click on the canvas to place units
-                    </div>
-                </div>
-            </section>
-
-            <section class="panel-section">
-                <h2>Algorithm Test</h2>
-                <div class="spawn-controls">
-                    <div class="spawn-row">
-                        <label class="spawn-label">Preset</label>
-                        <select id="preset-select" class="input-field"></select>
-                    </div>
-                    <p id="preset-description" class="canvas-hint" style="margin: 4px 0 8px 0; display: block; font-size: 0.8em; text-align: left;"></p>
-                    <div class="controls-row" style="margin-bottom: 8px;">
-                        <button id="load-preset-btn" class="btn primary" style="width: 100%;">Load Preset</button>
-                    </div>
-
-                    <div class="controls-row" style="margin-top: 12px; margin-bottom: 8px;">
-                        <button id="toggle-manual-test-btn" class="btn secondary" style="width: 100%;">🔧 Manual Controls</button>
-                    </div>
-                    
-                    <div id="manual-test-controls" style="display: none; flex-direction: column; gap: 8px;">
-                        <div style="border-left: 2px solid var(--border-color); padding-left: 8px;">
-                            <div class="spawn-row">
-                                <label class="spawn-label">Nav</label>
-                                <input type="number" id="nav-follower" class="input-field compact" placeholder="Faction" min="0">
-                            </div>
-                            <div class="spawn-row">
-                                <select id="nav-target-type" class="input-field compact">
-                                    <option value="Faction">Faction</option>
-                                    <option value="Waypoint">Waypoint</option>
-                                </select>
-                                <input type="text" id="nav-target-val" class="input-field" placeholder="ID or X,Y">
-                            </div>
-                            <button id="apply-nav-btn" class="btn secondary" style="width: 100%; margin-top:4px;">Apply Nav Rule</button>
-                        </div>
-                        
-                        <div style="border-left: 2px solid var(--border-color); padding-left: 8px;">
-                            <div class="spawn-row">
-                                <label class="spawn-label">Interact</label>
-                                <input type="number" id="int-src" class="input-field compact" placeholder="Src" min="0">
-                                <input type="number" id="int-tgt" class="input-field compact" placeholder="Tgt" min="0">
-                            </div>
-                            <div class="spawn-row">
-                                <label class="spawn-label">Range</label>
-                                <input type="number" id="int-range" class="input-field compact" placeholder="Range" step="0.5">
-                            </div>
-                            <div class="spawn-row">
-                                <label class="spawn-label">Stat/Δ</label>
-                                <input type="number" id="int-stat" class="input-field compact" placeholder="Stat" min="0">
-                                <input type="number" id="int-delta" class="input-field compact" placeholder="Delta">
-                            </div>
-                            <button id="apply-int-btn" class="btn secondary" style="width: 100%; margin-top:4px;">Apply Interact Rule</button>
-                        </div>
-
-                        <div style="border-left: 2px solid var(--border-color); padding-left: 8px;">
-                            <div class="spawn-row">
-                                <label class="spawn-label">Remove</label>
-                                <input type="number" id="rem-stat" class="input-field compact" placeholder="Stat" min="0">
-                            </div>
-                            <div class="spawn-row">
-                                <select id="rem-cond" class="input-field compact">
-                                    <option value="LessThanEqual">&le;</option>
-                                    <option value="GreaterThanEqual">&ge;</option>
-                                </select>
-                                <input type="number" id="rem-thresh" class="input-field compact" placeholder="Threshold">
-                            </div>
-                            <button id="apply-rem-btn" class="btn secondary" style="width: 100%; margin-top:4px;">Apply Removal Rule</button>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <section class="panel-section">
-                <h2>Terrain Editor</h2>
-                <div class="controls-row">
-                    <button id="paint-mode-btn" class="btn secondary">🖌 Paint Mode</button>
-                </div>
-                <div id="brush-tools" class="brush-toolbar" style="display: none;">
-                    <button class="brush-btn active" data-brush="wall">⬛ Wall</button>
-                    <button class="brush-btn" data-brush="mud">🟫 Mud</button>
-                    <button class="brush-btn" data-brush="pushable">🟧 Pushable</button>
-                    <button class="brush-btn" data-brush="clear">⬜ Clear</button>
-                </div>
-                <div class="controls-row" style="margin-top: 8px;">
-                    <button id="save-scenario-btn" class="btn secondary">💾 Save</button>
-                    <button id="load-scenario-btn" class="btn secondary">📂 Load</button>
-                    <input type="file" id="scenario-file-input" accept=".json" style="display:none">
-                </div>
-                <button id="clear-terrain-btn" class="btn secondary" style="margin-top:4px">🗑 Clear All Terrain</button>
-            </section>
-
-            <section class="panel-section">
-                <h2>🧲 Zone Modifiers</h2>
-                <div class="controls-row">
-                    <button id="zone-mode-btn" class="btn secondary">🧲 Place Zone</button>
-                </div>
-                <div id="zone-tools" style="display: none;">
-                    <div class="spawn-row">
-                        <label class="spawn-label">Type</label>
-                        <div class="zone-type-selector">
-                            <button class="zone-type-btn active" data-type="attract">🔵 Attract</button>
-                            <button class="zone-type-btn" data-type="repel">🔴 Repel</button>
-                        </div>
-                    </div>
-                    <div class="spawn-row">
-                        <label class="spawn-label">Faction</label>
-                        <select id="zone-faction" class="input-field"></select>
-                    </div>
-                    <div class="spawn-row">
-                        <label class="spawn-label">Radius</label>
-                        <input type="range" id="zone-radius-slider" min="20" max="300" value="100" class="slider">
-                        <input type="number" id="zone-radius" class="input-field compact" value="100">
-                    </div>
-                    <div class="spawn-row">
-                        <label class="spawn-label">Intensity</label>
-                        <input type="range" id="zone-intensity-slider" min="10" max="200" value="50" class="slider">
-                        <input type="number" id="zone-intensity" class="input-field compact" value="50">
-                    </div>
-                    <div class="spawn-row">
-                        <label class="spawn-label">Duration</label>
-                        <input type="number" id="zone-duration" class="input-field" value="300" min="1" max="3600">
-                        <span class="input-suffix">ticks</span>
-                    </div>
-                </div>
-                <div id="zone-hint" class="spawn-hint" style="display: none;">
-                    Click on canvas to place zone modifier
-                </div>
-            </section>
-
-            <section class="panel-section">
-                <h2>✂️ Faction Splitter</h2>
-                <div class="controls-row">
-                    <button id="split-mode-btn" class="btn secondary">✂️ Split Mode</button>
-                </div>
-                <div id="split-tools" style="display: none;">
-                    <div class="spawn-row">
-                        <label class="spawn-label">Source</label>
-                        <select id="split-source-faction" class="input-field"></select>
-                    </div>
-                    <div class="spawn-row">
-                        <label class="spawn-label">Split %</label>
-                        <input type="range" id="split-pct-slider" min="5" max="80" value="30" class="slider">
-                        <input type="number" id="split-pct" class="input-field compact" value="30">
-                    </div>
-                </div>
-                <div id="split-hint" class="spawn-hint" style="display: none;">
-                    Click on canvas to set epicenter
-                </div>
-                <div id="sub-faction-list" class="sub-faction-list">
-                    <!-- Populated dynamically from active_sub_factions -->
-                </div>
-            </section>
-
-            <section class="panel-section">
-                <h2>🛡️ Aggro Masks</h2>
-                <div id="aggro-mask-grid" class="aggro-grid">
-                    <!-- Populated dynamically: matrix of faction pairs -->
-                </div>
-            </section>
-
-            <section class="panel-section">
-                <h2>Faction Behavior</h2>
-                <div id="faction-toggles"></div>
-            </section>
-
-            <section class="panel-section">
-                <h2>Viewport Layers</h2>
-                <div class="toggle-group">
-                    <label class="toggle-control">
-                        <input type="checkbox" id="toggle-grid" checked>
-                        <span class="control-indicator"></span>
-                        <span class="control-label">Coordinate Grid</span>
-                    </label>
-                    <label class="toggle-control">
-                        <input type="checkbox" id="toggle-spatial-grid">
-                        <span class="control-indicator"></span>
-                        <span class="control-label">Spatial Hash Grid</span>
-                    </label>
-                    <label class="toggle-control">
-                        <input type="checkbox" id="toggle-flow-field">
-                        <span class="control-indicator"></span>
-                        <span class="control-label">Flow Field Arrows</span>
-                    </label>
-                    <label class="toggle-control">
-                        <input type="checkbox" id="toggle-velocity">
-                        <span class="control-indicator"></span>
-                        <span class="control-label">Velocity Vectors</span>
-                    </label>
-                    <label class="toggle-control">
-                        <input type="checkbox" id="toggle-density-heatmap">
-                        <span class="control-indicator"></span>
-                        <span class="control-label">Density Heatmap</span>
-                    </label>
-                    <label class="toggle-control">
-                        <input type="checkbox" id="toggle-zone-modifiers" checked>
-                        <span class="control-indicator"></span>
-                        <span class="control-label">Zone Modifiers</span>
-                    </label>
-                    <label class="toggle-control">
-                        <input type="checkbox" id="toggle-override-markers">
-                        <span class="control-indicator"></span>
-                        <span class="control-label">Engine Overrides</span>
-                    </label>
-                    <div id="fog-toggles-container">
-                        <!-- Populated dynamically -->
-                    </div>
-                    <label class="toggle-control">
-                        <input type="checkbox" id="toggle-arena-bounds" checked>
-                        <span class="control-indicator"></span>
-                        <span class="control-label">Arena Bounds</span>
-                    </label>
-                    <div id="arena-bounds-controls" class="spawn-controls" style="margin-top: 4px; padding-left: 4px;">
-                        <div class="spawn-row">
-                            <label class="spawn-label" style="font-size: 0.75em;">Size</label>
-                            <input type="number" id="arena-width" class="input-field compact" value="400" min="100" max="1000" step="100">
-                            <span style="color: var(--text-dim); font-size: 0.8em;">×</span>
-                            <input type="number" id="arena-height" class="input-field compact" value="400" min="100" max="1000" step="100">
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            <section class="panel-section">
-                <h2>Legend</h2>
-                <div class="legend-list" id="legend-list">
-                    <!-- Base factions (always shown) -->
-                    <div class="legend-item">
-                        <span class="color-swatch swarm-color"></span>
-                        <span>Faction 0 (Swarm)</span>
-                    </div>
-                    <div class="legend-item">
-                        <span class="color-swatch defender-color"></span>
-                        <span>Faction 1 (Defenders)</span>
-                    </div>
-                    <!-- Sub-factions added dynamically -->
-                </div>
-            </section>
+            <nav class="tab-bar" id="tab-bar">
+                <!-- Tabs injected by tabs.js -->
+            </nav>
+            <div class="panel-scroll" id="panel-scroll">
+                <!-- Panels injected by panel registry -->
+            </div>
         </aside>
     </div>
 
-    <!-- Add Faction Modal -->
-    <div id="add-faction-modal" class="modal-overlay" style="display: none;">
-        <div class="modal-content">
-            <h3>Add Faction</h3>
-            <input type="text" id="add-faction-input" class="input-field" placeholder="Faction name" autocomplete="off">
-            <div class="controls-row" style="margin-top: 10px; justify-content: flex-end; gap: 8px;">
-                <button id="add-faction-cancel" class="btn secondary">Cancel</button>
-                <button id="add-faction-confirm" class="btn primary">Add</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- The actual visualization logic (ES modules) -->
-    <script type="module" src="js/main.js"></script>
-
-    <!-- Training Overlay -->
-    <script type="module">
-        import { initTrainingOverlay } from './js/training-overlay.js';
-        initTrainingOverlay();
-    </script>
+    <script type="module" src="/src/main.js"></script>
 </body>
 </html>

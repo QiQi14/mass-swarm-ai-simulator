@@ -1,77 +1,41 @@
-# STRATEGY BRIEF: Real-World Adaptation & Mechanics Overhaul
+# Strategy Brief: Stage 1 Resumption Path Analysis
 
-## 1. Problem Classification
-**Type:** Design, Architecture, and Engine Upgrade Diagnosis
-**Goal:** Prepare the Tri-Node stack (Visualizer & Rust Micro-Core) for real-world application, playground interaction, and heterogeneous swarm mechanics (Stages 5-6 features).
+## Problem Statement
+The user is evaluating the optimal checkpoint to resume training for Stage 1 (Target Selection) following critical fixes to the `Ch7` (Enemy Threat/ECP) data pipeline and the aggressive randomization of Y-axis spawns (which destroyed previous spatial memorization). The core question is whether to resume from the stalled Stage 1 checkpoint (`run_20260411_185052`, ~38% WR) or revert to the cleanly graduated Stage 0 checkpoint (`stage_0_graduated.zip`, 85% WR).
 
----
+## Analysis
+1. **The Argument for Stage 1 Checkpoint (~38% WR):** 
+   Because `Ch7` elements were completely `0.0`, the specific convolutional filters mapped to `Ch7` received zero gradients during backpropagation. This preserves their random initialization, theoretically allowing them to ingest the new correct data cleanly without having collapsed.
+   
+2. **The Flaw (Spatial Overfitting):**
+   While the `Ch7` filters are untouched, the *rest* of the network is not. To achieve a 38% WR without threat data and with static or semi-static coordinates, the Actor-Critic networks were forced to learn **spurious spatial correlations** (e.g., "always charge this specific center-right Y-coordinate"). 
+   
+3. **RL Unlearning Dynamics:**
+   In Deep Reinforcement Learning (especially PPO), "unlearning" a heavily reinforced sub-optimal policy (a local optimum) requires massive entropy and can take significantly more gradient steps than learning on a fresh slate. Relying on the Stage 1 checkpoint means the model will suffer because its Actor head will output highly confident, but now entirely incorrect, actions for spatial shortcuts that are no longer valid due to the new aggressive Y-axis spawn randomization.
 
-## 2. Analysis & Recommendations
+## Root Cause & Design Rationale
+The 38% win-rate achieved in the previous Stage 1 run is a manifestation of an overfitted spatial heuristic, not a foundational mastery. The model survived by exploiting a vulnerability in the environment (static spawns) to bypass the missing Threat channel. 
+Graduated Stage 0 (`stage_0_graduated.zip`), however, represents a mathematically pristine generalization of the `AttackCoord` primitive, completely free of the toxic spatial biases introduced during the flawed Stage 1 training session.
 
-### A. Debug Visualizer Split: Training vs. Playground
-The current visualizer is a single HTML canvas optimized for raw debugging. To support both ML researchers and Game Designers/QA, we must split it into two decoupled modes.
+## Recommendations
 
-**Problem:** Mixed concerns clutter the UI and limit usability for non-developers.
-**Solution:** Refactor into a tabbed layout or two separate routes (e.g., `index.html` and `playground.html`), backed by a modern lightweight framework (Vite/React or pure JS Modules) for better UI state management.
+### Option A: Resume from Stage 1 Checkpoint (`run_20260411_185052`)
+- **Pros:** Preserves some minor specific adaptations to Stage 1's entity counts (50 vs 20 units).
+- **Cons:** Model heavily penalizes itself early. Initial WR will likely crater from 38% to near 0%. The optimizer must spend thousands of steps lowering the probabilities of its memorized spatial shortcuts before the untouched `Ch7` filters can even begin establishing a robust correlation with the Target vs Trap selection logic.
 
-1. **Training Mode (View-Only / Analytics UI)**
-   - **Focus:** Metrics, telemetry, and debugging.
-   - **Capabilities:** Hide interactive spawn/control tools. Expose real-time data received from Python via WebSocket overlays.
-   - **New Visuals:** Episode counters, rolling win rates, loss streaks, real-time reward charts. Flow-field vector rendering and fog-of-war memory (LKP) visualization.
+### Option B: Start from Graduated Stage 0 (`stage_0_graduated.zip`)
+- **Pros:** The model possesses a perfectly generalized `AttackCoord` primitive. There are no deeply embedded false correlations to "unlearn". The model immediately begins associating the newly functioning `Ch7` density with the correct `AttackCoord` action.
+- **Cons:** A slight initial recalibration is needed as the model adjusts from Stage 0's 20-unit enemy groups to Stage 1's dual 50-unit groups, which is a negligible cost compared to unlearning bad habits.
 
-2. **Playground Mode (Sandbox / Simulator)**
-   - **Focus:** Demonstrations, QA testing, and tactical validation.
-   - **Capabilities:** 
-     - **Profile Loader:** UI to upload and parse `tactical_curriculum.json` and hot-reload the Rust core.
-     - **Manual Control:** Allow a human player to take over `Faction 0`. Provide UI tools to select troops (drag box) and issue primitives (`AttackCoord`, `DropPheromone`, `Retreat` via mouse inputs).
-     - **Web-Inference:** Integration of `onnxruntime-web` (Phase 5 goal) to load `.onnx` model checkpoints. A designer can play as Faction 1 against the Swarm ML model playing as Faction 0 entirely in-browser.
+## Recommended Option: Option B
+**Start from Graduated Stage 0 checkpoint.**
+It is demonstrably faster and mathematically smoother for a PPO agent to build complex behaviors (threat differentiation) atop a cleanly generalized foundation (Stage 0) than it is to aggressively destruct and rebuild a distorted, overfitted neural pathway (the broken Stage 1 run). 
 
----
+## Brute-Force Analysis
+With the Stage 1 environment now correctly randomizing the `Y-axis` for the Trap and Target, and the Trap (`50 units, 200 HP`) triggering a `Charge` when the debuff is applied, there is no spatial brute-force route available. The model must rely solely on the accurate mapping of `Ch1-6` (Density) and `Ch7` (Threat) to make a correct tactical decision.
 
-### B. Rust Micro-Core: Supporting Multiple Unit Types
-Currently, the Rust ECS relies on **"Faction = Unit Type."** Interaction rules (`InteractionRuleSet`) dictate combat purely between `source_faction` and `target_faction`, using fixed ranges and flat DPS. 
+## Impact on Later Stages
+By establishing a genuine, learned correlation between Threat data and Target Selection (instead of patching over a spatial bias), we ensure the `TacticalExtractor` (CNN + MLP) builds a robust generalization. This is critical for Stage 2 (Pheromone Paths) and Stage 3 (Repellent Field), where accurate risk assessment and active avoidance are mandatory.
 
-**Problem:** We cannot natively support "Tanks" and "Snipers" in the same faction behaving differently without complex architectural hacks.
-1. **Context-Agnostic Unit Types (`UnitClassId`)**
-   - Introduce a `UnitClassId(u32)` component to entities.
-   - The Rust Core will **not** know what a "Sniper" or "Tank" is. Instead, these classes are simply integers passed from the GameProfile JSON (via `UnitRegistry`) used to distinguish which interaction rules and movement configurations apply to which entity.
-
-2. **Abstract Stat Math via `GameProfile`**
-   - The engine uses `StatBlock([f32; 8])`, and it must remain completely ignorant of what these slots represent (HP, Energy Shield, Armor). 
-   - Instead, we expand the `InteractionRule` payload in the GameProfile to allow complex abstract calculations. For instance, the profile can define a rule: `{"source_class": 1, "target_class": 2, "range_stat_index": 2, "mitigation_stat_index": 4, "effects": [...]}`. 
-
-3. **`interaction.rs` Rule-Driven Overhaul**
-   - **Dynamic Targeting:** The `InteractionRule` will carry an optional `range_stat_index`. If provided, `grid.query_radius` dynamically pulls the range from the specified index in the source entity's `StatBlock`.
-   - **Abstract Mathematics:** Damage reduction (like Armor or Shields) isn't hardcoded as "subtract shielding first." Instead, we inject mathematical contracts (e.g., condition operators, multipliers) via the rules payload. The Rust core blindly executes the math operations on the requested stat indices.
-   - **Timers/Cooldowns:** High-damage, slow-speed interactions will be handled by a generic `CooldownBlock` or `TickTimer` component. A given `UnitClassId` can have a specific rule dictating "apply effect only when timer reaches 0."
-
-4. **Sub-Faction Automatic Micro-Control**
-   - Since the RL model won't manually separate units, the Rust core's `DirectiveExecutor` must parse macro primitives (e.g. `AttackCoord`) and automatically assign unit classes to implicit behavior profiles based on their generic configuration properties defined in the Game Profile.
-
----
-
-### C. Undiscovered Impact Areas (The Ripple Effect)
-The shift to mixed unit swarms introduces side-effects across the broader Tri-Node architecture:
-
-1. **Grand Tactical Focus & Observation Space**
-   - **The Concern:** If the Brain faction introduces 4 unit types, does the RL model need density maps for *every* unit type (Observation Space Explosion)?
-   - **The Correction:** NO. The RL model operates strictly at the **Grand Tactical** level. It does not micro-manage unit classes. 
-   - **The Fix:** The Rust core will aggressively aggregate the dynamic unit stats (HP, DPS, Shield, Armor) into "stat brightness" (threat density) and project it onto the existing Observation Tensor channels (specifically ch7). The model just learns to match its "brightest blob" against the enemy's "brightest blob." Micro-control is delegated entirely to the Rust engine and predefined game logic.
-
-2. **ZMQ Snapshot Size Limits**
-   - Increasing the complexity of `state_snapshot` (more faction groups to separate out density maps) will strain the ZeroMQ JSON bridge limit. 
-   - **The Fix:** It may necessitate accelerating the Phase 4 serialization upgrade (migrating from `serde_json` to `bincode` or `MessagePack`).
-
-3. **Spatial Has Grid Bottleneck**
-   - Currently `cell_size` is optimized for a uniform combat range (around 20-30 units). If an artillery unit has an attack range of 200 units, the query radius will span hundreds of cells, drastically hurting interaction O(K) performance. 
-   - **The Fix:** A multi-layered spatial grid or a fallback spatial lookup approach for slow-firing long-range units.
-
----
-
-## 3. Recommended Next Steps
-
-1. **Action:** Approve the `UnitClassId` and `StatBlock` expansion in the Rust core as the foundational PR.
-2. **Action:** Refactor `game_profile.json` (and `tactical_curriculum.json`) to define `unit_registry` rather than purely `faction_stats`.
-3. **Action:** Transition the Debug Visualizer repository to a formal layout (e.g. Vite) to support the Playground tooling.
-
-(User: Once reviewed, invoke `/planner` to convert this into implementation DAGs.)
+## Open Questions for User
+- If we proceed with the Stage 0 checkpoint, should we delete the broken `run_20260411_185052` run directory to keep the training logs and artifacts pristine, or retain it for historical debugging purposes?

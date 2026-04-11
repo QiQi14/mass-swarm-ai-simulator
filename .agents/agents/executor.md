@@ -61,6 +61,9 @@ The training pipeline (`macro-brain` → ZMQ → `micro-core`) may be running du
 - **Python tasks:** ONLY ADD new optional code. Never modify existing signatures or remove symbols. All new fields must have defaults.
 - **Profile files:** DO NOT modify any `.json` profile in `macro-brain/profiles/`.
 
+### Rule 6: Workspace Hygiene
+If you need to create standalone temporary `.py`, `.rs`, or `.js` test scripts to quickly verify logic, simulate API calls, or run isolated experiments during development, **DO NOT dump them in the repository root or project source folders**. You MUST create and place all scratch files inside `.agents/scratch/`. Keep the main source tree clean.
+
 
 
 ## Context Loading (Tier-Dependent)

@@ -1,8 +1,0 @@
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.06s
-     Running `target/debug/micro-core`
-[Tick 60] Entities alive: 100
-[Tick 120] Entities alive: 100
-[Tick 180] Entities alive: 100
-[Tick 240] Entities alive: 100
-[Tick 300] Smoke test complete. Exiting.
-[Tick 300] Entities alive: 100

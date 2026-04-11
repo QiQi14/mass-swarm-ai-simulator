@@ -19,6 +19,9 @@ Follow this 6-step workflow to certify a task and capture lessons:
   - Is the logic placed in the correct layer (e.g., Domain vs. Data)?
   - Are there any leftover `// TODO` or placeholders?
 
+> **⚠️ WORKSPACE HYGIENE** 
+> If you need to create standalone temporary `.py`, `.rs`, or `.js` test scripts to quickly verify logic, simulate API calls, or run isolated experiments during testing, **DO NOT dump them in the repository root or project source folders**. You MUST create and place all scratch files inside `.agents/scratch/`. Keep the main source tree clean.
+
 ## Step 3: Functional Validation (Dynamic Testing)
 
 > **CRITICAL:** Static analysis (tsc, eslint, gradle build) proves code COMPILES, not that it WORKS. Passing a build check alone is NEVER sufficient to certify a task.

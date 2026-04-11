@@ -1,30 +1,59 @@
 # Canvas Rendering Engine
 
-Located in `js/draw.js` and `js/main.js`.
+Located in `src/draw/terrain.js`, `src/draw/entities.js`, and `src/draw/effects.js`.
 
-## The HTML5 Canvas API
+## Dual-Canvas Architecture
 
-We draw everything using the raw `CanvasRenderingContext2D` API. 
+Two HTML5 canvases stacked:
+1. **Terrain canvas** — static terrain costs, fog-of-war (offscreen pre-rendered)
+2. **Entity canvas** — dynamic entities, overlays, effects (redrawn every frame)
 
 ## The Core Loop (`main.js`)
-Instead of reacting to state changes, we use `requestAnimationFrame`. This is the browser's native game loop.
-It runs at the exact refresh rate of your monitor (usually 60Hz or 120Hz).
 
-On every frame, `main.js` calls `drawAll()`.
+Uses `requestAnimationFrame` for GPU-synced rendering at monitor refresh rate (60/120Hz).
+Each frame calls `drawEntities()` which orchestrates all rendering passes.
 
-## Optimizations (`draw.js`)
-If you naively loop through 10,000 entities and call `ctx.fillStyle = "red"; ctx.fillRect()`, it is extremely slow due to context switching. Every time you change the paint brush color (`fillStyle`), the GPU stalls and flushes the pipeline.
+## Batch Rendering (entities.js)
 
-### Batch Drawing (How we achieve 60fps)
-Instead of painting Entity 1 (Red), Entity 2 (Blue), Entity 3 (Red), we **batch render**.
+To achieve 60fps with 10,000+ entities, we batch by faction:
 
-1. The renderer clears the screen: `ctx.clearRect()`.
-2. It begins drawing the Red Faction. `ctx.beginPath()`.
-3. It iterates through the State Manager, finding *only* Red entities. It adds their coordinates to the current path using `.rect()` or `.arc()`.
-4. It calls `ctx.fill()` **once**.
-5. It switches the brush to Blue, and repeats.
+1. Clear the entity canvas
+2. For each faction: `beginPath()` → loop all entities → `.arc()` → single `fill()`
+3. This minimizes GPU state changes (fillStyle switches) — the critical bottleneck
 
-By drastically minimizing state changes on the Canvas Context, we push the heavy lifting purely to the GPU's rasterizer.
+## Observation Channel Overlays (entities.js)
 
-## Fog of War & Terrain Rendering
-These are static layers. Rather than redrawing 2,500 grid squares every 16ms, we draw them once to an "Offscreen Canvas" (a hidden canvas in memory), and simply `.drawImage()` that massive pre-rendered block onto the main screen behind the entities. We only recalculate it when the user actively paints new terrain.
+Overlays render BEFORE entities so entities appear on top. When active, entity opacity drops to 30%.
+
+### Ch0/Ch1 — Density Heatmap
+- Data: `S.densityHeatmap` (HashMap of faction → float[2500])
+- Renders per-cell colored rectangles using faction color with alpha proportional to density
+- Grid: 50×50 cells, 20px per cell
+
+### Ch4 — Terrain Cost
+- Data: Local terrain grid from WS `set_terrain` commands
+- Renders cost tiers: impassable (red), destructible (amber), elevated (orange)
+
+### Ch7 — Threat Density (ECP)
+- Data: `S.ecpDensityMaps` (HashMap of faction → float[2500])
+- **3-pass glow renderer** (`drawThreatGlow`):
+  - **Pass 1 — Outer Halo:** Wide `shadowBlur` purple glow for visibility at distance
+  - **Pass 2 — Core Fill:** HSL gradient from cool purple (low density) to hot magenta/white (high)
+  - **Pass 3 — Bloom Pulse:** Hot-spot effect on cells in the top 50% of density
+- Skips faction 0 (brain) — only renders enemy threat
+
+### ECP vs Density
+| | Density (Ch0/Ch1) | ECP (Ch7) |
+|---|---|---|
+| **Weights** | 1.0 per entity (headcount) | `max(hp × damage_mult, 1.0)` |
+| **Out-of-bounds** | Skipped | Clamped to nearest grid edge |
+| **Use case** | Where are units? | Where is the threat? |
+
+## Viewport Transform (terrain.js)
+
+The viewport uses `ctx.setTransform(scale, 0, 0, scale, offsetX, offsetY)` to handle pan/zoom.
+All world-to-canvas coordinate conversions go through `worldToCanvas(wx, wy)`.
+
+## Offscreen Rendering (terrain.js)
+
+Static layers (terrain costs, fog-of-war) are drawn once to offscreen `OffscreenCanvas` objects and composited onto the main canvas with `drawImage()`. Only redrawn when terrain data changes.

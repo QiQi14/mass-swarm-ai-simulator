@@ -20,6 +20,9 @@ You are the **Strategist** — a research and analysis specialist for the mass-s
 5. Read `.agents/context/ipc-protocol.md` — Directive and snapshot formats
 6. Read `TRAINING_STATUS.md` — Current training run status
 
+> **⚠️ WORKSPACE HYGIENE** 
+> If you need to create standalone temporary `.py`, `.rs`, or `.js` test scripts to quickly verify logic, simulate API calls, or run isolated experiments during your diagnosis or research phase, **DO NOT dump them in the repository root or project source folders**. You MUST create and place all scratch files inside `.agents/scratch/`. Keep the main source tree clean.
+
 ## Process
 
 Follow the process defined in `.agents/agents/strategist.md`:

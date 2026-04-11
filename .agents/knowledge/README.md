@@ -11,6 +11,7 @@ knowledge/
 ├── bevy/               ← Bevy ECS engine gotchas and patterns
 ├── python/             ← Python language gotchas and patterns
 ├── rust/               ← Rust language conventions and patterns
+├── frontend/           ← Frontend and UI related gotchas
 ├── tooling/            ← IDE, build tools, dev environment
 └── workflow/           ← Multi-agent DAG process rules
 ```
@@ -51,6 +52,13 @@ knowledge/
 | `convention_rust_file_splitting.md` | medium | Split files >300 lines or with 3+ concerns; document rationale if choosing not to split |
 | `gotcha_mitigation_scaling_tick_delta.md` | medium | Flat mitigation per-second amounts must be scaled by `tick_delta` just like damage is, to avoid frame-dependent mitigation |
 
+## `frontend/` — Frontend & UI Gotchas (2 files)
+
+| File | Severity | Summary |
+|------|----------|---------|
+| `gotcha_orphaned_css_files.md` | high | When adding new CSS files under strict scope without `index.html` access, use `@import` inside an approved file |
+| `gotcha_es_module_extraction_scope.md` | high | When extracting an exported module function but you cannot update imports due to strict scope, you MUST re-export the function from the original file |
+
 ## `tooling/` — IDE & Build Tools (3 files)
 
 | File | Severity | Summary |
@@ -59,7 +67,7 @@ knowledge/
 | `tooling_stale_rust_analyzer_cache.md` | low | Stale `target/` fingerprints cause phantom errors in rust-analyzer — fix with `cargo clean` |
 | `tooling_testing_tmp_dir.md` | low | Use workspace-local temp dirs for test artifacts, not system `/tmp` |
 
-## `workflow/` — Multi-Agent Process (5 files)
+## `workflow/` — Multi-Agent Process (6 files)
 
 | File | Severity | Summary |
 |------|----------|---------|
@@ -67,6 +75,7 @@ knowledge/
 | `convention_strict_scope_and_changelog.md` | high | Executor must create changelog + stay within `Target_Files` scope — mandatory in dispatch template |
 | `convention_split_large_plans.md` | high | Split `implementation_plan.md` into index + per-feature detail files when >400 lines to avoid executor token truncation |
 | `gotcha_basic_tier_context_ignorance.md` | high | `basic` tier models skip `Context_Bindings` — inline critical rules in the task brief |
+| `gotcha_dom_deletion_crashing_modules.md` | high | Deleting DOM elements in phased UI refactors will crash out-of-scope modules on load; use hidden stubs instead |
 | `gotcha_never_manually_archive_tasks.md` | critical | **NEVER** manually `mv` task files — always use `./task_tool.sh complete` → auto-archive. Manual moves lose audit trail and skip state validation. |
 | `gotcha_parallel_task_missing_resource.md` | medium | When a dependency isn't merged from a parallel task, locally stub it inside the target file and document it in the changelog |
 | `gotcha_strict_scope_vs_file_size.md` | high | **Conflict:** Strict Scope rule prevents executors from creating files to meet file size limits. Planner must pre-authorize extra files, or Executor must stop & ask. |

@@ -65,6 +65,9 @@ pub enum WsMessage {
         #[cfg(feature = "debug-telemetry")]
         #[serde(skip_serializing_if = "Option::is_none")]
         density_heatmap: Option<std::collections::HashMap<u32, Vec<f32>>>,
+        #[cfg(feature = "debug-telemetry")]
+        #[serde(skip_serializing_if = "Option::is_none")]
+        ecp_density_maps: Option<std::collections::HashMap<u32, Vec<f32>>>,
     },
     /// Flow field vector data for debug visualization.
     /// Only compiled when `debug-telemetry` feature is enabled.

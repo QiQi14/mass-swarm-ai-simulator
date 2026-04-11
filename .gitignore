@@ -16,15 +16,12 @@ Thumbs.db
 
 # ── Python / Macro-Brain ─────────────────────────────────────
 __pycache__/
-macro-brain/**/*.pyc
-macro-brain/**/*.pyo
-macro-brain/**/__pycache__/
-macro-brain/__pycache__/
-macro-brain/*.egg-info/
-macro-brain/.pytest_cache/
-macro-brain/.ruff_cache/
-macro-brain/.venv/
-macro-brain/venv/
+**/*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+.venv/
+venv/
 
 # PyTorch / ONNX artifacts
 macro-brain/**/*.onnx
@@ -43,7 +40,11 @@ micro-core/target/
 **/*.rs.bk
 
 # ── Debug Visualizer ─────────────────────────────────────────
-# (nothing to ignore — static HTML/JS, no build step)
+debug-visualizer/node_modules/
+debug-visualizer/dist/
+node_modules/
+verify_screenshot_*.png
+test-console.js
 
 # ── Agent Framework Runtime Artifacts ────────────────────────
 # Python venvs for CLI tools

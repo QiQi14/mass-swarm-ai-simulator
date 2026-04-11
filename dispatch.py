@@ -185,7 +185,11 @@ def _parse_task_brief(content: str) -> dict[str, Any]:
     result["context_bindings"] = _parse_list_field(content, "Context_Bindings")
 
     # Model_Tier (basic / standard / advanced) — handles **bold** markers
+    # Supports both inline (Model_Tier: advanced) and heading (## Model_Tier\n`advanced`) formats.
     m = re.search(r"\*{0,2}Model_Tier\*{0,2}\s*[:=]\s*[`\"']?(\w+)", content, re.IGNORECASE)
+    if not m:
+        # Fallback: heading format where value is on the next line
+        m = re.search(r"#{1,3}\s*Model_Tier\s*\n+\s*[`\"']?(\w+)", content, re.IGNORECASE)
     result["model_tier"] = m.group(1).strip("`\"'").lower() if m else "standard"
 
     return result

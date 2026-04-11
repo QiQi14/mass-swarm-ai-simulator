@@ -226,17 +226,39 @@ Returned after each directive exchange:
 
 ## 5. WebSocket Protocol (Rust ↔ Browser)
 
-### Delta Sync (Rust → Browser)
+### SyncDelta (Rust → Browser)
+
+Broadcast every tick. Delta-only by default; full snapshot every 60 ticks.
+Entities are included when Position, Velocity, OR StatBlock change.
 
 ```json
 {
-  "type": "delta_update",
+  "type": "SyncDelta",
   "tick": 1235,
-  "spawned": [{ "id": 501, "x": 10.0, "y": 20.0, "faction": 0, "stats": [100.0] }],
-  "moved": [{ "id": 1, "x": 151.0, "y": 201.0 }],
-  "died": [42, 99, 107]
+  "moved": [
+    { "id": 1, "x": 151.0, "y": 201.0, "dx": 1.5, "dy": -0.5, "faction_id": 0, "stats": [100.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] }
+  ],
+  "removed": [42, 99, 107]
 }
 ```
+
+#### Debug-Telemetry Fields (every 6 ticks, requires `debug-telemetry` feature)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `telemetry` | `PerfTelemetry?` | Per-system microsecond timings |
+| `visibility` | `VisibilitySync?` | Fog-of-war explored/visible grids |
+| `zone_modifiers` | `ZoneModifierSync[]?` | Active pheromone/repellent zones |
+| `active_sub_factions` | `u32[]?` | Currently active sub-faction IDs |
+| `aggro_masks` | `{"src_tgt": bool}?` | Combat enable/disable per faction pair |
+| `ml_brain` | `MlBrainSync?` | Python connection status, last directive |
+| `density_heatmap` | `{faction_id: float[]}?` | Ch0/Ch1: Raw entity density per faction (50×50 grid, normalized 0–1) |
+| `ecp_density_maps` | `{faction_id: float[]}?` | Ch7: Effective Combat Power density (hp × damage_mult, clamped to grid, floor of 1.0 per entity) |
+
+> [!NOTE]
+> `ecp_density_maps` differs from `density_heatmap`: density counts entities per cell,
+> while ECP weights each entity by `hp × damage_mult`. ECP clamps out-of-bounds entities
+> to the nearest grid edge (never drops factions). Minimum contribution per entity = 1.0.
 
 ### Commands (Browser → Rust)
 

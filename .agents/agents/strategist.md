@@ -35,6 +35,9 @@ Your output is NOT code or implementation tasks — it is **analysis, diagnosis,
 5. Read `TRAINING_STATUS.md` — Current training run status and history
 6. If active training: Read latest training logs in `macro-brain/runs/`
 
+> **⚠️ WORKSPACE HYGIENE** 
+> If you need to create standalone temporary `.py`, `.rs`, or `.js` test scripts to quickly verify logic or math during your research phase, **DO NOT dump them in the repository root or project source folders**. You MUST create and place all scratch files inside `.agents/scratch/`. Keep the main source tree clean.
+
 > [!IMPORTANT]
 > You MUST understand how the engine works BEFORE analyzing or proposing anything.
 > Most training failures come from misunderstanding engine mechanics (e.g., HP buff no-op, terrain cost defaults).

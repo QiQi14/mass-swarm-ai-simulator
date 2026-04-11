@@ -62,10 +62,10 @@ Each stage requires sustained win rate (rolling window) + minimum episodes:
 - **Win condition:** All enemies dead
 
 ### Stage 1: Target Selection (500×500)
-- **Brain:** 50 units, 100 HP, spawns at left-center (80, 250)
-- **Trap:** 50 units, 200 HP, HoldPosition (one right corner)
-- **Target:** 20 units, 60 HP, HoldPosition (other right corner)
-- **Terrain:** Flat, trap/target separated by ≥300 units
+- **Brain:** 50 units, 100 HP, spawns at left side (80, random Y: 200-300)
+- **Trap:** 50 units, 200 HP, HoldPosition (right side, random Y)
+- **Target:** 50 units, 60 HP, HoldPosition (right side, random Y)
+- **Terrain:** Flat, trap/target separated by ≥200 vertical units to avoid overlap
 - **Faction randomization:** 50% chance trap=faction 1, target=faction 2 (or vice versa)
 - **Goal:** Read density observations, AttackCoord the weaker target
 - **Debuff mechanic:** Killing target first → trap DPS × 0.25 + trap enrages (charges brain)
@@ -105,15 +105,17 @@ Each stage requires sustained win rate (rolling window) + minimum episodes:
 - **Goal:** Scout → find target → AttackCoord → kill
 - **Planned enhancement:** Add retargeting objective (multi-target or patrol target)
 
-### Stage 5: Flanking (1000×1000)
+### Stage 5: Forced Flanking (1000×1000)
 - **New actions:** SplitToCoord (30%), MergeBack
-- **Goal:** Split force, attack from two angles
-- **Status:** Not yet redesigned for v3.1 curriculum
+- **Terrain:** Strong "V" shaped forward-facing wall or extreme hazard swamp.
+- **Goal:** Enemy is entrenched in the chokepoint. Brain MUST split into two groups to hit the enemy from both open sides simultaneously, as a frontal generic charge will result in death.
+- **Status:** Designed. Blocked pending Rust Micro-Core upgrades for complex interactions.
 
-### Stage 6: Full Tactics (1000×1000)
+### Stage 6: The Lure & Ambush (1000×1000)
 - **New action:** Retreat
-- **Goal:** All 8 actions available, combine primitives
-- **Status:** Not yet redesigned for v3.1 curriculum
+- **Spawns:** Brain Bait (10) at center, Brain Army (80) hidden at corner, Enemy (100) charging at Bait.
+- **Goal:** Survive. Brain MUST use Retreat to kite the massive enemy army across the map and drag them into the hidden Brain Army to win via a counter-attack.
+- **Status:** Designed. Blocked pending visualizer and core architecture upgrades.
 
 ### Stage 7: Protected Target (1000×1000)
 - **Patrol bots with waypoints**

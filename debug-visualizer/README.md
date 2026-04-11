@@ -1,21 +1,74 @@
 # Debug Visualizer
 
-Welcome to the **Debug Visualizer**! While the `micro-core` crunching physics in headless rust, and the `macro-brain` is training neural nets in python, resolving a bug using only print statements is torturous. 
+Real-time visual window into the `micro-core` simulation engine, built with the **Tactical Command Center** design language.
 
-This module provides a real-time visual window into the engine.
+## Architecture
 
-## What is the Debug Visualizer?
-It is a lightweight, zero-dependency, vanilla HTML5/JavaScript web application. No React, no Vue, no bloated build step. You open `index.html` in your browser, and it connects directly to the `micro-core`'s WebSocket port.
+Vite-powered ES module application. No React/Vue — raw Canvas2D rendering achieves 60fps with 10,000+ entities.
 
-## Why Vanilla JavaScript?
-Performance over ergonomics. 
-When the `micro-core` is simulating 10,000 entities, it broadcasts coordinates 60 times a second. If you pump 600,000 state mutations per second into React's Virtual DOM, the browser will crash immediately.
+```
+debug-visualizer/
+├── index.html              # Entry point
+├── vite.config.js          # Build config
+├── package.json
+├── src/
+│   ├── main.js             # App shell, mode router (Training/Playground)
+│   ├── config.js           # Constants, faction registry, grid dimensions
+│   ├── state.js            # Flat state container (entity Map, toggles, telemetry)
+│   ├── websocket.js        # WS connection, SyncDelta handler
+│   ├── styles/
+│   │   ├── tokens.css      # Design system variables (colors, spacing, fonts)
+│   │   ├── reset.css       # CSS reset + base typography
+│   │   ├── layout.css      # App shell grid, sidebar, bottom-sheet mobile
+│   │   └── panels.css      # Panel components, accordions, inspector
+│   ├── draw/
+│   │   ├── terrain.js      # Offscreen terrain canvas, viewport transforms
+│   │   ├── entities.js     # Entity batch rendering, observation channel overlays
+│   │   └── effects.js      # Health bars, death animations, selection highlights
+│   ├── controls/
+│   │   ├── init.js         # Global event listeners (keyboard, resize)
+│   │   └── split.js        # Canvas pan/zoom, entity click-select
+│   └── panels/
+│       ├── registry.js     # Panel auto-registration system
+│       ├── training/       # Training mode panels (telemetry, inspector, layers)
+│       └── playground/     # Playground mode panels (spawn, terrain, zones)
+└── docs/
+    ├── state_and_network.md
+    ├── canvas.md
+    └── user_interface.md
+```
 
-By using raw JavaScript arrays and drawing directly onto an HTML `<canvas>`, we achieve buttery smooth 60fps rendering of massive swarms on standard hardware.
+## Running
 
-## Directory Map (Deep Dive)
-To avoid an overwhelmingly large document, technical details are split into specific domains:
+```bash
+# Development (hot-reload)
+cd debug-visualizer && npm run dev
 
-1. [**State & Network (`state.js`, `websocket.js`)**](docs/state_and_network.md) - How we connect to the Rust core and securely manage incoming delta updates without memory leaks.
-2. [**Canvas Rendering (`draw.js`, `main.js`)**](docs/canvas.md) - How we clear and re-render thousands of entities on an HTML5 canvas linearly every frame.
-3. [**User Interface & Tooling (`ui-panels.js`, `controls.js`)**](docs/user_interface.md) - How the dashboard tools (painting modifiers, selecting units, pausing) interact with the core simulation.
+# Production build
+cd debug-visualizer && npm run build
+```
+
+The visualizer connects to `ws://localhost:8080` (the micro-core's WebSocket server).
+
+## Observation Channel Overlays
+
+Toggle via the **Viewport Layers** panel in the sidebar:
+
+| Channel | Data Source | Visualization | Color |
+|---------|-----------|---------------|-------|
+| Ch0 — Ally Density | `density_heatmap[0]` | Heatmap | Green |
+| Ch1 — Enemy Density | `density_heatmap[1+]` | Heatmap | Red |
+| Ch4 — Terrain Cost | `terrainLocal` grid | Cost tiers | Red/Amber/Orange |
+| Ch7 — Threat (ECP) | `ecp_density_maps[1+]` | 3-pass glow (halo → core → bloom) | Purple/Magenta |
+
+When any overlay is active, entity opacity drops to 30% so the heatmap dominates visually.
+
+## Design System
+
+The **Tactical Command Center** aesthetic uses:
+- Dark surfaces with noise texture
+- Electric cyan (`#00d4ff`) accent color
+- Geist font family
+- Glassmorphism panels with backdrop blur
+
+See `src/styles/tokens.css` for the full variable set.

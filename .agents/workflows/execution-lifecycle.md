@@ -37,6 +37,9 @@ Write the code required to fulfill the task.
 - Ensure all business logic, UI state, and edge cases mentioned in the task brief are fully covered.
 - Do not use placeholders like `// TODO`. Output fully functional, production-ready code.
 
+> **⚠️ WORKSPACE HYGIENE** 
+> If you need to create standalone temporary `.py`, `.rs`, or `.js` test scripts to quickly verify logic, simulate API calls, or run isolated experiments during development, **DO NOT dump them in the repository root or project source folders**. You MUST create and place all scratch files inside `.agents/scratch/`. Keep the main source tree clean.
+
 ## Step 3: Self-Review (Contract Verification)
 Before finalizing, perform an internal check:
 1. Did I strictly follow the function signatures and models defined in the task brief?

@@ -21,6 +21,9 @@ Your output is NOT executable code — it is a highly structured, collision-free
 5. Read `.agents/knowledge/README.md` — Master knowledge index (lookup table by domain)
 6. Scan relevant subdirectories in `.agents/knowledge/` — e.g., `workflow/` for DAG rules, `bevy/` for Bevy gotchas
 
+> **⚠️ WORKSPACE HYGIENE** 
+> If you need to create standalone temporary `.py`, `.rs`, or `.js` test scripts to quickly verify logic, simulate API calls, or run isolated experiments during your planning phase, **DO NOT dump them in the repository root or project source folders**. You MUST create and place all scratch files inside `.agents/scratch/`. Keep the main source tree clean.
+
 ## Step 0: Update the Feature Ledger
 
 Before planning a NEW feature, check if the PREVIOUS feature was archived but not yet logged.
