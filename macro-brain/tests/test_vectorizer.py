@@ -62,25 +62,32 @@ def test_vectorizer_basic():
 
     result = vectorize_snapshot(snapshot, brain_faction=0, enemy_factions=1)
 
-    # ch0: brain density
+    # ch0: friendly count density
     assert "ch0" in result
     assert np.allclose(result["ch0"], 0.5)
     assert result["ch0"].shape == (50, 50)
 
-    # ch1: unified enemy density
+    # ch1: unified enemy count density
     assert "ch1" in result
     assert np.allclose(result["ch1"], 0.8)
 
-    # ch2: reserved (zeroed)
+    # ch2: friendly ECP density (brain has no ecp_density_maps → zero)
     assert "ch2" in result
-    assert np.allclose(result["ch2"], 0.0), "ch2 must be zeroed (reserved for future ally)"
+    assert np.allclose(result["ch2"], 0.0), "ch2 should be zero without brain ECP data"
+
+    # ch3: enemy ECP density
+    assert "ch3" in result
+    assert np.allclose(result["ch3"], 0.4), "ch3 should reflect enemy ECP"
 
     # ch4: terrain
     assert "ch4" in result
     assert np.allclose(result["ch4"], 32767 / 65535.0, atol=1e-4)
 
-    # ch7: ECP density
-    assert np.allclose(result["ch7"], 0.4)
+    # ch6: interactable terrain (zeros)
+    assert np.allclose(result["ch6"], 0.0)
+
+    # ch7: system objective (zeros)
+    assert np.allclose(result["ch7"], 0.0)
 
     # summary
     assert "summary" in result
@@ -111,19 +118,23 @@ def test_unified_enemy_merges_all_factions():
         f"ch1 should merge enemies: expected 0.5, got {result['ch1'].mean():.3f}"
     )
 
-    # ch2 must remain zeroed
-    assert np.allclose(result["ch2"], 0.0), "ch2 must be zeroed even with 2 enemy factions"
+    # ch2 (friendly ECP) should be zero (no brain ECP data provided)
+    assert np.allclose(result["ch2"], 0.0)
 
 
-def test_ch2_always_zero_regardless_of_factions():
-    """ch2 must be zero no matter how many enemy factions exist."""
+def test_ch2_brain_ecp_and_ch3_enemy_ecp():
+    """ch2 shows brain ECP, ch3 shows merged enemy ECP."""
     grid_size = 50 * 50
     snapshot = {
         "density_maps": {
             "0": [0.1] * grid_size,
             "1": [0.4] * grid_size,
             "2": [0.3] * grid_size,
-            "3": [0.2] * grid_size,  # Sub-faction
+        },
+        "ecp_density_maps": {
+            "0": [0.6] * grid_size,  # Brain ECP
+            "1": [0.4] * grid_size,  # Enemy 1 ECP
+            "2": [0.3] * grid_size,  # Enemy 2 ECP
         },
         "summary": {
             "faction_counts": {"0": 50, "1": 30, "2": 20},
@@ -135,15 +146,15 @@ def test_ch2_always_zero_regardless_of_factions():
         snapshot, brain_faction=0, enemy_factions=[1, 2]
     )
 
-    # ch2 must be zero
-    assert np.allclose(result["ch2"], 0.0)
+    # ch2 should reflect brain ECP
+    assert np.allclose(result["ch2"], 0.6)
 
-    # ch3 should capture sub-faction 3 (not brain, not enemy)
-    assert np.allclose(result["ch3"], 0.2)
+    # ch3 should merge enemy ECP: 0.4 + 0.3 = 0.7
+    assert np.allclose(result["ch3"], 0.7)
 
 
 def test_lkp_with_two_channels():
-    """LKP buffer processes both raw density (ch1) and ECP (ch7) under fog."""
+    """LKP buffer processes both raw density (ch1) and ECP (ch3) under fog."""
     grid_size = 50 * 50
     lkp = LKPBuffer(grid_h=50, grid_w=50, num_enemy_channels=2)
 
@@ -171,7 +182,8 @@ def test_lkp_with_two_channels():
 
     # ch1 should have the ground truth density
     assert np.allclose(result["ch1"], 0.5)
-    assert np.allclose(result["ch7"], 1.0)
+    # ch3 should have the enemy ECP
+    assert np.allclose(result["ch3"], 1.0)
 
     # Now simulate fog hiding everything
     snapshot2 = {
@@ -197,11 +209,11 @@ def test_lkp_with_two_channels():
 
     # LKP should retain decayed density, not zero
     assert result2["ch1"].max() > 0.0, "LKP should retain ghost trail for raw density"
-    assert result2["ch7"].max() > 0.0, "LKP should retain ghost trail for ECP"
+    assert result2["ch3"].max() > 0.0, "LKP should retain ghost trail for ECP"
 
 
-def test_ch7_ecp_density():
-    """ch7 reflects ECP (HP × damage_mult)."""
+def test_ch3_ecp_density():
+    """ch3 reflects enemy ECP (HP × damage_mult)."""
     grid_size = 50 * 50
     snapshot = {
         "ecp_density_maps": {
@@ -213,7 +225,7 @@ def test_ch7_ecp_density():
         },
     }
     result = vectorize_snapshot(snapshot, enemy_factions=1)
-    assert np.allclose(result["ch7"], 0.8)
+    assert np.allclose(result["ch3"], 0.8)
 
 
 def test_summary_no_faction_cheats():
@@ -232,10 +244,10 @@ def test_summary_no_faction_cheats():
     result = vectorize_snapshot(snapshot, brain_faction=0, enemy_factions=[1, 2], max_entities=100.0)
     
     # 50 own * 100 HP = 5000 HP. Max HP = 100 * 100 = 10000.
-    assert np.allclose(result["summary"][6], 0.5)
+    assert np.allclose(result["summary"][5], 0.5)
     
     # Enemies: (50 * 100) + (20 * 50) = 6000 HP. Max HP = 100 * 100 = 10000.
-    assert np.allclose(result["summary"][7], 0.6)
+    assert np.allclose(result["summary"][6], 0.6)
 
 
 def test_center_padding():

@@ -27,12 +27,28 @@ export default {
             </div>
 
             <div class="layer-group">
-                <div class="layer-group-title">Observation Channels</div>
+                <div class="layer-group-title">🟦 Force Picture (ch0-3)</div>
                 <div class="form-group">
-                    <label class="toggle-control"><input type="checkbox" id="toggle-ch0"> <span class="control-indicator"></span><span class="control-label">Ch0 — Ally Density</span></label>
-                    <label class="toggle-control"><input type="checkbox" id="toggle-ch1"> <span class="control-indicator"></span><span class="control-label">Ch1 — Enemy Density</span></label>
+                    <label class="toggle-control"><input type="checkbox" id="toggle-ch0"> <span class="control-indicator"></span><span class="control-label">Ch0 — Friendly Count</span></label>
+                    <label class="toggle-control"><input type="checkbox" id="toggle-ch1"> <span class="control-indicator"></span><span class="control-label">Ch1 — Enemy Count</span></label>
+                    <label class="toggle-control"><input type="checkbox" id="toggle-ch2"> <span class="control-indicator"></span><span class="control-label">Ch2 — Friendly ECP</span></label>
+                    <label class="toggle-control"><input type="checkbox" id="toggle-ch3"> <span class="control-indicator"></span><span class="control-label">Ch3 — Enemy ECP</span></label>
+                </div>
+            </div>
+
+            <div class="layer-group">
+                <div class="layer-group-title">🟩 Environment (ch4-5)</div>
+                <div class="form-group">
                     <label class="toggle-control"><input type="checkbox" id="toggle-ch4"> <span class="control-indicator"></span><span class="control-label">Ch4 — Terrain Cost</span></label>
-                    <label class="toggle-control"><input type="checkbox" id="toggle-ch7"> <span class="control-indicator"></span><span class="control-label">Ch7 — Threat (Combat Power)</span></label>
+                    <label class="toggle-control"><input type="checkbox" id="toggle-ch5"> <span class="control-indicator"></span><span class="control-label">Ch5 — Fog Awareness</span></label>
+                </div>
+            </div>
+
+            <div class="layer-group">
+                <div class="layer-group-title">🟨 Tactical (ch6-7)</div>
+                <div class="form-group">
+                    <label class="toggle-control disabled"><input type="checkbox" id="toggle-ch6" disabled> <span class="control-indicator"></span><span class="control-label">Ch6 — Interactable Terrain <small>(future)</small></span></label>
+                    <label class="toggle-control disabled"><input type="checkbox" id="toggle-ch7" disabled> <span class="control-indicator"></span><span class="control-label">Ch7 — System Objective <small>(future)</small></span></label>
                 </div>
             </div>
 
@@ -58,11 +74,15 @@ export default {
         body.querySelector('#toggle-flow').onchange = (e) => S.setShowFlowField(e.target.checked);
         body.querySelector('#toggle-overrides').onchange = (e) => S.setShowOverrideMarkers(e.target.checked);
         
-        // Observation channels — ch0 (ally density) re-uses densityHeatmap toggle
+        // Force Picture channels
         body.querySelector('#toggle-ch0').onchange = (e) => S.setShowDensityHeatmap(e.target.checked);
         body.querySelector('#toggle-ch1').onchange = (e) => S.setShowEnemyDensity(e.target.checked);
+        body.querySelector('#toggle-ch2').onchange = (e) => S.setShowFriendlyEcp(e.target.checked);
+        body.querySelector('#toggle-ch3').onchange = (e) => S.setShowThreatDensity(e.target.checked);
+        
+        // Environment channels
         body.querySelector('#toggle-ch4').onchange = (e) => S.setShowTerrainCost(e.target.checked);
-        body.querySelector('#toggle-ch7').onchange = (e) => S.setShowThreatDensity(e.target.checked);
+        body.querySelector('#toggle-ch5').onchange = (e) => S.setShowFogAwareness(e.target.checked);
         
         // Zones
         body.querySelector('#toggle-zones').onchange = (e) => S.setShowZoneModifiers(e.target.checked);

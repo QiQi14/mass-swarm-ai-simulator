@@ -13,7 +13,7 @@ use crate::bridges::zmq_protocol::{
 };
 use crate::components::{EntityId, FactionId, Position, StatBlock};
 use crate::config::{
-    ActiveSubFactions, ActiveZoneModifiers, AggroMaskRegistry, InterventionTracker,
+    ActiveSubFactions, ActiveZoneModifiers, AggroMaskRegistry, DensityConfig, InterventionTracker,
     SimulationConfig, TickCounter, FactionBuffs, BuffConfig,
 };
 use crate::systems::state_vectorizer::{DEFAULT_MAX_DENSITY, build_density_maps, build_ecp_density_maps};
@@ -38,6 +38,7 @@ use crate::visibility::FactionVisibility;
 /// * `intervention` - Tier 1 engine override activity tracker
 /// * `sub_factions` - Currently active sub-factions
 /// * `aggro` - Aggro mask registry for faction-pair combat control
+/// * `density_config` - Density/ECP normalization configuration
 #[allow(clippy::too_many_arguments)]
 pub(super) fn build_state_snapshot(
     tick: &TickCounter,
@@ -52,6 +53,7 @@ pub(super) fn build_state_snapshot(
     aggro: &AggroMaskRegistry,
     combat_buffs: &FactionBuffs,
     buff_config: &BuffConfig,
+    density_config: &DensityConfig,
 ) -> StateSnapshot {
     let mut faction_counts = std::collections::HashMap::new();
     let mut faction_sum_stats: std::collections::HashMap<u32, Vec<f32>> =
@@ -140,7 +142,7 @@ pub(super) fn build_state_snapshot(
         terrain.width,
         terrain.height,
         terrain.cell_size,
-        DEFAULT_MAX_DENSITY * 100.0, // Assuming 100 max HP
+        density_config.max_density * density_config.max_entity_ecp,
     );
 
     // Zone modifier snapshots for observation feedback
@@ -214,6 +216,7 @@ mod tests {
         aggro: Res<AggroMaskRegistry>,
         combat_buffs: Res<FactionBuffs>,
         buff_config: Res<BuffConfig>,
+        density_config: Res<DensityConfig>,
         query: Query<(&EntityId, &Position, &FactionId, &StatBlock)>,
         mut captured: ResMut<CapturedSnapshot>,
     ) {
@@ -230,6 +233,7 @@ mod tests {
             &aggro,
             &combat_buffs,
             &buff_config,
+            &density_config,
         ));
     }
 
@@ -246,6 +250,7 @@ mod tests {
         app.insert_resource(AggroMaskRegistry::default());
         app.insert_resource(FactionBuffs::default());
         app.init_resource::<BuffConfig>();
+        app.init_resource::<DensityConfig>();
         app.insert_resource(CapturedSnapshot(None));
         app.add_systems(Update, capture_snapshot_system);
         app

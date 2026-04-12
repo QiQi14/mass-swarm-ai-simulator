@@ -50,6 +50,7 @@ pub(super) fn ai_trigger_system(
     aggro: Res<AggroMaskRegistry>,
     combat_buffs: Res<crate::config::FactionBuffs>,
     buff_config: Res<crate::config::BuffConfig>,
+    density_config: Res<crate::config::DensityConfig>,
     query: Query<(&EntityId, &Position, &FactionId, &StatBlock)>,
     mut next_state: ResMut<NextState<SimState>>,
 ) {
@@ -71,6 +72,7 @@ pub(super) fn ai_trigger_system(
         &aggro,
         &combat_buffs,
         &buff_config,
+        &density_config,
     );
 
     let brain_faction = 0u32;
@@ -163,6 +165,7 @@ pub(super) fn ai_poll_system(
                     ability_config,
                     movement_config,
                     max_density,
+                    max_entity_ecp,
                     terrain_thresholds,
                     removal_rules,
                     navigation_rules,
@@ -177,6 +180,7 @@ pub(super) fn ai_poll_system(
                         ability_config,
                         movement_config,
                         max_density,
+                        max_entity_ecp,
                         terrain_thresholds,
                         removal_rules,
                         navigation_rules,
@@ -252,6 +256,7 @@ mod tests {
         app.insert_resource(AggroMaskRegistry::default());
         app.insert_resource(crate::config::FactionBuffs::default());
         app.init_resource::<crate::config::BuffConfig>();
+        app.init_resource::<crate::config::DensityConfig>();
 
         app.add_systems(
             Update,
@@ -305,6 +310,7 @@ mod tests {
         app.insert_resource(AggroMaskRegistry::default());
         app.insert_resource(crate::config::FactionBuffs::default());
         app.init_resource::<crate::config::BuffConfig>();
+        app.init_resource::<crate::config::DensityConfig>();
 
         app.add_systems(
             Update,

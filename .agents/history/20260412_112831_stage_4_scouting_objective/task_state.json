@@ -1,0 +1,31 @@
+{
+  "feature": "stage_4_scouting_objective",
+  "global_status": "ALL_COMPLETE",
+  "total_tasks": 2,
+  "created_at": "2026-04-12T04:24:37+00:00",
+  "updated_at": "2026-04-12T04:28:31+00:00",
+  "tasks": [
+    {
+      "task_id": "task_01_ch7_rewards",
+      "status": "COMPLETE",
+      "phase": "1",
+      "source_file": "tasks_pending/task_01_ch7_rewards.md",
+      "fail_reason": null,
+      "started_at": "2026-04-12T04:26:24+00:00",
+      "completed_at": "2026-04-12T04:27:14+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-12T04:27:14+00:00"
+    },
+    {
+      "task_id": "task_02_stage4_curriculum",
+      "status": "COMPLETE",
+      "phase": "2",
+      "source_file": "tasks_pending/task_02_stage4_curriculum.md",
+      "fail_reason": null,
+      "started_at": "2026-04-12T04:27:21+00:00",
+      "completed_at": "2026-04-12T04:28:31+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-12T04:28:31+00:00"
+    }
+  ]
+}

@@ -41,6 +41,8 @@ pub struct ResetRequest {
     pub ability_config: Option<crate::bridges::zmq_protocol::AbilityConfigPayload>,
     pub movement_config: Option<crate::bridges::zmq_protocol::MovementConfigPayload>,
     pub max_density: Option<f32>,
+    /// Maximum per-entity ECP for density normalization. Auto-computed from spawns.
+    pub max_entity_ecp: Option<f32>,
     pub terrain_thresholds: Option<crate::bridges::zmq_protocol::TerrainThresholdsPayload>,
     pub removal_rules: Option<Vec<crate::bridges::zmq_protocol::RemovalRulePayload>>,
     pub navigation_rules: Option<Vec<crate::bridges::zmq_protocol::NavigationRulePayload>>,
@@ -238,6 +240,9 @@ pub(crate) fn reset_environment_system(
     }
     if let Some(den) = reset.max_density {
         density_config.max_density = den;
+    }
+    if let Some(ecp) = reset.max_entity_ecp {
+        density_config.max_entity_ecp = ecp;
     }
     if let Some(tt) = &reset.terrain_thresholds {
         terrain.impassable_threshold = tt.impassable_threshold;

@@ -210,22 +210,22 @@ def _spawns_stage4(rng: Generator | None = None, profile: GameProfile | None = N
     Model has Scout(7) unlocked — split 10% recon to find the hidden target.
     """
     brain_count = _faction_count(profile, 0, 50)
-    target_fid = 1 if rng is None or rng.random() > 0.5 else 2
-    target_count = 25
+    fid_a, fid_b = 1, 2
+    target_count = 15
 
     edges = [(100.0, 400.0), (700.0, 400.0), (400.0, 100.0), (400.0, 700.0)]
     if rng is not None:
-        target_pos = edges[rng.integers(0, len(edges))]
+        idx = rng.integers(0, 4)
     else:
         import random
-        target_pos = random.choice(edges)
+        idx = random.randint(0, 3)
 
     spawns = [
         {"faction_id": 0, "count": brain_count, "x": 400.0, "y": 400.0, "spread": 60.0, "stats": _faction_stats(profile, 0)},
-        {"faction_id": target_fid, "count": target_count, "x": target_pos[0], "y": target_pos[1], "spread": 40.0, "stats": _faction_stats(profile, target_fid)},
+        {"faction_id": fid_a, "count": target_count, "x": edges[idx][0], "y": edges[idx][1], "spread": 40.0, "stats": [{"index": 0, "value": 60.0}]},
+        {"faction_id": fid_b, "count": target_count, "x": edges[(idx+2)%4][0], "y": edges[(idx+2)%4][1], "spread": 40.0, "stats": [{"index": 0, "value": 60.0}]},
     ]
-    return spawns, {"trap_faction": target_fid, "target_faction": target_fid}
-    return spawns, {"trap_faction": target_fid, "target_faction": target_fid}
+    return spawns, {"trap_faction": fid_a, "target_faction": fid_a}
 
 def _spawns_stage5(rng: Generator | None = None, profile: GameProfile | None = None) -> tuple[list[dict], dict]:
     # Stage 5: Flanking (800×800)

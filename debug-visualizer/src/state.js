@@ -87,11 +87,17 @@ export function setShowOverrideMarkers(v) { showOverrideMarkers = v; }
 export let showEnemyDensity = false;
 export function setShowEnemyDensity(v) { showEnemyDensity = v; }
 
+export let showFriendlyEcp = false;
+export function setShowFriendlyEcp(v) { showFriendlyEcp = v; }
+
 export let showTerrainCost = false;
 export function setShowTerrainCost(v) { showTerrainCost = v; }
 
 export let showThreatDensity = false;
 export function setShowThreatDensity(v) { showThreatDensity = v; }
+
+export let showFogAwareness = false;
+export function setShowFogAwareness(v) { showFogAwareness = v; }
 
 export let showFog = false;
 export function setShowFog(v) { showFog = v; }

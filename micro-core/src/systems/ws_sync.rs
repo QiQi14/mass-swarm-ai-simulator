@@ -231,13 +231,17 @@ pub fn ws_sync_system(
                     .as_ref()
                     .map(|dc| dc.max_density)
                     .unwrap_or(50.0);
+                let max_entity_ecp = telem.density_config
+                    .as_ref()
+                    .map(|dc| dc.max_entity_ecp)
+                    .unwrap_or(100.0);
                     
                 Some(crate::systems::state_vectorizer::build_ecp_density_maps(
                     &all_entity_ecp,
                     grid_w,
                     grid_h,
                     cfg.flow_field_cell_size,
-                    max_density * 100.0,
+                    max_density * max_entity_ecp,
                 ))
             } else {
                 None

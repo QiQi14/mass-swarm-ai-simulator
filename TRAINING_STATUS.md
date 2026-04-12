@@ -1,8 +1,8 @@
 # Mass-Swarm AI Simulator — Training Status
 
-> **Last Updated:** 2026-04-11 (09:20 local)
-> **Phase:** Tactical Training Curriculum v3.2 — Stage 1 Training (Stages 2-3 engine fixes deployed)
-> **Codebase Health:** ✅ 191 Rust tests · 117 Python tests · 0 warnings
+> **Last Updated:** 2026-04-12
+> **Phase:** Tactical Training Curriculum v4.0 — Observation Channel Overhaul Complete, Stage 1 Training (fresh start required)
+> **Codebase Health:** ✅ 221 Rust tests · 214 Python tests · 0 failures
 
 ---
 
@@ -46,6 +46,7 @@
 | **Action Space** | `MultiDiscrete([8, 2500])` — 8 action types × 50×50 flattened grid |
 | **Observation** | Dict: 8 × `Box(50,50)` + `Box(12)` |
 | **Feature Extractor** | CNN(8×50×50→128) + MLP(12→64) → 256-dim embedding |
+| **Observation Channels** | v4.0: Force Picture (ch0-3) + Environment (ch4-5) + Tactical (ch6-7) |
 | **Learning Rate** | 3e-4 |
 | **Batch Size** | 64 |
 | **Steps/Update** | 2048 |
@@ -100,6 +101,50 @@
 
 ---
 
+## Observation Channel Layout (v4.0)
+
+The CNN observes the battlefield as **8 spatial channels** (50×50 grids) organized in 3 logical blocks, plus a **12-dim summary vector**.
+
+### Channel Map
+
+| Ch | Content | Block | Active From | Padding |
+|----|---------|-------|------------|----------|
+| ch0 | All friendly count density | 🟦 Force | Stage 0 | 0.0 |
+| ch1 | All enemy count density | 🟦 Force | Stage 0 | 0.0 |
+| ch2 | **All friendly ECP density** | 🟦 Force | Stage 0 | 0.0 |
+| ch3 | **All enemy ECP density** | 🟦 Force | Stage 0 | 0.0 |
+| ch4 | Terrain cost (base + zones) | 🟩 Environment | Stage 0 | 1.0 (wall) |
+| ch5 | **Fog awareness** (3-level) | 🟩 Environment | Stage 4+ | 1.0 (visible) |
+| ch6 | Interactable terrain | 🟨 Tactical | Future | 0.0 |
+| ch7 | System objective signal | 🟨 Tactical | Future | 0.0 |
+
+**Key semantics:**
+- **🟦 Force Picture (ch0-3):** Symmetric own-vs-enemy layout. Count = WHERE units are, ECP = HOW STRONG they are. `ch2[cell] > ch3[cell]` → brain is locally stronger → **engage**. Vice versa → **retreat**.
+- **🟩 Environment (ch4-5):** ch4 includes pheromone/repellent effects (zone modifiers write to cost map). ch5 fog: 0.0 = unknown, 0.5 = explored but hidden, 1.0 = visible.
+- **🟨 Tactical (ch6-7):** Pre-allocated as zeros so CNN kernel weights are trained from episode 1. Avoids retraining shock when mechanics are activated.
+- **Sub-factions** merge into ch0/ch2 (all friendly ECP includes brain + split groups).
+
+### Summary Vector (12-dim)
+
+| Idx | Content | Normalization |
+|:---:|---------|---------------|
+| 0 | Own alive count | / max_entities |
+| 1 | Enemy alive count | / max_entities |
+| 2 | Own avg HP | / max_hp (auto-computed) |
+| 3 | Enemy avg HP | / max_hp (auto-computed) |
+| 4 | Sub-faction count | / 5.0 |
+| 5 | Own total HP | / (max_entities × max_hp) |
+| 6 | Enemy total HP | / (max_entities × max_hp) |
+| 7 | Time elapsed | / max_steps |
+| 8 | Fog explored % | [0, 1] |
+| 9 | Has sub-factions | 0 or 1 |
+| 10 | Intervention active | 0 or 1 |
+| 11 | Force ratio | own/(own+enemy) |
+
+> **Normalization:** `max_hp` is auto-computed from spawn stats each episode. No more hardcoded constants (100.0, 200.0).
+
+---
+
 ## Reward Components
 
 | # | Component | Value | Stages |
@@ -139,6 +184,16 @@
 |            | — Stage 3 terrain: danger zone hard_cost 300 → 100 (pathfinder routes through) |
 |            | — Navigation persistence: zone casts auto-replay last AttackCoord |
 |            | — Stage 2 terrain: wired to new `generate_stage2_terrain` (two-path map) |
+| 2026-04-11 | **Heterogeneous swarm mechanics deployed** (6-task DAG): |
+|            | — UnitClassId component, dynamic combat ranges, stat-driven mitigation |
+|            | — Debug Visualizer UI Refactor: dual-mode Tactical Command Center |
+| 2026-04-12 | **Observation Channel v4.0 deployed** (direct implementation): |
+|            | — Eliminated 3 hardcoded normalization constants (`* 100.0`) |
+|            | — ch2 activated: friendly ECP (enables engage/retreat decisions) |
+|            | — ch5 merged: 3-level fog (0.0/0.5/1.0) freed ch6 slot |
+|            | — ch6-7 plumbed: zeros for future interactable terrain + system objectives |
+|            | — Profile-driven `max_entity_ecp` auto-computed from spawns |
+|            | — **Training requires fresh start** (channel semantics changed) |
 
 ---
 

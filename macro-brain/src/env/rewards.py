@@ -117,7 +117,9 @@ def exploration_reward(
     if explored_pct >= decay_threshold:
         return 0.0
     
-    new_cells = np.sum((fog_explored > 0.5) & (prev_fog_explored < 0.5))
+    # Count new explored cells. With merged 3-level fog (0.0/0.5/1.0),
+    # any value >= 0.4 means "at least explored" (0.5 = explored, 1.0 = visible).
+    new_cells = np.sum((fog_explored >= 0.4) & (prev_fog_explored < 0.4))
     return float(new_cells) * reward_per_cell
 
 
@@ -283,6 +285,9 @@ def compute_shaped_reward(
         # ── 2. COMBAT TRADING (Aggression Incentive) ──────────
         enemies_killed = max(0, prev_enemy - curr_enemy)
         own_lost = max(0, prev_own - curr_own)
+        
+        if stage == 4:
+            own_lost = 0  # Eliminate the dead penalty for Stage 4
 
         reward += enemies_killed * reward_weights.kill_reward
         reward += own_lost * reward_weights.death_penalty  # death_penalty is negative
@@ -298,8 +303,8 @@ def compute_shaped_reward(
         elif curr_own == 0 and prev_own > 0:
             reward += reward_weights.loss_terminal  # loss_terminal is negative
 
-    # ── 5. EXPLORATION (Stages 2, 7, 8) ─────────────────────
-    if stage in (2, 7, 8) and fog_explored is not None:
+    # ── 5. EXPLORATION (Stages 2, 4, 7, 8) ─────────────────────
+    if stage in (2, 4, 7, 8) and fog_explored is not None:
         reward += exploration_reward(
             fog_explored, prev_fog_explored,
             reward_weights.exploration_reward,

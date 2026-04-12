@@ -97,13 +97,13 @@ Each stage requires sustained win rate (rolling window) + minimum episodes:
 - **New action:** DropRepellent (cost modifier +200, repels flow field)
 - **Trap count randomized:** 2-3 groups to prevent memorization
 
-### Stage 4: Fog Scouting (800×800) — NEEDS REDESIGN
+### Stage 4: Fog Scouting (800×800)
 - **Fog:** ON (first stage with fog)
 - **Brain:** 50 units, center of map
-- **Target:** At random edge (hidden by fog)
+- **Targets:** Target A and Target B spawn at opposite edges (hidden by fog)
 - **New action:** Scout (split 10% recon to coordinate)
-- **Goal:** Scout → find target → AttackCoord → kill
-- **Planned enhancement:** Add retargeting objective (multi-target or patrol target)
+- **Mechanics:** `ch7` provides a decaying "Intel Ping" representing an active objective. Once Target A is eliminated, it automatically switches to Target B.
+- **Goal:** Follow decaying Intel Pings, explore fog, eliminate Target A, retarget and eliminate Target B.
 
 ### Stage 5: Forced Flanking (1000×1000)
 - **New actions:** SplitToCoord (30%), MergeBack
@@ -128,7 +128,59 @@ Each stage requires sustained win rate (rolling window) + minimum episodes:
 
 ---
 
-## 4. Key Files
+## 4. Observation Space
+
+**Files:** `macro-brain/src/utils/vectorizer.py`, `macro-brain/src/env/spaces.py`
+
+The CNN observes the battlefield as **8 spatial channels** (50×50 grids) + **12-dim summary vector**.
+
+### Channel Layout
+
+| Ch | Content | Block | Active From | Initial Value |
+|----|---------|-------|------------|---------------|
+| ch0 | All friendly count density | 🟦 Force | Stage 0 | Live |
+| ch1 | All enemy count density | 🟦 Force | Stage 0 | Live |
+| ch2 | All friendly ECP density | 🟦 Force | Stage 0 | Live |
+| ch3 | All enemy ECP density | 🟦 Force | Stage 0 | Live |
+| ch4 | Terrain cost (base + pheromone/repellent) | 🟩 Environment | Stage 0 | Live |
+| ch5 | Fog awareness (merged 3-level) | 🟩 Environment | Stage 4+ | 1.0 |
+| ch6 | Interactable terrain overlay | 🟨 Tactical | Future | 0.0 |
+| ch7 | System objective signal | 🟨 Tactical | Future | 0.0 |
+
+**Block organization:**
+- 🟦 **Force** (ch0-3): Symmetric own-vs-enemy force picture. Count = WHERE, ECP = HOW STRONG.
+- 🟩 **Environment** (ch4-5): Terrain traversability and intelligence state.
+- 🟨 **Tactical** (ch6-7): Plumbed as zeros, activated when game mechanics exist.
+
+**Key semantics:**
+- ch0 includes brain + active sub-factions (merged "all friendly")
+- ch5 fog: 0.0 = unknown, 0.5 = explored but hidden (LKP zone), 1.0 = visible
+- ch2 vs ch3 enables engage/retreat decisions: `ch2[cell] > ch3[cell]` = stronger here
+- ch4 already reflects pheromone/repellent effects (zone modifiers write to cost map)
+
+### Summary Vector (12-dim)
+
+| Index | Content | Normalization |
+|-------|---------|---------------|
+| 0 | Own alive count | / max_entities |
+| 1 | Enemy alive count | / max_entities |
+| 2 | Own avg HP | / max_hp |
+| 3 | Enemy avg HP | / max_hp |
+| 4 | Sub-faction count | / max_sub_factions |
+| 5 | Own total HP | / (max_entities × max_hp) |
+| 6 | Enemy total HP | / (max_entities × max_hp) |
+| 7 | Time elapsed | / max_steps |
+| 8 | Fog explored % | [0, 1] |
+| 9 | Has sub-factions | 0 or 1 |
+| 10 | Intervention active | 0 or 1 |
+| 11 | Force ratio | own/(own+enemy) |
+
+> [!IMPORTANT]
+> **`max_hp` is auto-computed** from spawn stats each episode. This replaces hardcoded constants (100.0, 200.0) that broke normalization for heterogeneous unit types (200 HP traps, 24 HP targets).
+
+---
+
+## 5. Key Files
 
 | File | Responsibility |
 |------|---------------|
@@ -140,7 +192,7 @@ Each stage requires sustained win rate (rolling window) + minimum episodes:
 
 ---
 
-## 5. Bot Behavior System
+## 6. Bot Behavior System
 
 **File:** `macro-brain/src/env/bot_controller.py`
 
@@ -166,7 +218,7 @@ When Python's `_apply_trap_debuff()` fires in SwarmEnv:
 
 ---
 
-## 6. Reward Structure
+## 7. Reward Structure
 
 **File:** `macro-brain/src/env/rewards.py`
 
@@ -186,7 +238,7 @@ When Python's `_apply_trap_debuff()` fires in SwarmEnv:
 
 ---
 
-## 7. Episode Flow
+## 8. Episode Flow
 
 ```
 SwarmEnv.reset():
@@ -209,7 +261,7 @@ SwarmEnv.step(action):
 
 ---
 
-## 8. Common Pitfalls & Gotchas
+## 9. Common Pitfalls & Gotchas
 
 > [!CAUTION]
 > **HP buff is inert.** Buff modifiers on stat_index 0 (HP) are stored but never read.

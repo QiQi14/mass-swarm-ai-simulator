@@ -204,6 +204,27 @@
   color: var(--text-primary);
 }
 
+.toggle-control.disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
+.toggle-control.disabled:hover .control-label {
+  color: var(--text-secondary);
+}
+
+.toggle-control.disabled .control-indicator {
+  border-color: var(--border-subtle);
+}
+
+.toggle-control.disabled .control-label small {
+  font-size: var(--font-size-2xs);
+  color: var(--text-tertiary);
+  font-style: italic;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
 /* ── Sliders ── */
 .slider-container {
   display: flex;

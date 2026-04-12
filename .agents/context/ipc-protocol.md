@@ -87,7 +87,8 @@ Sent once at the start of each episode to configure the Rust simulation:
     "movement_speed_stat": 1,
     "combat_damage_stat": 2,
     "zone_modifier_duration_ticks": 1500
-  }
+  },
+  "max_entity_ecp": 200.0
 }
 ```
 
@@ -95,6 +96,7 @@ Sent once at the start of each episode to configure the Rust simulation:
 - `spawns[].stats[]` — initial stat values per entity (index 0 = HP by convention)
 - `terrain` — optional, omitted for flat maps (defaults to all-100 costs)
 - `fog_enabled` — controls whether entities outside visibility are filtered from snapshot
+- `max_entity_ecp` — (optional, f32) maximum HP for ECP normalization. Auto-computed by Python from spawn stats each episode. Used by Rust for `DensityConfig.max_entity_ecp` to normalize ECP density maps to [0, 1]. Defaults to 100.0 if omitted.
 
 ### SpawnConfig (expanded)
 

@@ -187,3 +187,23 @@ Upgraded Rust Micro-Core from homogeneous faction-based entities to heterogeneou
 
 **Key files:** `micro-core/src/components/unit_class.rs`, `micro-core/src/rules/interaction.rs`, `micro-core/src/config/cooldown.rs`, `micro-core/src/systems/interaction.rs`, `macro-brain/src/config/definitions.py`, `debug-visualizer/js/training-overlay.js`
 **Depends on:** Curriculum Stage 2-3 Adjustment
+
+---
+
+### Debug Visualizer UI Refactor (Dual-Mode Application)
+**Completed:** 2026-04-11 | **Archive:** `.agents/history/20260411_215710_debug_visualizer_ui_refactor_dual_mode_application/`
+
+Vite migration + "Tactical Command Center" design system. Dual-mode app shell (Training/Playground) with hash-based routing, tabbed sidebar navigation, and modular panel registry. Training panels (Dashboard, Observations, Rewards, Bot Monitor) and Playground panels (Game Setup wizard, Sim Controls, Spawn, Terrain, Zones, Splitter, Aggro, Behavior) self-register with localized DOM caching.
+
+**Key files:** `debug-visualizer/src/`, `debug-visualizer/vite.config.js`
+**Depends on:** Heterogeneous Swarm Mechanics
+
+---
+
+### Stage 4 Curriculum Redesign (Scouting Objective)
+**Completed:** 2026-04-12 | **Archive:** `.agents/history/20260412_112831_stage_4_scouting_objective/`
+
+Re-purposed `ch7` to provide a decaying Intel Ping indicating the general location of the active objective. Introduced sequential retargeting (Target A to Target B) to prevent single-sweep fog clearing. Removed death penalty for Stage 4 to prevent passive local-optimum behaviors when suffering casualty losses from patrols and the hidden targets.
+
+**Key files:** `macro-brain/src/utils/vectorizer.py`, `macro-brain/src/env/swarm_env.py`, `macro-brain/src/env/rewards.py`, `macro-brain/src/training/curriculum.py`
+**Depends on:** Tactical Decision-Making Training Curriculum

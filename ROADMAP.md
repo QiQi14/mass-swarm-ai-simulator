@@ -136,6 +136,7 @@ Stress-test the full system at target scale and optimize for sustained performan
 - Full tri-node startup orchestration (documented startup order, health checks)
 - Simultaneous AI training + debug visualization against the same Micro-Core
 - Serialization upgrade: JSON → Bincode/MessagePack for high entity counts
+- Multi-layered Spatial Hash Grid: Fallback spatial lookup for slow-firing long-range units to resolve O(K) query bottlenecks
 - Performance profiling and bottleneck resolution
 - Configuration system for tick rate, AI eval frequency, entity cap
 - End-to-end integration tests
@@ -161,6 +162,7 @@ Prove the **"zero-gap engine integration"** thesis by consuming the Rust core an
 - **Rust → WASM:** Compile the Micro-Core simulation logic to WebAssembly (`wasm32-unknown-unknown` target via `wasm-pack`)
 - **ONNX Model Export:** `torch.onnx.export` → `macro_brain.onnx`
 - **ONNX Runtime Web:** Load and run the trained model in-browser via `onnxruntime-web`
+- **Interactive Playground Vs. Model:** Enable designers to play as Faction 1 against the Swarm ML model directly in-browser using the Web-Inference engine
 - **3D Rendering:** A web game engine (Three.js or Babylon.js) renders entities at coordinates provided by the WASM module — the engine's only job is visuals, exactly as described in TDD Section 6
 - **Integration Demo:** A standalone web page that loads the WASM core + ONNX model + 3D engine, runs the full simulation loop, and renders it in 3D
 - **Native C-ABI reference build:** Also produce a `.dylib`/`.so`/`.dll` with `#[no_mangle] pub extern "C"` wrappers + `cbindgen` headers, documenting the path for future Unity/Unreal integration
@@ -191,7 +193,7 @@ Prove the **"zero-gap engine integration"** thesis by consuming the Rust core an
 |-------|--------|-----------|------------------|
 | **Phase 1** | ✅ Complete | 2026-04-04 | Bevy 0.18 ECS, WS/ZMQ bridges, Debug Visualizer, bidirectional commands |
 | **Phase 2** | ✅ Complete | 2026-04-05 | Spatial hash grid, Chamfer flow fields, Boids steering, FoW, terrain, 111 unit tests |
-| **Phase 3.5** | 🔄 In Progress | — | Tactical curriculum v3.2, Stages 0-3 complete. Stage 1 training. |
+| **Phase 3.5** | 🔄 In Progress | — | Tactical curriculum v4.0, Stages 0-3 complete. Observation channel overhaul deployed. Stage 1 training (fresh start). |
 | **Phase 3.6** | ⬜ Not Started | — | Stages 4-8: fog scouting, flanking, lure & ambush, protected target, generalization |
 | **Phase 4** | ⬜ Not Started | — | 10K scale test, serialization upgrade, full tri-node orchestration |
 | **Phase 5** | ⬜ Not Started | — | WASM compilation, ONNX export, Three.js 3D rendering |
@@ -252,6 +254,19 @@ The 5-stage curriculum from Phase 3 was expanded to a 9-stage tactical curriculu
 - Repellent cost modifier: +50 → +200 (per conventions)
 - Stage 3 terrain exploit: danger zone hard_cost 300 → 100 (forces DropRepellent usage)
 - Navigation persistence: zone casts auto-replay last AttackCoord
+
+**Heterogeneous swarm mechanics (6-task DAG, 2026-04-11):**
+- UnitClassId component, dynamic combat ranges, stat-driven damage mitigation
+- Per-entity cooldown tracking, Python profile schema updates
+- Debug Visualizer UI Refactor: dual-mode Tactical Command Center
+
+**Observation Channel v4.0 (2026-04-12):**
+- Eliminated 3 hardcoded normalization constants (`* 100.0`)
+- ch2 activated: friendly ECP density (enables engage/retreat decision-making)
+- Fog merged into single 3-level channel (ch5), freeing ch6 for interactable terrain
+- ch6-7 plumbed as zeros for future curriculum mechanics
+- Profile-driven `max_entity_ecp` auto-computed from spawn stats
+- **221 Rust tests, 214 Python tests, 0 failures**
 
 > [!WARNING]
 > **Stages 5-6 require significant Rust Micro-Core and Debug Visualizer upgrades** before they can be implemented. See `TRAINING_STATUS.md` for detailed designs.

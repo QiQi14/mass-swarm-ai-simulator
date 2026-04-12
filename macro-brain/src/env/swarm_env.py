@@ -97,6 +97,11 @@ class SwarmEnv(gym.Env):
         self._pad_offset_y = 0
         self._cell_size = 20.0
         self._fog_enabled = False
+        self._max_entity_hp = 100.0  # Auto-computed from spawns each episode
+        self._active_objective_fid = 1
+        self._active_ping: tuple[float, float] | None = None
+        self._ping_timer = 0
+        self._ping_lifespan = 10
         
 
 
@@ -189,7 +194,9 @@ class SwarmEnv(gym.Env):
         
         self._lkp_buffer.reset()
         self._prev_fog_explored = None
-
+        self._active_objective_fid = 1
+        self._active_ping = None
+        self._ping_timer = 0
 
         from src.utils.terrain_generator import generate_terrain_for_stage
         from src.training.curriculum import get_spawns_for_stage, get_map_config
@@ -239,6 +246,12 @@ class SwarmEnv(gym.Env):
         # Combat is still proximity-based via combat_rules (nav ≠ combat).
         tactical_nav_rules = []
 
+        # Auto-compute max_entity_hp from actual spawn stats
+        self._max_entity_hp = max(
+            (stat["value"] for spawn in spawns for stat in spawn.get("stats", []) if stat["index"] == 0),
+            default=100.0
+        )
+
         payload = {
             "type": "reset_environment",
             "terrain": terrain,
@@ -247,6 +260,7 @@ class SwarmEnv(gym.Env):
             "ability_config": self.profile.ability_config_payload(),
             "movement_config": self.profile.movement_config_payload(),
             "max_density": self.profile.training.max_density,
+            "max_entity_ecp": self._max_entity_hp,
             "terrain_thresholds": self.profile.terrain_thresholds_payload(),
             "removal_rules": self.profile.removal_rules_payload(),
             "navigation_rules": tactical_nav_rules,
@@ -275,7 +289,20 @@ class SwarmEnv(gym.Env):
         self._last_snapshot = snapshot
         self._active_sub_factions = snapshot.get("active_sub_factions", [])
 
-
+        # DEBUG: Log raw snapshot density data on first reset
+        dm = snapshot.get("density_maps", {})
+        ecp = snapshot.get("ecp_density_maps", {})
+        ent_count = len(snapshot.get("entities", []))
+        fc = snapshot.get("summary", {}).get("faction_counts", {})
+        logger.info(
+            f"🔎 Reset snapshot debug:\n"
+            f"   tick={snapshot.get('tick', '?')}, entity_count={ent_count}\n"
+            f"   faction_counts={fc}\n"
+            f"   density_maps keys={list(dm.keys())}, sizes={[len(v) for v in dm.values()]}\n"
+            f"   ecp_density_maps keys={list(ecp.keys())}, sizes={[len(v) for v in ecp.values()]}\n"
+            f"   density_maps sums={dict((k, sum(v)) for k, v in dm.items())}\n"
+            f"   ecp_density_maps sums={dict((k, sum(v)) for k, v in ecp.items())}"
+        )
 
         obs = vectorize_snapshot(
             snapshot, self.brain_faction,
@@ -285,6 +312,8 @@ class SwarmEnv(gym.Env):
             cell_size=self._cell_size,
             fog_enabled=self._fog_enabled,
             lkp_buffer=self._lkp_buffer,
+            max_hp=self._max_entity_hp,
+            active_sub_faction_ids=self._active_sub_factions,
         )
         return obs, {}
 
@@ -345,6 +374,33 @@ class SwarmEnv(gym.Env):
         # ── Check debuff condition ──────────────────────────────
         self._check_debuff_condition(snapshot)
 
+        ping_reward_delta = 0.0
+        if self.curriculum_stage == 4:
+            if self._active_ping is not None:
+                self._ping_timer += 1
+                brain_c = self._get_density_centroid(snapshot, self.brain_faction)
+                if brain_c is not None:
+                    dist = ((brain_c[0] - self._active_ping[0])**2 + (brain_c[1] - self._active_ping[1])**2)**0.5
+                    if dist < 60.0:
+                        ping_reward_delta += 1.0
+                        self._active_ping = None
+                if self._active_ping is not None and self._ping_timer >= self._ping_lifespan:
+                    ping_reward_delta -= 1.0
+                    self._active_ping = None
+                    
+            count = self._get_faction_count(snapshot, self._active_objective_fid)
+            if count <= 0 and self._active_objective_fid == 1:
+                self._active_objective_fid = 2
+                self._active_ping = None
+                
+            if self._active_ping is None:
+                c = self._get_density_centroid(snapshot, self._active_objective_fid)
+                if c is not None:
+                    px = np.clip(c[0] + self.np_random.uniform(-80, 80), 0, self.world_width)
+                    py = np.clip(c[1] + self.np_random.uniform(-80, 80), 0, self.world_height)
+                    self._active_ping = (float(px), float(py))
+                    self._ping_timer = 0
+
         obs = vectorize_snapshot(
             snapshot, self.brain_faction,
             enemy_factions=self.enemy_faction_ids,
@@ -353,6 +409,10 @@ class SwarmEnv(gym.Env):
             cell_size=self._cell_size,
             fog_enabled=self._fog_enabled,
             lkp_buffer=self._lkp_buffer,
+            max_hp=self._max_entity_hp,
+            active_sub_faction_ids=self._active_sub_factions,
+            active_objective_ping=self._active_ping if self.curriculum_stage == 4 else None,
+            ping_intensity=max(0.0, 1.0 - (self._ping_timer / self._ping_lifespan)) if self.curriculum_stage == 4 else 1.0,
         )
         
 
@@ -377,6 +437,8 @@ class SwarmEnv(gym.Env):
                 flanking_score = compute_flanking_score(brain_c, sub_c, nearest)
 
         reward = self._compute_reward(snapshot, prev_snapshot, obs, flanking_score)
+        
+        reward += ping_reward_delta
 
         # Store prev fog explored for next step's exploration reward
         if self._fog_enabled and "ch5" in obs:

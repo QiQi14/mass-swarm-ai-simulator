@@ -51,15 +51,18 @@ def make_observation_space(
 ) -> spaces.Dict:
     """Fixed 50×50 observation space. 8 grid channels + 12-dim summary.
     
-    Channels:
-      ch0: brain density
-      ch1: unified enemy density (ALL enemies merged, fog-gated + LKP)
-      ch2: reserved (zeroed) — future ally density for multiplayer
-      ch3: sub-factions aggregated
-      ch4: terrain (0=pass, 1=wall; padding=1.0)
-      ch5: fog explored (0=unexplored, 1=explored; padding=1.0)
-      ch6: fog visible (0=hidden, 1=visible; padding=1.0)
-      ch7: threat density (Effective Combat Power)
+    Channels (v4.0 — 3 logical blocks):
+      🟦 Force Picture:
+        ch0: all friendly count density (brain + sub-factions merged)
+        ch1: all enemy count density (ALL enemies merged, fog-gated + LKP)
+        ch2: all friendly ECP density (brain + sub-factions merged)
+        ch3: all enemy ECP density (ALL enemies merged, fog-gated + LKP)
+      🟩 Environment:
+        ch4: terrain cost (base + zone modifiers, 0=pass, 1=wall; padding=1.0)
+        ch5: fog awareness (merged: 0.0=unknown, 0.5=explored, 1.0=visible)
+      🟨 Tactical (plumbed as zeros):
+        ch6: interactable terrain overlay (future)
+        ch7: system objective signal (future)
     """
     obs = {}
     for ch in range(8):

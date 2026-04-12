@@ -37,20 +37,30 @@ export function drawEntities() {
         ctx.stroke();
     }
 
-    // ── Observation Channel Overlays ───────────────────────────────────
+    // ── Observation Channel Overlays (v4.0) ──────────────────────────
 
-    // Ch0 — Ally Density (faction 0 only)
+    // Ch0 — Friendly Count Density (brain faction 0 only — sub-factions merged server-side)
     if (S.showDensityHeatmap && S.densityHeatmap) {
-        drawDensityChannel(ctx, scale, S.densityHeatmap, 0, 120); // green hue for allies
+        drawDensityChannel(ctx, scale, S.densityHeatmap, 0, 120); // green hue for friendlies
     }
 
-    // Ch1 — Enemy Density (all non-zero factions merged)
+    // Ch1 — Enemy Count Density (all non-zero factions merged)
     if (S.showEnemyDensity && S.densityHeatmap) {
         for (const [factionIdStr, cells] of Object.entries(S.densityHeatmap)) {
             const fid = parseInt(factionIdStr, 10);
-            if (fid === 0) continue; // skip allies
+            if (fid === 0) continue; // skip friendlies
             drawDensityChannel(ctx, scale, S.densityHeatmap, fid, 0); // red hue for enemies
         }
+    }
+
+    // Ch2 — Friendly ECP Density (brain faction combat power)
+    if (S.showFriendlyEcp && S.ecpDensityMaps) {
+        drawEcpGlow(ctx, scale, S.ecpDensityMaps, /* friendlyOnly */ true);
+    }
+
+    // Ch3 — Enemy ECP Density (all enemy factions merged)
+    if (S.showThreatDensity && S.ecpDensityMaps) {
+        drawEcpGlow(ctx, scale, S.ecpDensityMaps, /* friendlyOnly */ false);
     }
 
     // Ch4 — Terrain Cost visualization
@@ -58,9 +68,9 @@ export function drawEntities() {
         drawTerrainCostOverlay(ctx, scale);
     }
 
-    // Ch7 — Threat Density with GLOW effect for brightness differentiation
-    if (S.showThreatDensity && S.ecpDensityMaps) {
-        drawThreatGlow(ctx, scale, S.ecpDensityMaps);
+    // Ch5 — Fog Awareness (merged 3-level: 0=unknown, 0.5=explored, 1.0=visible)
+    if (S.showFogAwareness) {
+        drawFogAwarenessOverlay(ctx, scale);
     }
 
     // Zone modifiers
@@ -99,7 +109,7 @@ export function drawEntities() {
     }
 
     // Dim entities when any observation channel overlay is active
-    const anyOverlayActive = S.showDensityHeatmap || S.showEnemyDensity || S.showTerrainCost || S.showThreatDensity;
+    const anyOverlayActive = S.showDensityHeatmap || S.showEnemyDensity || S.showFriendlyEcp || S.showTerrainCost || S.showThreatDensity || S.showFogAwareness;
     if (anyOverlayActive) ctx.globalAlpha = 0.3;
 
     // Faction entities
@@ -306,20 +316,21 @@ function drawTerrainCostOverlay(ctx, scale) {
 }
 
 /**
- * Draw Ch7 Threat Density with multi-pass glow effect.
- * Merges all enemy faction densities, then renders:
- *  Pass 1: Wide outer glow (large shadowBlur) — shows threat zones
- *  Pass 2: Bright core fill — shows density concentration
- *  Pass 3: Hot-spot bloom on high-value cells — highlights strongest threats
+ * Draw ECP (Effective Combat Power) density with multi-pass glow effect.
+ * Supports both friendly (ch2, cyan) and enemy (ch3, magenta) modes.
+ * 
+ * @param {boolean} friendlyOnly - true = ch2 (faction 0), false = ch3 (all non-0 factions merged)
  */
-function drawThreatGlow(ctx, scale, densityData) {
+function drawEcpGlow(ctx, scale, densityData, friendlyOnly) {
     const cellCount = GRID_W * GRID_H;
 
-    // Merge all enemy faction densities into a single threat grid
+    // Merge relevant faction densities
     const merged = new Float32Array(cellCount);
     for (const [factionIdStr, cells] of Object.entries(densityData)) {
         const fid = parseInt(factionIdStr, 10);
-        if (fid === 0 || !cells || cells.length < cellCount) continue;
+        if (friendlyOnly && fid !== 0) continue;  // ch2: only faction 0
+        if (!friendlyOnly && fid === 0) continue;  // ch3: skip faction 0
+        if (!cells || cells.length < cellCount) continue;
         for (let i = 0; i < cellCount; i++) {
             merged[i] += cells[i];
         }
@@ -334,9 +345,16 @@ function drawThreatGlow(ctx, scale, densityData) {
 
     const screenCellSize = TERRAIN_CELL_SIZE * scale;
 
+    // Color palette: friendly = cyan/teal, enemy = magenta/purple
+    const glowColor = friendlyOnly ? 'rgba(0, 200, 200, 0.8)' : 'rgba(200, 50, 255, 0.8)';
+    const glowFill  = friendlyOnly ? 'rgba(0, 180, 180, '      : 'rgba(180, 60, 255, ';
+    const coreHue   = friendlyOnly ? 180 : 280;  // teal vs purple
+    const bloomColor = friendlyOnly ? 'rgba(0, 255, 255, 1)' : 'rgba(255, 100, 255, 1)';
+    const bloomFill  = friendlyOnly ? 'rgba(100, 255, 255, ' : 'rgba(255, 160, 255, ';
+
     // ── Pass 1: Outer glow halo ─────────────────────────────────
     ctx.save();
-    ctx.shadowColor = 'rgba(200, 50, 255, 0.8)';
+    ctx.shadowColor = glowColor;
     ctx.shadowBlur = 16 * scale;
     for (let y = 0; y < GRID_H; y++) {
         for (let x = 0; x < GRID_W; x++) {
@@ -346,9 +364,8 @@ function drawThreatGlow(ctx, scale, densityData) {
             const norm = value / maxVal;
             const [screenX, screenY] = worldToCanvas(x * TERRAIN_CELL_SIZE, y * TERRAIN_CELL_SIZE);
 
-            // Outer glow — wider, dimmer
             const glowAlpha = norm * 0.4;
-            ctx.fillStyle = `rgba(180, 60, 255, ${glowAlpha})`;
+            ctx.fillStyle = glowFill + glowAlpha + ')';
             ctx.fillRect(screenX - 2, screenY - 2, screenCellSize + 4, screenCellSize + 4);
         }
     }
@@ -363,30 +380,79 @@ function drawThreatGlow(ctx, scale, densityData) {
             const norm = value / maxVal;
             const [screenX, screenY] = worldToCanvas(x * TERRAIN_CELL_SIZE, y * TERRAIN_CELL_SIZE);
 
-            // Core: shift from cool purple (low) → hot magenta/white (high)
-            const lightness = 45 + norm * 30; // 45% → 75%
-            const sat = 90 - norm * 20;       // 90% → 70% (whiter at peak)
+            const lightness = 45 + norm * 30;
+            const sat = 90 - norm * 20;
             const alpha = 0.15 + norm * 0.55;
-            ctx.fillStyle = `hsla(280, ${sat}%, ${lightness}%, ${alpha})`;
+            ctx.fillStyle = `hsla(${coreHue}, ${sat}%, ${lightness}%, ${alpha})`;
             ctx.fillRect(screenX, screenY, screenCellSize + 1, screenCellSize + 1);
         }
     }
 
     // ── Pass 3: Hot-spot bloom on high-value cells ──────────────
     ctx.save();
-    ctx.shadowColor = 'rgba(255, 100, 255, 1)';
+    ctx.shadowColor = bloomColor;
     ctx.shadowBlur = 24 * scale;
     for (let y = 0; y < GRID_H; y++) {
         for (let x = 0; x < GRID_W; x++) {
             const value = merged[y * GRID_W + x];
             const norm = value / maxVal;
-            if (norm < 0.5) continue; // only bloom on top 50%
+            if (norm < 0.5) continue;
 
             const [screenX, screenY] = worldToCanvas(x * TERRAIN_CELL_SIZE, y * TERRAIN_CELL_SIZE);
-            const bloomAlpha = (norm - 0.5) * 0.8; // 0 at 50%, 0.4 at 100%
-            ctx.fillStyle = `rgba(255, 160, 255, ${bloomAlpha})`;
+            const bloomAlpha = (norm - 0.5) * 0.8;
+            ctx.fillStyle = bloomFill + bloomAlpha + ')';
             ctx.fillRect(screenX + 2, screenY + 2, screenCellSize - 3, screenCellSize - 3);
         }
     }
     ctx.restore();
 }
+
+/**
+ * Draw Ch5 Fog Awareness overlay.
+ * Renders a 3-level visualization:
+ *   0.0 = unknown (dark overlay)
+ *   0.5 = explored but hidden (dim semi-transparent)
+ *   1.0 = visible (no overlay)
+ */
+function drawFogAwarenessOverlay(ctx, scale) {
+    // Use fog data from Rust WS state if available
+    const explored = S.fogExplored;
+    const visible = S.fogVisible;
+    if (!explored && !visible) return;
+
+    const screenCellSize = TERRAIN_CELL_SIZE * scale;
+
+    for (let y = 0; y < GRID_H; y++) {
+        for (let x = 0; x < GRID_W; x++) {
+            const idx = y * GRID_W + x;
+            const [screenX, screenY] = worldToCanvas(x * TERRAIN_CELL_SIZE, y * TERRAIN_CELL_SIZE);
+
+            // Compute 3-level fog value
+            let fogLevel = 1.0; // default: fully visible
+            if (explored && visible) {
+                const exp = explored[idx] || 0;
+                const vis = visible[idx] || 0;
+                if (vis > 0.5) {
+                    fogLevel = 1.0;  // visible
+                } else if (exp > 0.5) {
+                    fogLevel = 0.5;  // explored but hidden
+                } else {
+                    fogLevel = 0.0;  // unknown
+                }
+            }
+
+            if (fogLevel >= 0.99) continue; // fully visible — no overlay
+
+            if (fogLevel < 0.01) {
+                // Unknown — dark overlay
+                ctx.fillStyle = 'rgba(10, 12, 18, 0.75)';
+            } else {
+                // Explored but hidden — dim blue-gray overlay
+                ctx.fillStyle = 'rgba(30, 50, 80, 0.45)';
+            }
+
+            ctx.fillRect(screenX, screenY, screenCellSize + 1, screenCellSize + 1);
+        }
+    }
+}
+

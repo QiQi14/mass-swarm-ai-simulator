@@ -169,6 +169,8 @@ pub enum AiResponse {
         #[serde(default)]
         max_density: Option<f32>,
         #[serde(default)]
+        max_entity_ecp: Option<f32>,
+        #[serde(default)]
         terrain_thresholds: Option<TerrainThresholdsPayload>,
         #[serde(default)]
         removal_rules: Option<Vec<RemovalRulePayload>>,

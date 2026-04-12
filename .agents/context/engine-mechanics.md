@@ -475,5 +475,54 @@ ECP maps are broadcast every 6 ticks inside the `SyncDelta` message under the `e
 |-----------|--------|---------|
 | `grid_w` | `SimulationConfig.world_width / flow_field_cell_size` | 50 (1000/20) |
 | `grid_h` | `SimulationConfig.world_height / flow_field_cell_size` | 50 (1000/20) |
-| `max_ecp_per_cell` | `DensityConfig.max_density × 100.0` | 5000.0 |
+| `max_ecp_per_cell` | `DensityConfig.max_density × DensityConfig.max_entity_ecp` | Profile-driven |
+
+> [!IMPORTANT]
+> **`max_entity_ecp` is auto-computed from spawns each episode.** The Python `swarm_env.py` computes `max_entity_hp` from the spawn stats during `reset()` and sends it to Rust via the reset payload. This replaces the previous hardcoded `* 100.0`.
+>
+> Formula: `max_ecp_per_cell = max_density × max_entity_hp × max_damage_mult`
+> Default `max_damage_mult` = 1.0 (no buff active at episode start).
+
+---
+
+## 14. Observation Channel Layout
+
+**File:** `macro-brain/src/utils/vectorizer.py`, `macro-brain/src/env/spaces.py`
+
+The CNN observes the battlefield as 8 spatial channels (50×50 grids) + a 12-dim summary vector.
+
+### Channel Layout (v4.0)
+
+Channels are organized into 3 logical blocks:
+
+| Ch | Content | Block | Active From | Initial Value |
+|----|---------|-------|------------|---------------|
+| ch0 | **All friendly count** density | 🟦 Force | Stage 0 | Live data |
+| ch1 | **All enemy count** density | 🟦 Force | Stage 0 | Live data |
+| ch2 | **All friendly ECP** density | 🟦 Force | Stage 0 | Live data |
+| ch3 | **All enemy ECP** density | 🟦 Force | Stage 0 | Live data |
+| ch4 | **Terrain cost** (base + zone modifiers) | 🟩 Environment | Stage 0 | Live data |
+| ch5 | **Fog awareness** (merged explored+visible) | 🟩 Environment | Stage 4+ | 1.0 (no fog) |
+| ch6 | **Interactable terrain** overlay | 🟨 Tactical | Future | 0.0 |
+| ch7 | **System objective** signal | 🟨 Tactical | Future | 0.0 |
+
+### Block Details
+
+**🟦 Force Picture (ch0-3):**
+- ch0/ch1: Entity headcount per cell, normalized by `max_density` (default 50.0)
+- ch2/ch3: Combat power (HP × damage_mult) per cell, normalized by `max_density × max_entity_ecp`
+- ch0 includes brain faction + all active sub-factions (merged "all friendly")
+- ch1 merges all enemy factions into a single layer
+
+**🟩 Environment (ch4-5):**
+- ch4: Terrain traversal cost normalized to [0, 1]. Includes pheromone/repellent effects (zone modifiers write directly to the cost map)
+- ch5: 3-level fog encoding: 0.0 = unknown, 0.5 = explored but hidden, 1.0 = currently visible
+
+**🟨 Tactical (ch6-7):**
+- ch6: Reserved for interactable terrain (destructible walls, pushable barriers). All zeros until game mechanics exist.
+- ch7: Reserved for system objective signal (spatial reward hints). All zeros until curriculum stages provide objective coordinates.
+
+> [!NOTE]
+> **Sub-factions merge into ch0/ch2.**  After `SplitFaction`, faction 100 entities are included in "all friendly" count/ECP. The brain distinguishes split state via summary vector (summary[4] = sub-faction count, summary[9] = has_sub_factions).
+
 

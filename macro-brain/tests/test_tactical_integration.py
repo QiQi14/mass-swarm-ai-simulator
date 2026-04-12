@@ -314,7 +314,7 @@ def test_density_padding_is_zero():
 # ══════════════════════════════════════════════════════════════════════
 
 def test_fog_disabled_channels():
-    """Stages without fog: ch5 and ch6 are all 1.0."""
+    """Stages without fog: ch5=1.0 (all visible), ch6/ch7=0.0 (plumbed zeros)."""
     for stage in [1, 3, 4, 5, 6]:
         config = get_map_config(stage)
         if config.fog_enabled:
@@ -333,12 +333,16 @@ def test_fog_disabled_channels():
             fog_enabled=False,
         )
 
-        # Fog disabled: entire 50×50 ch5 and ch6 should be 1.0
+        # Fog disabled: entire 50×50 ch5 should be 1.0 (fully visible)
         assert obs["ch5"].sum() == pytest.approx(2500.0), (
             f"Stage {stage} ch5 should be all 1.0 (fog disabled)"
         )
-        assert obs["ch6"].sum() == pytest.approx(2500.0), (
-            f"Stage {stage} ch6 should be all 1.0 (fog disabled)"
+        # ch6 (interactable terrain) and ch7 (system objective) are plumbed zeros
+        assert obs["ch6"].sum() == pytest.approx(0.0), (
+            f"Stage {stage} ch6 (interactable terrain) should be all zeros"
+        )
+        assert obs["ch7"].sum() == pytest.approx(0.0), (
+            f"Stage {stage} ch7 (system objective) should be all zeros"
         )
 
 

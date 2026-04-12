@@ -35,10 +35,10 @@ def test_get_spawns_for_stage_3():
     assert len(spawns) <= 5  # brain + 3 traps + target maximum
 
 def test_get_spawns_for_stage_4():
-    # Stage 4: Fog Scouting — brain at center, target at edge
+    # Stage 4: Fog Scouting — brain at center, targets at opposite edges
     rng = np.random.default_rng(42)
     spawns, meta = get_spawns_for_stage(4, rng=rng)
-    assert len(spawns) == 2  # brain + target only
+    assert len(spawns) == 3  # brain + 2 targets
     target_spawn = next(s for s in spawns if s["faction_id"] == meta["target_faction"])
     pos = (target_spawn["x"], target_spawn["y"])
     assert pos in [(100.0, 400.0), (700.0, 400.0), (400.0, 100.0), (400.0, 700.0)]
