@@ -490,4 +490,5 @@ class CurriculumCallback(BaseCallback):
         self.episode_logger._lure_successes.clear()
         self.episode_logger._flanking_scores.clear()
         self._consecutive_above = 0
+        self.episode_logger._consecutive_above_threshold = 0
 

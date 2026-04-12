@@ -14,8 +14,8 @@ def _build_valid_profile():
         meta=ProfileMeta(name="Test", version="1.0", description="Test"),
         world=WorldConfig(width=1000, height=1000, grid_width=100, grid_height=100, cell_size=10.0),
         factions=[
-            FactionConfig(id=0, name="Brain", role="brain", stats=FactionStats(hp=100), default_count=10),
-            FactionConfig(id=1, name="Bot", role="bot", stats=FactionStats(hp=100), default_count=10)
+            FactionConfig(id=0, name="Brain", role="brain", stats=FactionStats(primary_stat=100), default_count=10),
+            FactionConfig(id=1, name="Bot", role="bot", stats=FactionStats(primary_stat=100), default_count=10)
         ],
         combat=CombatConfig(rules=[
             CombatRuleConfig(source_faction=0, target_faction=1, range=50.0, effects=[])
@@ -58,7 +58,7 @@ def test_valid_profile(valid_profile):
 def test_v1_duplicate_facton_ids():
     profile = _build_valid_profile()
     new_factions = list(profile.factions) + [
-        FactionConfig(id=0, name="Bot2", role="bot", stats=FactionStats(hp=100), default_count=10)
+        FactionConfig(id=0, name="Bot2", role="bot", stats=FactionStats(primary_stat=100), default_count=10)
     ]
     invalid_profile = replace(profile, factions=new_factions)
     result = validate_profile(invalid_profile)
@@ -68,7 +68,7 @@ def test_v1_duplicate_facton_ids():
 def test_v2_two_brain_factions():
     profile = _build_valid_profile()
     new_factions = list(profile.factions) + [
-        FactionConfig(id=2, name="Brain2", role="brain", stats=FactionStats(hp=100), default_count=10)
+        FactionConfig(id=2, name="Brain2", role="brain", stats=FactionStats(primary_stat=100), default_count=10)
     ]
     invalid_profile = replace(profile, factions=new_factions)
     result = validate_profile(invalid_profile)

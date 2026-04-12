@@ -176,6 +176,19 @@ pub enum AiResponse {
         removal_rules: Option<Vec<RemovalRulePayload>>,
         #[serde(default)]
         navigation_rules: Option<Vec<NavigationRulePayload>>,
+        /// Which stat index feeds ECP density computation.
+        /// `None` in JSON = keep current default. `null` = disable ECP.
+        #[serde(default)]
+        ecp_stat_index: Option<Option<usize>>,
+        /// Unit type definitions for heterogeneous swarms.
+        /// Each entry defines a class_id with stats, movement, engagement range,
+        /// and tactical behaviors. Loaded into `UnitTypeRegistry` at episode start.
+        #[serde(default)]
+        unit_types: Option<Vec<UnitTypeDefinition>>,
+        /// Multi-stat ECP formula. Product of stat values at these indices.
+        /// When present, overrides single `ecp_stat_index`.
+        #[serde(default)]
+        ecp_formula: Option<EcpFormulaPayload>,
     },
 }
 

@@ -16,7 +16,7 @@ globs: **/task.md, **/implementation_plan.md
 - Only the **Strategist Agent** may create or modify `strategy_brief.md`.
 - Only the **Planning Agent** may create or modify `implementation_plan.md`.
 - Only `task_tool.sh` may modify `task_state.json`.
-- The **Strategist** may update `.agents/context/engine-mechanics.md` and `.agents/context/training-curriculum.md` (research outputs).
+- The **Strategist** may update `.agents/context/engine/` or `.agents/context/training/` files (research outputs).
 - **Execution Agents** are strictly read-only on all shared state files.
 
 ## 3. Post-Task Archival

@@ -22,6 +22,7 @@ pub mod stat_block;
 pub mod velocity;
 pub mod vision_radius;
 pub mod unit_class;
+pub mod tactical;
 
 
 pub use engine_override::EngineOverride;
@@ -33,4 +34,5 @@ pub use stat_block::{MAX_STATS, StatBlock};
 pub use velocity::Velocity;
 pub use vision_radius::VisionRadius;
 pub use unit_class::UnitClassId;
+pub use tactical::{TacticalState, CombatState};
 

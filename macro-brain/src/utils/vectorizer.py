@@ -47,6 +47,7 @@ def vectorize_snapshot(
     max_steps: int = 500,
     step_count: int = 0,
     max_hp: float = 100.0,
+    summary_stat_index: int = 0,
     active_sub_faction_ids: list[int] | None = None,
     active_objective_ping: tuple[float, float] | None = None,
     ping_intensity: float = 1.0,
@@ -200,15 +201,15 @@ def vectorize_snapshot(
     own_hp = 0.0
     if str(brain_faction) in faction_avg:
         h = faction_avg[str(brain_faction)]
-        own_hp = h[0] if h else 0.0
+        own_hp = h[summary_stat_index] if h and len(h) > summary_stat_index else 0.0
     
     enemy_hp = 0.0
     ecount = 0
     for ef in enemy_factions:
         if str(ef) in faction_avg:
             h = faction_avg[str(ef)]
-            if h:
-                enemy_hp += h[0]
+            if h and len(h) > summary_stat_index:
+                enemy_hp += h[summary_stat_index]
                 ecount += 1
     if ecount > 0:
         enemy_hp /= ecount
@@ -219,7 +220,11 @@ def vectorize_snapshot(
     max_total_hp = max_entities * max_hp
     own_total_hp = own_count * own_hp
     enemy_total_hp = sum(
-        faction_counts.get(str(ef), 0) * (faction_avg[str(ef)][0] if faction_avg.get(str(ef)) else 0.0)
+        faction_counts.get(str(ef), 0) * (
+            faction_avg[str(ef)][summary_stat_index]
+            if faction_avg.get(str(ef)) and len(faction_avg[str(ef)]) > summary_stat_index
+            else 0.0
+        )
         for ef in enemy_factions
     )
     

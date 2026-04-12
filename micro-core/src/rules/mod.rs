@@ -7,6 +7,7 @@
 //! - **Task:** task_04_rule_resources
 //! - **Contract:** implementation_plan.md → Contracts 5, 6, 10
 
+pub mod aoe;
 pub mod behavior;
 pub mod interaction;
 pub mod navigation;

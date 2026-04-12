@@ -1,4 +1,5 @@
 # Mass-Swarm AI Simulator — Training Status
+>[!IMPORTANT] This documentation currently outdated
 
 > **Last Updated:** 2026-04-12
 > **Phase:** Tactical Training Curriculum v4.0 — Observation Channel Overhaul Complete, Stage 1 Training (fresh start required)

@@ -69,15 +69,15 @@ pub fn build_density_maps(
 
 /// Builds Effective Combat Power (ECP) density heatmaps.
 ///
-/// Each cell value = sum(entity_hp * entity_damage_mult) / max_ecp_per_cell
+/// Each cell value = sum(primary_stat * damage_mult) / max_ecp_per_cell
 /// clamped to [0.0, 1.0].
 ///
-/// ECP captures both survivability (HP) and damage output (buff multiplier).
-/// Tankers (high HP, low DPS) produce moderate ECP.
-/// Glass cannons (low HP, high DPS) produce moderate ECP.
-/// Debuffed units (low HP * 0.25 mult) produce very low ECP.
+/// ECP captures both primary stat magnitude and damage output (buff multiplier).
+/// High primary_stat with low damage_mult → moderate ECP.
+/// Low primary_stat with high damage_mult → moderate ECP.
+/// Debuffed units (low primary_stat × 0.25 mult) → very low ECP.
 pub fn build_ecp_density_maps(
-    entities: &[(f32, f32, u32, f32, f32)], // (x, y, faction_id, hp, damage_mult)
+    entities: &[(f32, f32, u32, f32, f32)], // (x, y, faction_id, primary_stat, damage_mult)
     grid_w: u32,
     grid_h: u32,
     cell_size: f32,
@@ -86,7 +86,7 @@ pub fn build_ecp_density_maps(
     let total_cells = (grid_w * grid_h) as usize;
     let mut ecp_maps: HashMap<u32, Vec<f32>> = HashMap::new();
 
-    for &(x, y, faction, hp, damage_mult) in entities {
+    for &(x, y, faction, primary_stat, damage_mult) in entities {
         // Clamp to valid grid range instead of skipping — prevents
         // factions from being entirely absent when entities spawn
         // near world boundaries (Bug B: Faction 2 missing).
@@ -100,9 +100,9 @@ pub fn build_ecp_density_maps(
             .entry(faction)
             .or_insert_with(|| vec![0.0; total_cells]);
         // Floor of 1.0: alive entities always contribute at least
-        // presence-level ECP, even if hp × damage_mult ≈ 0
+        // presence-level ECP, even if primary_stat × damage_mult ≈ 0
         // (Bug A: zero ECP from edge-case stat initialization).
-        ecps[idx] += f32::max(hp * damage_mult, 1.0);
+        ecps[idx] += f32::max(primary_stat * damage_mult, 1.0);
     }
 
     ecp_maps

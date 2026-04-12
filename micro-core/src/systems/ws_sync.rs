@@ -217,14 +217,19 @@ pub fn ws_sync_system(
                 let bc = telem.buff_config.as_deref();
                 
                 for (eid, pos, _, faction, stat_block) in full_query.iter() {
-                    let hp = stat_block.0[0];
+                    // Read primary stat for ECP from configurable index (V-01 fix)
+                    let primary_stat = telem.density_config
+                        .as_ref()
+                        .and_then(|dc| dc.ecp_stat_index)
+                        .and_then(|idx| stat_block.0.get(idx).copied())
+                        .unwrap_or(0.0);
                     let damage_mult = bc.and_then(|config| {
                         config.combat_damage_stat.map(|stat_idx| {
                             cb.map(|buffs| buffs.get_multiplier(faction.0, eid.id, stat_idx))
                                 .unwrap_or(1.0)
                         })
                     }).unwrap_or(1.0);
-                    all_entity_ecp.push((pos.x, pos.y, faction.0, hp, damage_mult));
+                    all_entity_ecp.push((pos.x, pos.y, faction.0, primary_stat, damage_mult));
                 }
                 
                 let max_density = telem.density_config

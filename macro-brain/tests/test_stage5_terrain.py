@@ -12,12 +12,12 @@ def test_stage_5_spawns():
     faction_0 = MagicMock()
     faction_0.id = 0
     faction_0.default_count = 60
-    faction_0.stats.hp = 100
+    faction_0.stats.primary_stat = 100
     
     faction_2 = MagicMock()
     faction_2.id = 2
     faction_2.default_count = 40
-    faction_2.stats.hp = 100
+    faction_2.stats.primary_stat = 100
     
     profile.factions = [faction_0, faction_2]
     

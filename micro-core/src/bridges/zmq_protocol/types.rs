@@ -12,6 +12,10 @@ pub struct EntitySnapshot {
     pub faction_id: u32,
     /// Stats
     pub stats: Vec<f32>,
+    /// Unit class identifier. Default: 0 (generic).
+    /// Used by Python for class-aware observation channels.
+    #[serde(default)]
+    pub unit_class_id: u32,
 }
 
 /// Summary statistics for the neural network observation space.
@@ -116,6 +120,7 @@ mod tests {
                 y: 200.1,
                 faction_id: 0,
                 stats: vec![0.8],
+                unit_class_id: 0,
             }],
             summary: SummarySnapshot {
                 faction_counts: std::collections::HashMap::from([(0, 5000), (1, 200)]),

@@ -28,7 +28,7 @@ Your output is NOT executable code — it is a highly structured, collision-free
 
 Before planning a NEW feature, check if the PREVIOUS feature was archived but not yet logged.
 
-1. Check `.agents/history/` for any archive not yet recorded in `context/features.md`
+1. Check `.agents/history/` for any archive not yet recorded in `context/project/features.md`
 2. If found, read the archived `implementation_plan.md` and add a concise entry:
 
 ```markdown

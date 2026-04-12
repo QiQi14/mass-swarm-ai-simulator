@@ -48,7 +48,7 @@ def _parse_profile(raw: dict[str, Any]):
             UnitClassConfig(
                 class_id=entry["class_id"],
                 name=entry["name"],
-                stats=FactionStats(hp=entry["stats"]["hp"]),
+                stats=FactionStats(primary_stat=entry["stats"].get("primary_stat", entry["stats"].get("hp", 100.0))),
                 default_count=entry.get("default_count", 0),
             )
             for entry in registry
@@ -82,7 +82,7 @@ def _parse_profile(raw: dict[str, Any]):
             id=f["id"],
             name=f["name"],
             role=f["role"],
-            stats=FactionStats(**f["stats"]),
+            stats=FactionStats(primary_stat=f["stats"].get("primary_stat", f["stats"].get("hp", 100.0))),
             default_count=f["default_count"],
         )
         for f in raw["factions"]

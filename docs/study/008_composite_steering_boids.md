@@ -1,10 +1,10 @@
 # Algorithm Study: Composite Steering — Macro Flow + Micro Boids
 
-**Date:** 2026-04-04  
+**Date:** 2026-04-04 (Original), 2026-04-13 (Boids 2.0 Upgrade)  
 **Domain:** Swarm AI, Steering Behaviors, Game Physics  
 **Full Specification:** [implementation_plan_task_06.md](../../.agents/history/20260404_234812_phase_2_universal_core_algorithms/implementation_plan_task_06.md)  
-**Implementation:** [micro-core/src/systems/movement.rs](../../micro-core/src/systems/movement.rs)  
-**Tags:** `boids`, `steering`, `flow-field`, `swarm`, `kinematics`
+**Implementation:** [micro-core/src/systems/movement.rs](../../micro-core/src/systems/movement.rs), [tactical_sensor.rs](../../micro-core/src/systems/tactical_sensor.rs)  
+**Tags:** `boids`, `steering`, `flow-field`, `swarm`, `kinematics`, `subsumption`, `tactical`
 
 ---
 
@@ -15,14 +15,19 @@ field following creates a "swarm crush" — all entities converge to the same po
 creating infinite density. Pure Boids separation prevents goal-seeking. We need to
 **blend** both forces.
 
-## 2. The Two-Force Model
+## 2. The Three-Force Model (Boids 2.0)
 
 ```
-┌────────────────┐     ┌────────────────┐
-│  MACRO PUSH:   │ +   │  MICRO PUSH:   │  →  Blended desired_vel
-│  Flow Field    │     │  Boids Separ.  │     → Momentum lerp
-│  (global nav)  │     │  (local avoid) │     → Terrain clamp
-└────────────────┘     └────────────────┘
+┌────────────────┐     ┌────────────────┐     ┌────────────────┐
+│  MACRO PUSH:   │ +   │  MICRO PUSH:   │ +   │ TACTICAL PUSH: │
+│  Flow Field    │     │  Boids Separ.  │     │ Kite/PeelForA  │
+│  (global nav)  │     │  (local avoid) │     │ (10 Hz sensor) │
+└────────────────┘     └────────────────┘     └────────────────┘
+      60 Hz                 60 Hz                 10 Hz
+                                                  (entity sharded)
+                        ↓ Blended desired_vel
+                        → Momentum lerp
+                        → Terrain clamp
 ```
 
 ### 2.1 Macro: Flow Field Sampling (O(1))
@@ -67,10 +72,20 @@ separation_dir += Vec2::new(angle.cos(), angle.sin()) * 0.1;
 This prevents stable dead-locks without introducing randomness that would break
 deterministic simulation.
 
-## 3. Force Blending
+## 3. Force Blending (Boids 2.0)
 
 ```rust
-let desired = (macro_dir * flow_weight) + (separation_dir * separation_weight);
+// Engagement range hold: suppress flow when enemy is in range
+let effective_flow_weight = if tactical.engagement_range > 0.0 && enemy_in_range {
+    0.0  // Hold position at range
+} else {
+    mc.flow_weight
+};
+
+// 3-vector blend
+let desired = (macro_dir * effective_flow_weight)
+    + (separation_dir * mc.separation_weight)
+    + (tactical.direction * tactical.weight);
 let desired = desired.normalize_or_zero() * max_speed;
 ```
 
@@ -78,9 +93,11 @@ let desired = desired.normalize_or_zero() * max_speed;
 |:---|:---|:---|
 | `flow_weight` | 1.0 | Strength of global navigation toward goals |
 | `separation_weight` | 1.0 | Strength of local collision avoidance |
+| `tactical.weight` | 0.0–3.0 | 10 Hz sensor output (behavior-dependent) |
 | `max_speed` | 50.0 | Maximum velocity magnitude (world units/sec) |
+| `engagement_range` | 0.0 | Distance at which flow is suppressed (0 = melee) |
 
-`normalize_or_zero()` is critical — prevents `NaN` when both forces are zero.
+`normalize_or_zero()` is critical — prevents `NaN` when all forces are zero.
 
 ## 4. Momentum Smoothing (Velocity Lerp)
 
@@ -168,3 +185,48 @@ Without separation:        With separation:
 ```
 
 This is why Boids separation is not optional — it's fundamental to visual quality.
+
+## 10. Tactical Sensor (10 Hz, Entity-Sharded)
+
+**File:** `micro-core/src/systems/tactical_sensor.rs`
+
+The tactical sensor evaluates per-class behaviors from the `UnitTypeRegistry` and writes
+the subsumption-winning vector to `TacticalState`.
+
+### Entity Sharding
+
+Instead of skipping 5 frames and spiking on the 6th, work is distributed evenly:
+
+```rust
+if entity.index_u32() % 6 != (tick.tick % 6) as u32 { continue; }
+```
+
+This means each tick evaluates ~N/6 entities. Over 6 ticks, every entity gets
+updated exactly once = 10 Hz effective. CPU load stays constant.
+
+### Subsumption (Not Summation)
+
+If multiple behaviors trigger, only the highest-weight wins:
+
+```
+Kite(weight=1) says: flee left
+PeelForAlly(weight=3) says: rush right
+
+Result: rush right (weight=3 wins)
+```
+
+Summation would produce: `left + right = zero` (vector cancellation).
+Subsumption produces: the protector rushes to save the ranger.
+
+### Behavior Catalog
+
+| Behavior | Parameters | Direction |
+|----------|-----------|----------|
+| `Kite` | `trigger_radius`, `weight` | Away from nearest enemy |
+| `PeelForAlly` | `target_class`, `search_radius`, `require_recent_damage`, `weight` | Toward distressed ally |
+
+### Damage Detection
+
+`interaction_system` stamps `CombatState.last_damaged_tick` when an entity takes damage.
+`PeelForAlly` checks: `tick - last_damaged_tick < 30` (= last 0.5 seconds).
+

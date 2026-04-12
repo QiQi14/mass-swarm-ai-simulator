@@ -51,7 +51,7 @@ pub(super) fn ai_trigger_system(
     combat_buffs: Res<crate::config::FactionBuffs>,
     buff_config: Res<crate::config::BuffConfig>,
     density_config: Res<crate::config::DensityConfig>,
-    query: Query<(&EntityId, &Position, &FactionId, &StatBlock)>,
+    query: Query<(&EntityId, &Position, &FactionId, &StatBlock, &crate::components::UnitClassId)>,
     mut next_state: ResMut<NextState<SimState>>,
 ) {
     if tick.tick == 0 || !tick.tick.is_multiple_of(config.send_interval_ticks) {
@@ -169,6 +169,9 @@ pub(super) fn ai_poll_system(
                     terrain_thresholds,
                     removal_rules,
                     navigation_rules,
+                    ecp_stat_index,
+                    unit_types,
+                    ecp_formula,
                 }) => {
                     if !training_mode.0 {
                         println!("[AI Bridge] Received reset_environment command (tick resume)");
@@ -184,6 +187,9 @@ pub(super) fn ai_poll_system(
                         terrain_thresholds,
                         removal_rules,
                         navigation_rules,
+                        ecp_stat_index,
+                        unit_types,
+                        ecp_formula,
                     });
                 }
                 Ok(AiResponse::Directive { directive: _ }) => {

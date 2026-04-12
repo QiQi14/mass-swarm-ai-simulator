@@ -54,11 +54,11 @@ def get_map_config(stage: int) -> StageMapConfig:
     return STAGE_MAP_CONFIGS.get(stage, STAGE_MAP_CONFIGS[0])
 
 def _faction_stats(profile: GameProfile | None, faction_id: int) -> list[dict]:
-    """Get stat initializer from profile or default 100 HP."""
+    """Get stat initializer from profile or default 100 primary_stat."""
     if profile is not None:
         for f in profile.factions:
             if f.id == faction_id:
-                return [{"index": 0, "value": f.stats.hp}]
+                return [{"index": 0, "value": f.stats.primary_stat}]
     return [{"index": 0, "value": 100.0}]
 
 def _faction_count(profile: GameProfile | None, faction_id: int, default: int) -> int:

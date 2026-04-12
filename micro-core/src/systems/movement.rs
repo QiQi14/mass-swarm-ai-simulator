@@ -67,6 +67,7 @@ pub fn movement_system(
             &FactionId,
             &MovementConfig,
             &EntityId,
+            &crate::components::TacticalState,
         ),
         Without<EngineOverride>,
     >,
@@ -79,7 +80,7 @@ pub fn movement_system(
     // PARALLEL ITERATOR: distribute across CPU cores
     query
         .par_iter_mut()
-        .for_each(|(entity, mut pos, mut vel, faction, mc, entity_id)| {
+        .for_each(|(entity, mut pos, mut vel, faction, mc, entity_id, tactical)| {
             let current_pos = Vec2::new(pos.x, pos.y);
 
             // --- 1. MACRO PUSH: Flow Field or Waypoint ---
@@ -112,7 +113,7 @@ pub fn movement_system(
             // --- 2. MICRO PUSH: Boids Separation (Zero-Allocation) ---
             let mut separation_dir = Vec2::ZERO;
 
-            grid.for_each_in_radius(current_pos, mc.separation_radius, |n_ent, n_pos| {
+            grid.for_each_in_radius(current_pos, mc.separation_radius, |n_ent, n_pos, _n_faction| {
                 if n_ent != entity {
                     let diff = current_pos - n_pos;
                     let dist_sq = diff.length_squared();
@@ -131,8 +132,34 @@ pub fn movement_system(
                 }
             });
 
-            // --- 3. BLEND & STEER ---
-            let desired = (macro_dir * mc.flow_weight) + (separation_dir * mc.separation_weight);
+            // --- 3. ENGAGEMENT RANGE HOLD ---
+            // If this entity has an engagement range, suppress flow weight when
+            // within range of nearest enemy along flow direction. This makes
+            // ranged units hold position instead of charging into melee.
+            let effective_flow_weight = if tactical.engagement_range > 0.0 {
+                // Check if any enemy is within engagement range
+                let engage_r = tactical.engagement_range;
+                let my_faction = faction.0;
+                let mut enemy_in_range = false;
+                grid.for_each_in_radius(current_pos, engage_r, |_e, _p, e_faction| {
+                    if e_faction != my_faction {
+                        enemy_in_range = true;
+                    }
+                });
+                if enemy_in_range {
+                    0.0 // Suppress flow — hold position at range
+                } else {
+                    mc.flow_weight
+                }
+            } else {
+                mc.flow_weight
+            };
+
+            // --- 4. BLEND & STEER (3-vector) ---
+            // V_desired = (V_flow × W_flow) + (V_sep × W_sep) + (V_tactical × W_tactical)
+            let desired = (macro_dir * effective_flow_weight)
+                + (separation_dir * mc.separation_weight)
+                + (tactical.direction * tactical.weight);
             let desired = desired.normalize_or_zero() * mc.max_speed;
 
             // Lerp velocity for organic momentum (entities curve, not snap)
@@ -141,7 +168,7 @@ pub fn movement_system(
             vel.dx = new_vel.x;
             vel.dy = new_vel.y;
 
-            // --- 4. KINEMATICS, WALL SLIDING & CLAMPING ---
+            // --- 5. KINEMATICS, WALL SLIDING & CLAMPING ---
             let world_to_cell = |x: f32, y: f32| -> IVec2 {
                 IVec2::new(
                     (x / terrain.cell_size).floor() as i32,
@@ -259,6 +286,7 @@ mod tests {
                     separation_weight: 1.5,
                     flow_weight: 1.0,
                 },
+                crate::components::TacticalState::default(),
             ))
             .id();
 
@@ -305,6 +333,7 @@ mod tests {
                     separation_weight: 1.5,
                     flow_weight: 1.0,
                 },
+                crate::components::TacticalState::default(),
             ))
             .id();
 
@@ -333,6 +362,7 @@ mod tests {
                     separation_weight: 1.5,
                     flow_weight: 1.0,
                 },
+                crate::components::TacticalState::default(),
             ))
             .id();
 
@@ -350,6 +380,7 @@ mod tests {
                     separation_weight: 1.5,
                     flow_weight: 1.0,
                 },
+                crate::components::TacticalState::default(),
             ))
             .id();
 
@@ -360,7 +391,7 @@ mod tests {
             .world_mut()
             .get_resource_mut::<SpatialHashGrid>()
             .unwrap();
-        grid.rebuild(&[(e1, p1), (e2, p1)]);
+        grid.rebuild(&[(e1, p1, 0), (e2, p1, 0)]);
 
         app.update();
 
@@ -392,6 +423,7 @@ mod tests {
                     separation_weight: 1.5,
                     flow_weight: 1.0,
                 },
+                crate::components::TacticalState::default(),
             ))
             .id();
 
@@ -462,6 +494,7 @@ mod tests {
                     separation_weight: 1.5,
                     flow_weight: 1.0,
                 },
+                crate::components::TacticalState::default(),
             ))
             .id();
 
@@ -504,6 +537,7 @@ mod tests {
                     separation_weight: 1.5,
                     flow_weight: 1.0,
                 },
+                crate::components::TacticalState::default(),
             ))
             .id();
 
@@ -545,6 +579,7 @@ mod tests {
                 Velocity { dx: 200.0, dy: 0.0 }, // Try to move faster than max speed
                 FactionId(0),
                 mc,
+                crate::components::TacticalState::default(),
             ))
             .id();
 

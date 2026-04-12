@@ -53,6 +53,23 @@ pub struct InteractionRule {
     /// Tracked by `CooldownTracker` resource.
     #[serde(default)]
     pub cooldown_ticks: Option<u32>,
+
+    /// Optional AoE damage area. When present, the rule finds the nearest
+    /// single target in range as the impact center, then applies damage to
+    /// ALL targets within the shape (scaled by falloff gradient).
+    /// When absent, standard pairwise 1v1 damage applies (nearest target only).
+    #[serde(default)]
+    pub aoe: Option<super::aoe::AoeConfig>,
+
+    /// Optional penetration config. When present, the rule casts a ray
+    /// from source through nearest target and pierces through additional
+    /// targets along the line, with energy absorbed per hit.
+    ///
+    /// **Composable with AoE:** If both `aoe` and `penetration` are set,
+    /// the AoE shape filters the spatial hit zone and the penetration
+    /// system handles sequential energy absorption along the ray.
+    #[serde(default)]
+    pub penetration: Option<super::aoe::PenetrationConfig>,
 }
 
 /// A single stat modification. Applied to target entity per tick.
@@ -123,6 +140,8 @@ mod tests {
                 range_stat_index: None,
                 mitigation: None,
                 cooldown_ticks: None,
+                aoe: None,
+                penetration: None,
             }],
         };
         assert_eq!(ruleset.rules.len(), 1);

@@ -18,7 +18,7 @@ class WorldConfig:
 
 @dataclass(frozen=True)
 class FactionStats:
-    hp: float
+    primary_stat: float  # Generic primary resource (context-agnostic)
 
 
 @dataclass(frozen=True)

@@ -56,6 +56,8 @@ pub fn initial_spawn_system(
             VisionRadius::default(),
             MovementConfig::default(),
             UnitClassId::default(),
+            crate::components::TacticalState::default(),
+            crate::components::CombatState::default(),
         ));
     }
 }

@@ -186,19 +186,25 @@ pub enum ModifierType {
 /// `max_density` caps entity headcount per cell (structural constant).
 /// `max_entity_ecp` is the per-entity ECP ceiling, auto-computed from spawn
 /// stats each episode and sent via the reset payload.
+/// `ecp_stat_index` selects which stat slot feeds ECP — fully configurable.
 #[derive(Resource, Debug, Clone)]
 pub struct DensityConfig {
     pub max_density: f32,
     /// Maximum effective combat power per entity. Used to normalize ECP
     /// density maps: `max_ecp_per_cell = max_density × max_entity_ecp`.
-    /// Auto-computed from spawn HP each episode. Default: 100.0.
+    /// Auto-computed from spawn primary stat each episode. Default: 100.0.
     pub max_entity_ecp: f32,
+    /// Which stat slot feeds ECP density computation.
+    /// `None` = ECP maps produce all zeros (no primary stat configured).
+    /// Default: `Some(0)` — backward-compatible with existing profiles.
+    pub ecp_stat_index: Option<usize>,
 }
 impl Default for DensityConfig {
     fn default() -> Self {
         Self {
             max_density: 50.0,
             max_entity_ecp: 100.0,
+            ecp_stat_index: Some(0),
         }
     }
 }

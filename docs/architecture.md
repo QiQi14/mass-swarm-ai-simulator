@@ -6,7 +6,8 @@
 > **Parts of this document are outdated.** References to `Team`, `Health`, `FLANK_LEFT`, and `TRIGGER_FRENZY`
 > are from Phase 1-3. Current system uses `FactionId(u32)`, `StatBlock[8]`, an 8-action `MultiDiscrete` vocabulary,
 > and v4.0 observation channels (8×50×50: Force Picture + Environment + Tactical).
-> **For current details:** `.agents/context/engine-mechanics.md`, `.agents/context/training-curriculum.md`, and `TRAINING_STATUS.md`
+> Movement uses **Boids 2.0**: 3-vector blending (flow + separation + tactical) with 10 Hz sharded sensor.
+> **For current details:** `.agents/context/engine/navigation.md`, `.agents/context/engine/combat.md`, and `TRAINING_STATUS.md`
 ## Overview
 
 The system is a **Tri-Node Decoupled Architecture** — three independent OS processes connected by message passing over localhost. No shared memory, no direct function calls, no tight coupling.
@@ -35,7 +36,7 @@ The system is a **Tri-Node Decoupled Architecture** — three independent OS pro
 
 - Runs **headless** — no window, no GPU, no rendering
 - Uses Bevy's `MinimalPlugins` + `ScheduleRunnerPlugin` for a fixed 60 TPS loop
-- Entity Component System: `Position`, `Velocity`, `Team`, `Health`, `FlowFieldFollower`
+- Entity Component System: `Position`, `Velocity`, `FactionId`, `StatBlock[8]`, `UnitClassId`, `TacticalState`, `CombatState`
 - Spatial partitioning via Hash Grid for O(1) neighbor queries at scale
 - Vector Flow Fields (Dijkstra Maps) for mass pathfinding — no per-entity A*
 - Hosts both IPC servers (ZMQ on `:5555`, WebSocket on `:8080`)

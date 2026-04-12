@@ -46,6 +46,12 @@ pub struct ResetRequest {
     pub terrain_thresholds: Option<crate::bridges::zmq_protocol::TerrainThresholdsPayload>,
     pub removal_rules: Option<Vec<crate::bridges::zmq_protocol::RemovalRulePayload>>,
     pub navigation_rules: Option<Vec<crate::bridges::zmq_protocol::NavigationRulePayload>>,
+    /// Which stat index feeds ECP computation. Sent from Python via reset payload.
+    pub ecp_stat_index: Option<Option<usize>>,
+    /// Unit type definitions for heterogeneous swarms (Boids 2.0).
+    pub unit_types: Option<Vec<crate::bridges::zmq_protocol::UnitTypeDefinition>>,
+    /// Multi-stat ECP formula override.
+    pub ecp_formula: Option<crate::bridges::zmq_protocol::EcpFormulaPayload>,
 }
 
 /// Processes queued environment resets from `ai_poll_system`.
@@ -65,6 +71,15 @@ pub(crate) struct ResetRules<'w> {
     removal: ResMut<'w, crate::rules::RemovalRuleSet>,
 }
 
+/// Bundled config resources for reset (avoids Bevy's 16-param limit).
+#[derive(bevy::ecs::system::SystemParam)]
+pub(crate) struct ResetConfigs<'w> {
+    buff_config: ResMut<'w, crate::config::BuffConfig>,
+    density_config: ResMut<'w, crate::config::DensityConfig>,
+    cooldowns: ResMut<'w, crate::config::CooldownTracker>,
+    unit_registry: ResMut<'w, crate::config::UnitTypeRegistry>,
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn reset_environment_system(
     mut commands: Commands,
@@ -78,9 +93,7 @@ pub(crate) fn reset_environment_system(
     mut aggro: ResMut<AggroMaskRegistry>,
     mut sub_factions: ResMut<ActiveSubFactions>,
     mut latest_directive: ResMut<LatestDirective>,
-    mut buff_config: ResMut<crate::config::BuffConfig>,
-    mut density_config: ResMut<crate::config::DensityConfig>,
-    mut cooldowns: ResMut<crate::config::CooldownTracker>,
+    mut configs: ResetConfigs,
     mut rules: ResetRules,
     training_mode: Res<crate::config::TrainingMode>,
 ) {
@@ -111,7 +124,7 @@ pub(crate) fn reset_environment_system(
     // 3. Reset game state
     tick.tick = 0;
     zones.zones.clear();
-    cooldowns.cooldowns.clear();
+    configs.cooldowns.cooldowns.clear();
     *faction_buffs = Default::default();
     aggro.masks.clear();
     sub_factions.factions.clear();
@@ -140,6 +153,19 @@ pub(crate) fn reset_environment_system(
     rules.behavior.static_factions.clear();
     latest_directive.directives.clear();
     next_id.0 = 1;
+
+    // 3a. Populate UnitTypeRegistry BEFORE spawn (spawn reads engagement_range + movement)
+    if let Some(ref ut_defs) = reset.unit_types {
+        configs.unit_registry.rebuild_from_payloads(ut_defs);
+        if !training_mode.0 {
+            println!(
+                "[Reset] Loaded {} unit type definitions",
+                configs.unit_registry.types.len()
+            );
+        }
+    } else {
+        configs.unit_registry.types.clear();
+    }
 
     // 4. Spawn new entities per config
     let mut rng = rand::rng();
@@ -178,17 +204,32 @@ pub(crate) fn reset_environment_system(
                 StatBlock::with_defaults(&stat_defaults),
                 VisionRadius::default(),
                 UnitClassId(spawn.unit_class_id),
-                if let Some(ref mc) = reset.movement_config {
-                    MovementConfig {
-                        max_speed: mc.max_speed,
-                        steering_factor: mc.steering_factor,
-                        separation_radius: mc.separation_radius,
-                        separation_weight: mc.separation_weight,
-                        flow_weight: mc.flow_weight,
+                // Movement override resolution: spawn > unit_type > global > default
+                {
+                    let mc_payload = spawn.movement.as_ref()
+                        .or_else(|| configs.unit_registry.get(spawn.unit_class_id)
+                            .and_then(|ut| ut.movement.as_ref()))
+                        .or(reset.movement_config.as_ref());
+                    if let Some(mc) = mc_payload {
+                        MovementConfig {
+                            max_speed: mc.max_speed,
+                            steering_factor: mc.steering_factor,
+                            separation_radius: mc.separation_radius,
+                            separation_weight: mc.separation_weight,
+                            flow_weight: mc.flow_weight,
+                        }
+                    } else {
+                        MovementConfig::default()
                     }
-                } else {
-                    MovementConfig::default()
                 },
+                // Boids 2.0 — tactical and combat state (initialized to defaults)
+                crate::components::TacticalState {
+                    engagement_range: configs.unit_registry.get(spawn.unit_class_id)
+                        .map(|ut| ut.engagement_range)
+                        .unwrap_or(0.0),
+                    ..Default::default()
+                },
+                crate::components::CombatState::default(),
             ));
             total_spawned += 1;
         }
@@ -221,6 +262,8 @@ pub(crate) fn reset_environment_system(
                     },
                 }),
                 cooldown_ticks: r.cooldown_ticks,
+                aoe: r.aoe.clone(),
+                penetration: r.penetration.clone(),
             });
         }
         if !training_mode.0 {
@@ -233,17 +276,21 @@ pub(crate) fn reset_environment_system(
 
     // 6. Apply new Reset properties
     if let Some(cfg) = &reset.ability_config {
-        buff_config.cooldown_ticks = cfg.buff_cooldown_ticks;
-        buff_config.movement_speed_stat = cfg.movement_speed_stat;
-        buff_config.combat_damage_stat = cfg.combat_damage_stat;
-        buff_config.zone_modifier_duration_ticks = cfg.zone_modifier_duration_ticks;
+        configs.buff_config.cooldown_ticks = cfg.buff_cooldown_ticks;
+        configs.buff_config.movement_speed_stat = cfg.movement_speed_stat;
+        configs.buff_config.combat_damage_stat = cfg.combat_damage_stat;
+        configs.buff_config.zone_modifier_duration_ticks = cfg.zone_modifier_duration_ticks;
     }
     if let Some(den) = reset.max_density {
-        density_config.max_density = den;
+        configs.density_config.max_density = den;
     }
     if let Some(ecp) = reset.max_entity_ecp {
-        density_config.max_entity_ecp = ecp;
+        configs.density_config.max_entity_ecp = ecp;
     }
+    if let Some(idx) = reset.ecp_stat_index {
+        configs.density_config.ecp_stat_index = idx;
+    }
+
     if let Some(tt) = &reset.terrain_thresholds {
         terrain.impassable_threshold = tt.impassable_threshold;
         terrain.destructible_min = tt.destructible_min;

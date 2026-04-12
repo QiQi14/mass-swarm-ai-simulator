@@ -24,16 +24,12 @@ Tri-Node Decoupled System — three independent OS processes (Rust, Python, Brow
 
 ## Quick Reference
 
-| Context File | When to Load |
+| Context Folder | When to Load |
 |-------------|-------------|
-| `context/features` | **Always for Planner.** Executor/QA load when touching existing features |
-| `context/engine-mechanics` | **Any task touching combat, buffs, terrain, movement, or simulation logic.** Covers Rust-side systems that Python interacts with. |
-| `context/training-curriculum` | **Any task involving training stages, spawns, rewards, bot behavior, or curriculum design.** |
-| `context/ipc-protocol` | Any task involving ZMQ directives, state snapshots, reset payloads, or Python↔Rust communication |
-| `context/tech-stack` | Any task involving dependencies, build tools, or framework APIs |
-| `context/architecture` | Any task involving folder structure, layer boundaries, or data flow |
-| `context/conventions` | Any task involving naming, formatting, code style, or action space design ("The General" principle) |
-| `context/infrastructure` | Tasks involving build, deploy, CI/CD, or environment setup |
+| `context/project` | **Always for Planner.** Contains the feature ledger, conventions, and tech stack information. |
+| `context/engine` | **Any task touching combat, buffs, terrain, movement, or simulation logic.** Covers Rust-side systems that Python interacts with, plus IPC protocols. |
+| `context/training` | **Any task involving training stages, spawns, rewards, bot behavior, or curriculum design.** |
+
 
 ## Agent Roles & Workflow Chain
 
@@ -60,10 +56,9 @@ User question → /strategist (research + design) → strategy_brief.md
 
 ```
 Context_Bindings:
-  - context/engine-mechanics   # if task touches combat, buffs, terrain, movement
-  - context/training-curriculum # if task touches stages, spawns, rewards, bots
-  - context/ipc-protocol       # if task touches ZMQ directives or snapshots
-  - context/conventions        # if task involves code style or action design
+  - context/engine           # if task touches combat, buffs, terrain, movement, or inter-node architecture
+  - context/training         # if task touches stages, spawns, rewards, bots
+  - context/project          # if task touches project tracking, code style, or general infrastructure
   - skills/rust-code-standards  # if task involves Rust code
 ```
 
@@ -73,7 +68,7 @@ Context_Bindings:
 > Do NOT jump directly to these files to shortcut a workflow.
 
 - **Phase Roadmap:** `ROADMAP.md` (root) — 5-phase plan, Phases 1-3 complete
-- **Training Status:** `TRAINING_STATUS.md` — live training run tracker (summary only — for mechanics see `context/engine-mechanics.md` and `context/training-curriculum.md`)
+- **Training Status:** `TRAINING_STATUS.md` — live training run tracker (summary only — for mechanics see `context/engine/` and `context/training/`)
 - **Original TDD:** `CASE_STUDY.md` — full technical design document
 - **Human Docs:** `docs/` — developer-facing documentation (NOT for agents)
 - **Study Notes:** `docs/study/` — 12 engineering case studies (bugs, design decisions, research)

@@ -43,7 +43,7 @@ use crate::visibility::FactionVisibility;
 pub(super) fn build_state_snapshot(
     tick: &TickCounter,
     sim_config: &SimulationConfig,
-    query: &Query<(&EntityId, &Position, &FactionId, &StatBlock)>,
+    query: &Query<(&EntityId, &Position, &FactionId, &StatBlock, &crate::components::UnitClassId)>,
     visibility: &FactionVisibility,
     terrain: &TerrainGrid,
     brain_faction: u32,
@@ -67,7 +67,7 @@ pub(super) fn build_state_snapshot(
     let vis_grid = visibility.visible.get(&brain_faction);
     let exp_grid = visibility.explored.get(&brain_faction);
 
-    for (eid, pos, faction, stat_block) in query.iter() {
+    for (eid, pos, faction, stat_block, unit_class) in query.iter() {
         let count = faction_counts.entry(faction.0).or_insert(0);
         *count += 1;
 
@@ -82,11 +82,14 @@ pub(super) fn build_state_snapshot(
         // has complete spatial awareness of its own forces
         all_entity_positions.push((pos.x, pos.y, faction.0));
         
-        let hp = stat_block.0[0];
+        // Read primary stat for ECP from configurable index (V-01 fix)
+        let primary_stat = density_config.ecp_stat_index
+            .and_then(|idx| stat_block.0.get(idx).copied())
+            .unwrap_or(0.0);
         let damage_mult = buff_config.combat_damage_stat
             .map(|stat_idx| combat_buffs.get_multiplier(faction.0, eid.id, stat_idx))
             .unwrap_or(1.0);
-        all_entity_ecp.push((pos.x, pos.y, faction.0, hp, damage_mult));
+        all_entity_ecp.push((pos.x, pos.y, faction.0, primary_stat, damage_mult));
 
         // Entity list is fog-filtered: own faction always visible, enemies only if in visible cells
         let mut is_visible = false;
@@ -114,6 +117,7 @@ pub(super) fn build_state_snapshot(
                 y: pos.y,
                 faction_id: faction.0,
                 stats: stat_block.0.to_vec(),
+                unit_class_id: unit_class.0,
             });
         }
     }
@@ -217,7 +221,7 @@ mod tests {
         combat_buffs: Res<FactionBuffs>,
         buff_config: Res<BuffConfig>,
         density_config: Res<DensityConfig>,
-        query: Query<(&EntityId, &Position, &FactionId, &StatBlock)>,
+        query: Query<(&EntityId, &Position, &FactionId, &StatBlock, &crate::components::UnitClassId)>,
         mut captured: ResMut<CapturedSnapshot>,
     ) {
         captured.0 = Some(build_state_snapshot(
@@ -269,7 +273,7 @@ mod tests {
             EntityId { id: 10 },
             Position { x: 10.0, y: 10.0 },
             FactionId(0),
-            StatBlock::default(),
+            StatBlock::default(), crate::components::UnitClassId::default(),
         ));
 
         // Act
@@ -308,7 +312,7 @@ mod tests {
             EntityId { id: 20 },
             Position { x: 10.0, y: 10.0 }, // Cell (0,0)
             FactionId(1),                  // Enemy
-            StatBlock::default(),
+            StatBlock::default(), crate::components::UnitClassId::default(),
         ));
 
         // Enemy in fog cell
@@ -316,7 +320,7 @@ mod tests {
             EntityId { id: 21 },
             Position { x: 90.0, y: 90.0 }, // Cell (4,4)
             FactionId(1),                  // Enemy
-            StatBlock::default(),
+            StatBlock::default(), crate::components::UnitClassId::default(),
         ));
 
         // Act
@@ -350,14 +354,14 @@ mod tests {
             EntityId { id: 1 },
             Position { x: 10.0, y: 10.0 }, // Cell (0,0)
             FactionId(0),
-            StatBlock::default(),
+            StatBlock::default(), crate::components::UnitClassId::default(),
         ));
 
         app.world_mut().spawn((
             EntityId { id: 2 },
             Position { x: 30.0, y: 30.0 }, // Cell (1,1)
             FactionId(1),
-            StatBlock::default(),
+            StatBlock::default(), crate::components::UnitClassId::default(),
         ));
 
         // Act
@@ -396,7 +400,7 @@ mod tests {
             EntityId { id: 1 },
             Position { x: 10.0, y: 10.0 },
             FactionId(101), // Sub-faction
-            StatBlock::default(),
+            StatBlock::default(), crate::components::UnitClassId::default(),
         ));
 
         // Act
@@ -425,7 +429,7 @@ mod tests {
             EntityId { id: 1 },
             Position { x: 10.0, y: 10.0 },
             FactionId(0),
-            StatBlock::default(),
+            StatBlock::default(), crate::components::UnitClassId::default(),
         ));
 
         // Act
@@ -463,7 +467,7 @@ mod tests {
             EntityId { id: 1 },
             Position { x: 10.0, y: 10.0 },
             FactionId(0),
-            StatBlock::default(),
+            StatBlock::default(), crate::components::UnitClassId::default(),
         ));
 
         // Act
@@ -499,7 +503,7 @@ mod tests {
             EntityId { id: 1 },
             Position { x: 10.0, y: 10.0 },
             FactionId(0),
-            StatBlock::default(),
+            StatBlock::default(), crate::components::UnitClassId::default(),
         ));
 
         // Act

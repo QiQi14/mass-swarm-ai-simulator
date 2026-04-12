@@ -556,6 +556,8 @@ pub fn ws_command_system(
                                     range_stat_index: None,
                                     mitigation: None,
                                     cooldown_ticks: None,
+                                    aoe: None,
+                                    penetration: None,
                                 });
                             }
                         }

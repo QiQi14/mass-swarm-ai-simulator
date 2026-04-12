@@ -97,7 +97,8 @@ class SwarmEnv(gym.Env):
         self._pad_offset_y = 0
         self._cell_size = 20.0
         self._fog_enabled = False
-        self._max_entity_hp = 100.0  # Auto-computed from spawns each episode
+        self._max_primary_stat = 100.0  # Auto-computed from spawns each episode
+        self._primary_stat_index = 0    # Derived from removal rules each episode
         self._active_objective_fid = 1
         self._active_ping: tuple[float, float] | None = None
         self._ping_timer = 0
@@ -246,9 +247,16 @@ class SwarmEnv(gym.Env):
         # Combat is still proximity-based via combat_rules (nav ≠ combat).
         tactical_nav_rules = []
 
-        # Auto-compute max_entity_hp from actual spawn stats
-        self._max_entity_hp = max(
-            (stat["value"] for spawn in spawns for stat in spawn.get("stats", []) if stat["index"] == 0),
+        # Derive primary stat index from removal rules (V-05 fix)
+        # The stat that triggers death IS the primary resource to track.
+        self._primary_stat_index = 0  # Default: stat[0]
+        if self.profile.removal_rules:
+            self._primary_stat_index = self.profile.removal_rules[0].stat_index
+
+        # Auto-compute max primary stat from actual spawn stats
+        self._max_primary_stat = max(
+            (stat["value"] for spawn in spawns for stat in spawn.get("stats", [])
+             if stat["index"] == self._primary_stat_index),
             default=100.0
         )
 
@@ -260,7 +268,7 @@ class SwarmEnv(gym.Env):
             "ability_config": self.profile.ability_config_payload(),
             "movement_config": self.profile.movement_config_payload(),
             "max_density": self.profile.training.max_density,
-            "max_entity_ecp": self._max_entity_hp,
+            "max_entity_ecp": self._max_primary_stat,
             "terrain_thresholds": self.profile.terrain_thresholds_payload(),
             "removal_rules": self.profile.removal_rules_payload(),
             "navigation_rules": tactical_nav_rules,
@@ -312,7 +320,8 @@ class SwarmEnv(gym.Env):
             cell_size=self._cell_size,
             fog_enabled=self._fog_enabled,
             lkp_buffer=self._lkp_buffer,
-            max_hp=self._max_entity_hp,
+            max_hp=self._max_primary_stat,
+            summary_stat_index=self._primary_stat_index,
             active_sub_faction_ids=self._active_sub_factions,
         )
         return obs, {}
@@ -409,7 +418,8 @@ class SwarmEnv(gym.Env):
             cell_size=self._cell_size,
             fog_enabled=self._fog_enabled,
             lkp_buffer=self._lkp_buffer,
-            max_hp=self._max_entity_hp,
+            max_hp=self._max_primary_stat,
+            summary_stat_index=self._primary_stat_index,
             active_sub_faction_ids=self._active_sub_factions,
             active_objective_ping=self._active_ping if self.curriculum_stage == 4 else None,
             ping_intensity=max(0.0, 1.0 - (self._ping_timer / self._ping_lifespan)) if self.curriculum_stage == 4 else 1.0,
@@ -493,7 +503,7 @@ class SwarmEnv(gym.Env):
         trap_key = str(self._trap_faction)
         if trap_key in avg_stats:
             hp_list = avg_stats[trap_key]
-            trap_hp = hp_list[0] if hp_list else 100.0
+            trap_hp = hp_list[self._primary_stat_index] if hp_list and len(hp_list) > self._primary_stat_index else 100.0
             if trap_hp < 99.9:
                 self._trap_engaged = True
 

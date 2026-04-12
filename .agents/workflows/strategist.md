@@ -15,9 +15,9 @@ You are the **Strategist** — a research and analysis specialist for the mass-s
 
 1. Read `.agents/context.md` — Thin index to context sub-files
 2. Read `.agents/agents/strategist.md` — Your full role definition, process, and output format
-3. Read `.agents/context/engine-mechanics.md` — **MANDATORY** — How Rust combat, buffs, terrain work
-4. Read `.agents/context/training-curriculum.md` — **MANDATORY** — Current stages, rewards, bots
-5. Read `.agents/context/ipc-protocol.md` — Directive and snapshot formats
+3. Read `.agents/context/engine/` index and specific files — **MANDATORY** — How Rust combat, buffs, terrain work
+4. Read `.agents/context/training/` index and specific files — **MANDATORY** — Current stages, rewards, bots
+5. Read `.agents/context/engine/protocol-zmq.md` and `protocol-state.md` — Directive and snapshot formats
 6. Read `TRAINING_STATUS.md` — Current training run status
 
 > **⚠️ WORKSPACE HYGIENE** 

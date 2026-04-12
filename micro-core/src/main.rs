@@ -127,6 +127,8 @@ fn main() {
         .init_resource::<AggroMaskRegistry>()
         .init_resource::<ActiveSubFactions>()
         .init_resource::<LatestDirective>()
+        // Boids 2.0 — Unit type registry for heterogeneous swarm behaviors
+        .init_resource::<micro_core::config::UnitTypeRegistry>()
         .insert_resource(micro_core::systems::ws_sync::BroadcastSender(tx))
         .insert_resource(WsCommandReceiver(std::sync::Mutex::new(ws_cmd_rx)));
 
@@ -152,7 +154,10 @@ fn main() {
                 micro_core::systems::flow_field_update::flow_field_update_system,
                 micro_core::spatial::update_spatial_grid_system,
                 micro_core::systems::interaction::interaction_system,
+                micro_core::systems::aoe_interaction::aoe_interaction_system,
+                micro_core::systems::penetration::penetration_interaction_system,
                 micro_core::systems::removal::removal_system,
+                micro_core::systems::tactical_sensor::tactical_sensor_system,
                 movement_system,
             )
                 .chain()
@@ -196,7 +201,10 @@ fn main() {
                 micro_core::systems::flow_field_update::flow_field_update_system,
                 micro_core::spatial::update_spatial_grid_system,
                 micro_core::systems::interaction::interaction_system,
+                micro_core::systems::aoe_interaction::aoe_interaction_system,
+                micro_core::systems::penetration::penetration_interaction_system,
                 micro_core::systems::removal::removal_system,
+                micro_core::systems::tactical_sensor::tactical_sensor_system,
                 movement_system,
             )
                 .chain()
