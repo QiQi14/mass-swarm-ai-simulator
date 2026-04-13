@@ -68,6 +68,8 @@ TASKS_PENDING_DIR = PROJECT_ROOT / "tasks_pending"
 AGENTS_AGENTS_DIR = AGENTS_DIR / "agents"
 KNOWLEDGE_DIR = AGENTS_DIR / "knowledge"
 CONTEXT_DIR = AGENTS_DIR / "context"
+RESEARCH_DIGEST = PROJECT_ROOT / "research_digest.md"
+STRATEGY_BRIEF = PROJECT_ROOT / "strategy_brief.md"
 
 # Default tier thresholds (tokens)
 DEFAULT_BASIC_MAX = 8_000
@@ -318,6 +320,31 @@ def analyze_task(
         "total_tokens": estimate_tokens(" " * knowledge_chars),
     }
 
+    # ── 7. Research Artifacts (advanced tier only) ─────────────────────────
+    # dispatch.py auto-injects these for advanced executors, so we must
+    # account for them in the token budget.
+    if current_tier == "advanced" and role != "qa":
+        research_detail = []
+        research_chars = 0
+
+        for artifact_path in (RESEARCH_DIGEST, STRATEGY_BRIEF):
+            if artifact_path.exists():
+                text = artifact_path.read_text(encoding="utf-8").strip()
+                chars = len(text)
+                research_chars += chars
+                total_chars += chars
+                research_detail.append({
+                    "file": artifact_path.name,
+                    "chars": chars,
+                    "tokens": estimate_tokens(text),
+                })
+
+        breakdown["research_artifacts"] = {
+            "files": research_detail,
+            "total_chars": research_chars,
+            "total_tokens": estimate_tokens(" " * research_chars),
+        }
+
     # ── Final Calculation ──────────────────────────────────────────────────
     total_tokens = total_chars // CHARS_PER_TOKEN
     recommended = recommend_tier(total_tokens, basic_max, standard_max)
@@ -478,6 +505,13 @@ def print_verbose_breakdown(results: list[dict]) -> None:
         kn = bd.get("knowledge", {})
         if kn.get("file_count", 0) > 0:
             print(f"  {C.GRAY}knowledge ({kn['file_count']} files):{C.RESET}             {_format_tokens(kn.get('total_tokens', 0)):>8} tokens")
+
+        # Research artifacts (advanced tier only)
+        ra = bd.get("research_artifacts", {})
+        if ra and ra.get("files"):
+            print(f"  {C.CYAN}research artifacts (advanced):{C.RESET}")
+            for rf in ra["files"]:
+                print(f"    {C.CYAN}{rf['file']}:{C.RESET}  {_format_tokens(rf['tokens']):>6} tokens")
 
         print(f"  {'─' * 40}")
         print(f"  {C.BOLD}TOTAL:{C.RESET}                               {_format_tokens(tokens):>8} tokens")

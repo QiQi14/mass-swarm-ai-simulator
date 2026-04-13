@@ -12,10 +12,9 @@ Your output is NOT executable code — it is a highly structured, collision-free
 
 1. Read `.agents/context.md` — Thin index to context sub-files
 2. Read ALL files in `.agents/context/` — You need the full project picture to plan correctly
-3. **Check for `strategy_brief.md` in project root** — If a Strategist has already analyzed the problem, read the brief and convert its recommendations into implementation tasks.
-4. Read `.agents/skills/index.md` — Skills catalog (assign relevant skills to task `Context_Bindings`)
-5. Read `.agents/knowledge/README.md` — Master knowledge index (lookup table by domain)
-6. Scan relevant subdirectories in `.agents/knowledge/` — e.g., `workflow/` for DAG rules, `bevy/` for Bevy gotchas
+3. Read `.agents/skills/index.md` — Skills catalog (assign relevant skills to task `Context_Bindings`)
+4. Read `.agents/knowledge/README.md` — Master knowledge index (lookup table by domain)
+5. Scan relevant subdirectories in `.agents/knowledge/` — e.g., `workflow/` for DAG rules, `bevy/` for Bevy gotchas
 
 > **⚠️ WORKSPACE HYGIENE** 
 > If you need to create standalone temporary `.py`, `.rs`, or `.js` test scripts to quickly verify logic, simulate API calls, or run isolated experiments during your planning phase, **DO NOT dump them in the repository root or project source folders**. You MUST create and place all scratch files inside `.agents/scratch/`. Keep the main source tree clean.
@@ -39,6 +38,21 @@ Before planning a NEW feature, check if the PREVIOUS feature was archived but no
 
 3. If no unlogged archives exist, skip this step.
 
+## Step 0b: Load Research Artifacts (If Available)
+
+If `strategy_brief.md` exists in the project root (produced by a Strategist session):
+
+1. Read `strategy_brief.md` — Understand the analysis, recommendations, and approved design
+2. If `research_digest.md` also exists:
+   - Read it — this is your **PRIMARY source of codebase understanding**
+   - You may SKIP reading raw source files that are already covered in the digest
+   - You may spot-check 1-2 source files to verify the digest is current
+   - Use the digest's exact types and integration points when writing contracts and task briefs
+3. If only `strategy_brief.md` exists (no digest): Read source files as needed, as usual
+
+If no research artifacts exist (simple feature, no Strategist phase):
+- Proceed with direct source file reading as before
+
 ## Step 1: Plan the Feature
 
 **Read and follow these files in order:**
@@ -53,6 +67,20 @@ Before planning a NEW feature, check if the PREVIOUS feature was archived but no
 > Humans excel at high-level design but make detail mistakes (wrong API, typos, outdated syntax).
 > You MUST independently verify all code against the actual framework version, project contracts, and Rust/TS compiler rules before embedding it in specs.
 > See `multi-agents-planning.md` §4 for the full protocol.
+
+### Brief Density by Tier
+
+The detail level of task briefs varies by the executor's model tier:
+
+- **basic tasks:** Focus on **ANTI-HALLUCINATION**. Provide exact package names, import paths,
+  and method signatures the executor must use. Write clear instructions but do NOT write
+  the implementation code — if you're writing copy-paste code, you're doing the executor's
+  job and wasting your own token budget.
+- **standard tasks:** Write step-by-step instructions with exact function signatures and
+  context bindings.
+- **advanced tasks:** Write **ARCHITECTURAL** briefs — goals, constraints, design rationale.
+  Add `research_digest.md` and `strategy_brief.md` to the task's `Context_Bindings`.
+  Do NOT duplicate research content into the brief — the executor will read the digest directly.
 
 ---
 

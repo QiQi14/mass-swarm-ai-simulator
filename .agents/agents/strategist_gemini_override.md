@@ -89,3 +89,13 @@ Your strategy brief MUST follow this exact structure:
 
 Do NOT skip sections. Do NOT collapse hypotheses into a single paragraph.
 Each hypothesis gets its own section with evidence and verdict.
+
+## 7. Research Digest Quality Enforcement (When Applicable)
+
+If your session requires producing a `research_digest.md` (see Step 3b in `strategist.md`):
+
+- **Exact type definitions required.** Copy struct/interface/type definitions verbatim from source code. Do NOT summarize `pub struct EcpResult { value: f32, source_id: EntityId }` as "an ECP result struct with value and source fields."
+- **Line numbers mandatory.** Every entry in the File Map, every extracted type, every integration point MUST include `file:line` references verified against the actual source.
+- **Function names, not descriptions.** Integration Points must use `module::function_name()` notation. "The rendering system processes the data" is FORBIDDEN. `render_pipeline::process_ecp_overlay()` is correct.
+- **Zero qualitative statements.** The digest is DATA. Save "this design is fragile" or "this could be improved" for the strategy brief. The digest says "function X is called N times per frame from locations A, B, C."
+- **Completeness check.** Before finalizing, verify every file in the Relevant File Map has at least one entry in either Contracts & Types OR Integration Points. Orphan file entries indicate incomplete extraction.

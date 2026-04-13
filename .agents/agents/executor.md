@@ -68,7 +68,16 @@ If you need to create standalone temporary `.py`, `.rs`, or `.js` test scripts t
 
 ## Context Loading (Tier-Dependent)
 
-**If your tier is `standard` or `advanced`:**
+**If your tier is `basic`:**
+- Your Task Brief IS your complete instruction.
+- Pay **STRICT** attention to the import paths, package names, and method signatures
+  listed in the brief — these are verified correct. Do NOT substitute with
+  names from your training data. If the brief says `use bevy::prelude::Transform`,
+  use EXACTLY that — do not hallucinate alternatives.
+- Implement the code based on the instructions. You are expected to write the
+  implementation, not copy-paste it.
+
+**If your tier is `standard`:**
 
 > **CRITICAL FIRST STEP:** The Planner might omit critical skills or knowledge in your `Context_Bindings`. It is YOUR responsibility to self-heal missing context.
 1. Read `.agents/skills/index.md` (Skills Catalog)
@@ -79,6 +88,27 @@ If you need to create standalone temporary `.py`, `.rs`, or `.js` test scripts t
 5. Scan `.agents/knowledge/` — Lessons from previous sessions relevant to your task
 6. Read `.agents/workflows/execution-lifecycle.md` — Your 4-step execution loop
 7. Read `.agents/rules/execution-boundary.md` — Scope and contract constraints
+
+**If your tier is `advanced`:**
+
+> **CRITICAL FIRST STEP:** The Planner might omit critical skills or knowledge in your `Context_Bindings`. It is YOUR responsibility to self-heal missing context.
+1. Read `.agents/skills/index.md` (Skills Catalog)
+2. Read `.agents/knowledge/README.md` (Master Knowledge Index)
+   *(If you discover a skill or knowledge domain relevant to your task that isn't in your `Context_Bindings`, **read it immediately** before starting.)*
+3. Read `.agents/context.md` — Thin index pointing to context sub-files
+4. Load ALL `context/*` sub-files listed in your `Context_Bindings` below
+5. **If `research_digest.md` is in your bindings, read it THOROUGHLY** —
+   this contains structured codebase knowledge (types, integration points, patterns, gotchas)
+   that you need for implementation decisions
+6. **If `strategy_brief.md` is in your bindings, read it for design rationale** —
+   understand WHY the design decisions were made, not just what to build
+7. Scan `.agents/knowledge/` — Lessons from previous sessions relevant to your task
+8. Read `.agents/workflows/execution-lifecycle.md` — Your 4-step execution loop
+9. Read `.agents/rules/execution-boundary.md` — Scope and contract constraints
+10. You have **AUTONOMY** to make implementation decisions within the architectural
+   constraints defined in your brief and the research digest. Your brief describes
+   goals and constraints, not step-by-step instructions — you are expected to reason
+   through the implementation.
 
 {{CONTEXT_BINDINGS_LIST}}
 
@@ -93,4 +123,3 @@ If you need to create standalone temporary `.py`, `.rs`, or `.js` test scripts t
 ## Shared Contracts
 
 {{CONTRACTS}}
-

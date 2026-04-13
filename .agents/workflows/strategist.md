@@ -30,8 +30,11 @@ Follow the process defined in `.agents/agents/strategist.md`:
 1. **Understand the Problem** — Classify as Diagnosis / Design / Investigation
 2. **Analyze and Reason** — Combat math, engine tracing, brute-force checks
 3. **Produce Strategy Brief** — `strategy_brief.md` in project root
-4. **Hand Off** — User reviews, then invokes `/planner` to convert to implementation tasks
+4. **Produce Research Digest** (if needed) — `research_digest.md` in project root (see Step 3b in `strategist.md`)
+5. **Hand Off** — User reviews, then invokes `/planner` to convert to implementation tasks
 
 ## Output
 
-Your deliverable is `strategy_brief.md` — NOT code, NOT task files.
+Your deliverables are:
+- `strategy_brief.md` — Analysis and design recommendations (always produced)
+- `research_digest.md` — Structured codebase facts for Planner/Executor consumption (conditional — see Step 3b)

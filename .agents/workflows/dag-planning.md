@@ -16,6 +16,16 @@ Analyze the request and break down the feature into isolated, atomic tasks based
   - Task A (Domain: Data): "Create AuthRepository and LocalDataSource" -> Binds to `rules/data-layer`.
   - Task B (Domain: UI): "Create Login Screen and ViewModel" -> Binds to `rules/kotlin-compose` and waits for Task A.
 
+### Research Digest as Planning Input
+
+If `research_digest.md` exists in the project root (produced by a Strategist session):
+
+- Use its **File Map** to identify architectural boundaries during deconstruction
+- Use its **Contracts & Types** section to draft the Handshake Protocol (Step 2)
+- Use its **Integration Points** to determine phase dependencies between tasks
+- **Bind `research_digest.md`** (and `strategy_brief.md`) to any `advanced` tier task's `Context_Bindings`
+- Do NOT bind the digest to `basic` or `standard` tasks — their token budgets cannot accommodate it
+
 ## Step 2: Contract Drafting (The Handshake Protocol)
 
 Before parallel agents can build interacting layers, they must share a common truth. For every interacting boundary between tasks, you MUST explicitly define the exact data structures and interfaces.
@@ -90,7 +100,7 @@ Create the plan as an **Antigravity artifact** at `<appDataDir>/brain/<conversat
   - `Target_Files`: Exact list of files this specific sub-agent is allowed to create or modify.
   - `Dependencies`: Required contracts or outputs from previous phases.
   - `Context_Bindings`: Explicitly list the exact rules/workflows the Executor must load.
-  - `Strict_Instructions`: Step-by-step, exhaustive coding instructions. No placeholders.
+  - `Strict_Instructions`: Coding instructions (detail level varies by `Model_Tier` — see below). No placeholders.
   - `Verification_Strategy`: **REQUIRED.** Defines how QA will verify this task (see below).
   - `Live_System_Impact`: **REQUIRED.** Classify the task's risk to running training:
     - `safe` — Does not touch Rust core or Python training modules (e.g., docs, visualizer-only)
@@ -125,13 +135,15 @@ Verification_Strategy:
 
 **Model Tier Assignment:**
 
-| Tier | Models | Max Context | Use When |
-|------|--------|-------------|----------|
-| `basic` | Qwen 3.6 14B, Gemma 3 27B, Nemotron Nano | ≤ 8K tokens | Single-file tasks, config changes, simple CRUD, boilerplate. Task brief must be fully self-contained — agent skips external file reading. |
-| `standard` | Gemini Flash, Claude Sonnet 4.6, GPT-OSS 120B | ≤ 32K tokens | Multi-file tasks, business logic, state management. Agent reads task brief + 1-2 external context files. |
-| `advanced` | Gemini Pro, Claude Opus 4.6 | > 32K tokens | Architectural decisions, complex state, cross-layer integration. Agent reads full context. |
+| Tier | Models | Max Context | Brief Focus | Use When |
+|------|--------|-------------|-------------|----------|
+| `basic` | Qwen 3.6 14B, Gemma 3 27B, Nemotron Nano | ≤ 8K tokens | **Anti-hallucination** — exact import paths, package names, method signatures. No copy-paste code. | Single-file tasks, config changes, boilerplate. Task brief is self-contained. |
+| `standard` | Gemini Flash, Claude Sonnet 4.6, GPT-OSS 120B | ≤ 32K tokens | **Guided** — step-by-step instructions, exact signatures | Multi-file tasks, business logic, state management. Agent reads brief + 1-2 context files. |
+| `advanced` | Gemini Pro, Claude Opus 4.6 | > 32K tokens | **Architectural** — goals, constraints, design rationale + research digest | Complex cross-layer work. Agent reads brief + research digest + strategy brief. |
 
-For `basic` tier: write MORE detailed `Strict_Instructions` — include exact imports, full function signatures, and literal code where possible. The task brief IS the complete instruction.
+For `basic` tier: focus on the **anti-hallucination guide** — provide correct package names, import paths, method signatures, and type names. These models reason fine but hallucinate API surfaces. Write clear instructions for what to implement, but do NOT write copy-paste code (that's doing the executor's job).
+
+For `advanced` tier: write **architectural briefs** with goals and constraints. Add `research_digest.md` and `strategy_brief.md` to `Context_Bindings` if they exist. The frontier model will read the research and make implementation decisions within its scoped files.
 
 ## Step 4d: Token Budget Verification
 

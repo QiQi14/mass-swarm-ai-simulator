@@ -48,6 +48,8 @@ STATE_FILE = SCRIPT_DIR / "task_state.json"
 TASKS_PENDING_DIR = SCRIPT_DIR / "tasks_pending"
 IMPLEMENTATION_PLAN = SCRIPT_DIR / "implementation_plan.md"
 IMPLEMENTATION_PLAN_FEATURE_GLOB = "implementation_plan_feature_*.md"
+RESEARCH_DIGEST = SCRIPT_DIR / "research_digest.md"
+STRATEGY_BRIEF = SCRIPT_DIR / "strategy_brief.md"
 DISPATCH_DIR = SCRIPT_DIR / ".dispatch"
 
 AVAILABLE_ROLES = {
@@ -427,15 +429,52 @@ def generate_prompt(role: str, task_id: Optional[str] = None, feature_name: Opti
         changelog_path = TASKS_PENDING_DIR / f"{task_id}_changelog.md"
         changelog_content = _read_file_safe(changelog_path)
 
+    # Load research artifacts for advanced-tier executors
+    model_tier = parsed.get("model_tier", "standard")
+    research_digest_content = ""
+    if role == "executor" and model_tier == "advanced":
+        digest_parts = []
+        if RESEARCH_DIGEST.exists():
+            digest_text = RESEARCH_DIGEST.read_text(encoding="utf-8").strip()
+            if digest_text:
+                digest_parts.append(
+                    f"## Research Digest\n\n"
+                    f"> _Auto-injected from `research_digest.md`. "
+                    f"This contains structured codebase facts extracted by the Strategist._\n\n"
+                    f"{digest_text}"
+                )
+        if STRATEGY_BRIEF.exists():
+            brief_text = STRATEGY_BRIEF.read_text(encoding="utf-8").strip()
+            if brief_text:
+                digest_parts.append(
+                    f"## Strategy Brief\n\n"
+                    f"> _Auto-injected from `strategy_brief.md`. "
+                    f"This contains the design rationale and recommendations._\n\n"
+                    f"{brief_text}"
+                )
+        if digest_parts:
+            research_digest_content = (
+                "\n\n---\n\n"
+                "# Research Context (Advanced Tier)\n\n"
+                "The following research artifacts were produced by the Strategist agent. "
+                "Use them to understand the codebase and make implementation decisions "
+                "within your scoped files.\n\n"
+                + "\n\n---\n\n".join(digest_parts)
+            )
+
     # Fill template variables
     prompt = template
     prompt = prompt.replace("{{TASK_ID}}", task_id)
     prompt = prompt.replace("{{FEATURE_NAME}}", feature_name)
-    prompt = prompt.replace("{{MODEL_TIER}}", parsed.get("model_tier", "standard"))
+    prompt = prompt.replace("{{MODEL_TIER}}", model_tier)
     prompt = prompt.replace("{{TASK_BRIEF}}", task_brief_content)
     prompt = prompt.replace("{{CONTRACTS}}", contracts)
     prompt = prompt.replace("{{CONTEXT_BINDINGS_LIST}}", context_bindings_str)
     prompt = prompt.replace("{{CHANGELOG}}", changelog_content)
+
+    # Append research context for advanced executors (after template fill)
+    if research_digest_content:
+        prompt += research_digest_content
 
     return prompt
 
