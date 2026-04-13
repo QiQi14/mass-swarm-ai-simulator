@@ -1,7 +1,6 @@
 # Mass-Swarm AI Simulator
 
 A study project exploring two proof-of-concept ideas: **decoupled tri-node architecture** for mass-entity AI simulation, and **AI-agent-driven development workflows** for orchestrating complex software builds.
-
 > **Status:** Phase 3.5 of 5 complete — 249 Rust + 214 Python tests, RL training pipeline operational with 9-stage curriculum, Boids 2.0 tactical steering with heterogeneous unit classes. [See Roadmap →](ROADMAP.md)
 
 ---
