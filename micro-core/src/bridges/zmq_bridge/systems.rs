@@ -1,126 +1,42 @@
 //! # ZMQ Bridge — Bevy Systems
+//! # ZMQ Bridge — Bevy Systems
 //!
 //! ECS systems for AI trigger/poll and the state snapshot builder.
 //! These run inside Bevy's `Update` schedule, gated by `SimState`.
 //!
 //! ## Ownership
-//! - **Task:** task_07_zmq_bridge_plugin
+//! - **Task:** task_07_zmq_protocol_upgrade
 //! - **Contract:** implementation_plan.md → Proposed Changes → 3. Rust System Layer
+//!
+//! ## Depends On
+//! - `crate::bridges::zmq_protocol`
+//! - `crate::systems::state_vectorizer`
+//! - `crate::systems::directive_executor::LatestDirective`
+//! - `crate::config::{ActiveZoneModifiers, InterventionTracker, ActiveSubFactions, AggroMaskRegistry}`
 
 use bevy::prelude::*;
 use bevy_state::prelude::*;
 use std::sync::mpsc;
 
 use super::config::{AiBridgeChannels, AiBridgeConfig, SimState};
-use crate::bridges::zmq_protocol::{
-    EntitySnapshot, MacroAction, StateSnapshot, SummarySnapshot, WorldSize,
-};
+use crate::bridges::zmq_protocol::{AiResponse, MacroAction, MacroDirective};
 use crate::components::{EntityId, FactionId, Position, StatBlock};
-use crate::config::{SimulationConfig, TickCounter};
-use crate::visibility::FactionVisibility;
+use crate::config::{
+    ActiveSubFactions, ActiveZoneModifiers, AggroMaskRegistry, InterventionTracker,
+    SimulationConfig, TickCounter,
+};
+use crate::systems::directive_executor::LatestDirective;
+
+use super::snapshot::build_state_snapshot;
 use crate::terrain::TerrainGrid;
-
-/// Builds a StateSnapshot from the current ECS state.
-///
-/// Queries all entities with EntityId, Position, and Team components
-/// and packages them into the IPC-compatible StateSnapshot format.
-///
-/// # Arguments
-/// * `tick` - Current simulation tick
-/// * `sim_config` - World dimensions for the world_size field
-/// * `query` - All entities with EntityId, Position, and Team
-fn build_state_snapshot(
-    tick: &TickCounter,
-    sim_config: &SimulationConfig,
-    query: &Query<(&EntityId, &Position, &FactionId, &StatBlock)>,
-    visibility: &FactionVisibility,
-    terrain: &TerrainGrid,
-    brain_faction: u32,
-) -> StateSnapshot {
-    let mut faction_counts = std::collections::HashMap::new();
-    let mut faction_sum_stats: std::collections::HashMap<u32, Vec<f32>> = std::collections::HashMap::new();
-    let mut entities = Vec::new();
-
-    let vis_grid = visibility.visible.get(&brain_faction);
-    let exp_grid = visibility.explored.get(&brain_faction);
-
-    for (eid, pos, faction, stat_block) in query.iter() {
-        let count = faction_counts.entry(faction.0).or_insert(0);
-        *count += 1;
-
-        let sums = faction_sum_stats.entry(faction.0).or_insert_with(|| vec![0.0; crate::components::MAX_STATS]);
-        for (i, &val) in stat_block.0.iter().enumerate() {
-            sums[i] += val;
-        }
-
-        let mut is_visible = false;
-        if faction.0 == brain_faction {
-            is_visible = true;
-        } else if let Some(vg) = vis_grid {
-            let cx = (pos.x / visibility.cell_size).floor() as i32;
-            let cy = (pos.y / visibility.cell_size).floor() as i32;
-            if cx >= 0 && cx < visibility.grid_width as i32 && cy >= 0 && cy < visibility.grid_height as i32 {
-                let cell_idx = (cy as u32 * visibility.grid_width + cx as u32) as usize;
-                if FactionVisibility::get_bit(vg, cell_idx) {
-                    is_visible = true;
-                }
-            }
-        }
-
-        if is_visible {
-            entities.push(EntitySnapshot {
-                id: eid.id,
-                x: pos.x,
-                y: pos.y,
-                faction_id: faction.0,
-                stats: stat_block.0.to_vec(),
-            });
-        }
-    }
-
-    let mut faction_avg_stats: std::collections::HashMap<u32, Vec<f32>> = std::collections::HashMap::new();
-    for (&fid, count) in &faction_counts {
-        if let Some(sums) = faction_sum_stats.get(&fid) {
-            let avgs: Vec<f32> = sums.iter().map(|s| s / (*count as f32)).collect();
-            faction_avg_stats.insert(fid, avgs);
-        }
-    }
-
-    StateSnapshot {
-        msg_type: "state_snapshot".to_string(),
-        tick: tick.tick,
-        world_size: WorldSize {
-            w: sim_config.world_width,
-            h: sim_config.world_height,
-        },
-        entities,
-        summary: SummarySnapshot {
-            faction_counts,
-            faction_avg_stats,
-        },
-        explored: exp_grid.cloned(),
-        visible: vis_grid.cloned(),
-        terrain_hard: terrain.hard_costs.clone(),
-        terrain_soft: terrain.soft_costs.clone(),
-        terrain_grid_w: terrain.width,
-        terrain_grid_h: terrain.height,
-        terrain_cell_size: terrain.cell_size,
-    }
-}
+use crate::visibility::FactionVisibility;
 
 /// Triggers AI communication every N ticks.
 ///
 /// Runs only when `SimState::Running`. Builds a state snapshot from
 /// the current ECS state, serializes it to JSON, and sends it to the
 /// background ZMQ thread. Transitions to `WaitingForAI` on success.
-///
-/// # Arguments
-/// * `tick` - Current tick counter
-/// * `config` - AI bridge configuration (send interval)
-/// * `sim_config` - World dimensions
-/// * `channels` - Channel to background ZMQ thread
-/// * `query` - All entities with EntityId, Position, and Team
-/// * `next_state` - State transition handle
+#[allow(clippy::too_many_arguments)]
 pub(super) fn ai_trigger_system(
     tick: Res<TickCounter>,
     config: Res<AiBridgeConfig>,
@@ -128,7 +44,14 @@ pub(super) fn ai_trigger_system(
     channels: Res<AiBridgeChannels>,
     visibility: Res<FactionVisibility>,
     terrain: Res<TerrainGrid>,
-    query: Query<(&EntityId, &Position, &FactionId, &StatBlock)>,
+    zones: Res<ActiveZoneModifiers>,
+    intervention: Res<InterventionTracker>,
+    sub_factions: Res<ActiveSubFactions>,
+    aggro: Res<AggroMaskRegistry>,
+    combat_buffs: Res<crate::config::FactionBuffs>,
+    buff_config: Res<crate::config::BuffConfig>,
+    density_config: Res<crate::config::DensityConfig>,
+    query: Query<(&EntityId, &Position, &FactionId, &StatBlock, &crate::components::UnitClassId)>,
     mut next_state: ResMut<NextState<SimState>>,
 ) {
     if tick.tick == 0 || !tick.tick.is_multiple_of(config.send_interval_ticks) {
@@ -136,7 +59,40 @@ pub(super) fn ai_trigger_system(
     }
 
     // Default macro-brain runs for faction 0
-    let snapshot = build_state_snapshot(&tick, &sim_config, &query, &visibility, &terrain, 0);
+    let mut snapshot = build_state_snapshot(
+        &tick,
+        &sim_config,
+        &query,
+        &visibility,
+        &terrain,
+        0,
+        &zones,
+        &intervention,
+        &sub_factions,
+        &aggro,
+        &combat_buffs,
+        &buff_config,
+        &density_config,
+    );
+
+    let brain_faction = 0u32;
+    let total_cells = (visibility.grid_width * visibility.grid_height) as usize;
+    
+    let explored = visibility.explored.get(&brain_faction).map(|bits| {
+        (0..total_cells)
+            .map(|i| if FactionVisibility::get_bit(bits, i) { 1u8 } else { 0u8 })
+            .collect::<Vec<u8>>()
+    });
+    
+    let visible = visibility.visible.get(&brain_faction).map(|bits| {
+        (0..total_cells)
+            .map(|i| if FactionVisibility::get_bit(bits, i) { 1u8 } else { 0u8 })
+            .collect::<Vec<u8>>()
+    });
+    
+    snapshot.fog_explored = explored;
+    snapshot.fog_visible = visible;
+
     let json = serde_json::to_string(&snapshot).unwrap();
 
     // try_send is non-blocking. If the channel is full (previous request
@@ -152,33 +108,111 @@ pub(super) fn ai_trigger_system(
 /// `try_recv()` so other systems (tick counter, WS sync) keep running.
 /// On response (real or fallback HOLD), transitions back to `Running`.
 ///
+/// Parses `AiResponse` discriminated union first (supports both `macro_directive`
+/// and `reset_environment`). Falls back to legacy `MacroAction` for backward
+/// compatibility. Stores parsed directives in `LatestDirective` for the
+/// `directive_executor_system` to consume.
+///
 /// Falls back to `Running` after 200ms even if the background thread
 /// hasn't responded yet, preventing the simulation from freezing
 /// when no Python AI is connected.
 pub(super) fn ai_poll_system(
+    config: Res<AiBridgeConfig>,
     channels: Res<AiBridgeChannels>,
     mut next_state: ResMut<NextState<SimState>>,
+    mut latest_directive: ResMut<LatestDirective>,
+    mut pending_reset: ResMut<crate::bridges::zmq_bridge::reset::PendingReset>,
     mut waiting_since: Local<Option<std::time::Instant>>,
+    training_mode: Res<crate::config::TrainingMode>,
 ) {
     // Track when we entered WaitingForAI
     let start = *waiting_since.get_or_insert_with(std::time::Instant::now);
+    // Use configured timeout (long for training, short for manual play)
+    let timeout = std::time::Duration::from_secs(config.zmq_timeout_secs);
 
     match channels.action_rx.lock().unwrap().try_recv() {
         Ok(reply_json) => {
-            match serde_json::from_str::<MacroAction>(&reply_json) {
-                Ok(action) => {
-                    println!("[AI Bridge] Received action: {} (tick resume)", action.action);
+            #[derive(serde::Deserialize)]
+            struct BatchResponse {
+                #[serde(rename = "type")]
+                msg_type: String,
+                directives: Vec<MacroDirective>,
+            }
+
+            // Try new Batch format first
+            if let Ok(batch) = serde_json::from_str::<BatchResponse>(&reply_json) {
+                if batch.msg_type == "macro_directives" {
+                    if !training_mode.0 {
+                        println!(
+                            "[AI Bridge] Received batch directives: {} directives (tick resume)",
+                            batch.directives.len()
+                        );
+                    }
+                    latest_directive.directives = batch.directives;
+                    latest_directive.last_directive_json = Some(reply_json.clone());
+                    *waiting_since = None;
+                    next_state.set(SimState::Running);
+                    return;
+                }
+            }
+
+            // Fallback for ResetEnvironment (which still uses AiResponse)
+            match serde_json::from_str::<AiResponse>(&reply_json) {
+                Ok(AiResponse::ResetEnvironment {
+                    terrain,
+                    spawns,
+                    combat_rules,
+                    ability_config,
+                    movement_config,
+                    max_density,
+                    max_entity_ecp,
+                    terrain_thresholds,
+                    removal_rules,
+                    navigation_rules,
+                    ecp_stat_index,
+                    unit_types,
+                    ecp_formula,
+                }) => {
+                    if !training_mode.0 {
+                        println!("[AI Bridge] Received reset_environment command (tick resume)");
+                    }
+                    pending_reset.request = Some(crate::bridges::zmq_bridge::reset::ResetRequest {
+                        terrain,
+                        spawns,
+                        combat_rules,
+                        ability_config,
+                        movement_config,
+                        max_density,
+                        max_entity_ecp,
+                        terrain_thresholds,
+                        removal_rules,
+                        navigation_rules,
+                        ecp_stat_index,
+                        unit_types,
+                        ecp_formula,
+                    });
+                }
+                Ok(AiResponse::Directive { directive: _ }) => {
+                    eprintln!("[ZMQ] Unexpected message type (expected 'macro_directives')");
+                    // Empty directives on error per requirements
+                    latest_directive.directives = vec![];
                 }
                 Err(e) => {
-                    eprintln!("[AI Bridge] Failed to parse macro action: {}", e);
+                    if let Ok(legacy) = serde_json::from_str::<MacroAction>(&reply_json) {
+                        eprintln!("[ZMQ] Unexpected message type (expected 'macro_directives'). Legacy MacroAction format sent: {}", legacy.action);
+                    } else {
+                        eprintln!("[ZMQ] Failed to parse AI response: {}", e);
+                    }
+                    latest_directive.directives = vec![];
                 }
             }
             *waiting_since = None;
             next_state.set(SimState::Running);
         }
         Err(mpsc::TryRecvError::Empty) => {
-            // Timeout: fall back to Running after 200ms to keep sim responsive
-            if start.elapsed() > std::time::Duration::from_millis(200) {
+            // Timeout: fall back to Running after zmq_timeout_secs to prevent hang
+            if start.elapsed() > timeout {
+                eprintln!("[AI Bridge] Timeout after {}s — falling back to Running", config.zmq_timeout_secs);
                 *waiting_since = None;
                 next_state.set(SimState::Running);
             }
@@ -190,6 +224,8 @@ pub(super) fn ai_poll_system(
         }
     }
 }
+
+// ── Tests ──────────────────────────────────────────────────────────────
 
 // ── Tests ──────────────────────────────────────────────────────────────
 
@@ -220,8 +256,18 @@ mod tests {
         app.insert_resource(TickCounter { tick: 15 }); // Not divisible by 30
         app.insert_resource(FactionVisibility::new(5, 5, 20.0));
         app.insert_resource(TerrainGrid::new(5, 5, 20.0));
+        app.insert_resource(ActiveZoneModifiers::default());
+        app.insert_resource(InterventionTracker::default());
+        app.insert_resource(ActiveSubFactions::default());
+        app.insert_resource(AggroMaskRegistry::default());
+        app.insert_resource(crate::config::FactionBuffs::default());
+        app.init_resource::<crate::config::BuffConfig>();
+        app.init_resource::<crate::config::DensityConfig>();
 
-        app.add_systems(Update, ai_trigger_system.run_if(in_state(SimState::Running)));
+        app.add_systems(
+            Update,
+            ai_trigger_system.run_if(in_state(SimState::Running)),
+        );
 
         app.world_mut().spawn((
             EntityId { id: 1 },
@@ -235,7 +281,11 @@ mod tests {
 
         // Assert
         let state = app.world().get_resource::<State<SimState>>().unwrap();
-        assert_eq!(state.get(), &SimState::Running, "Should still be Running since tick % 30 != 0");
+        assert_eq!(
+            state.get(),
+            &SimState::Running,
+            "Should still be Running since tick % 30 != 0"
+        );
     }
 
     #[test]
@@ -260,8 +310,18 @@ mod tests {
         app.insert_resource(TickCounter { tick: 30 }); // Divisible by 30
         app.insert_resource(FactionVisibility::new(5, 5, 20.0));
         app.insert_resource(TerrainGrid::new(5, 5, 20.0));
+        app.insert_resource(ActiveZoneModifiers::default());
+        app.insert_resource(InterventionTracker::default());
+        app.insert_resource(ActiveSubFactions::default());
+        app.insert_resource(AggroMaskRegistry::default());
+        app.insert_resource(crate::config::FactionBuffs::default());
+        app.init_resource::<crate::config::BuffConfig>();
+        app.init_resource::<crate::config::DensityConfig>();
 
-        app.add_systems(Update, ai_trigger_system.run_if(in_state(SimState::Running)));
+        app.add_systems(
+            Update,
+            ai_trigger_system.run_if(in_state(SimState::Running)),
+        );
 
         app.world_mut().spawn((
             EntityId { id: 1 },
@@ -276,89 +336,141 @@ mod tests {
 
         // Assert
         let state = app.world().get_resource::<State<SimState>>().unwrap();
-        assert_eq!(state.get(), &SimState::WaitingForAI, "Should transition to WaitingForAI");
+        assert_eq!(
+            state.get(),
+            &SimState::WaitingForAI,
+            "Should transition to WaitingForAI"
+        );
     }
+    #[test]
+    fn test_ai_poll_parses_directive() {
+        // Arrange
+        let mut app = App::new();
+        app.add_plugins(bevy_state::app::StatesPlugin);
+        app.init_state::<SimState>();
 
-    #[derive(Resource)]
-    struct CapturedSnapshot(Option<StateSnapshot>);
+        let (state_tx, _state_rx) = mpsc::sync_channel::<String>(1);
+        let (action_tx, action_rx) = mpsc::sync_channel::<String>(1);
+        app.insert_resource(AiBridgeChannels {
+            state_tx,
+            action_rx: Mutex::new(action_rx),
+        });
+        app.insert_resource(AiBridgeConfig {
+            send_interval_ticks: 30,
+            zmq_timeout_secs: 5,
+        });
+        app.insert_resource(LatestDirective::default());
+        app.insert_resource(crate::bridges::zmq_bridge::reset::PendingReset::default());
+        app.insert_resource(crate::config::TrainingMode(false));
 
-    fn capture_snapshot_system(
-        tick: Res<TickCounter>,
-        sim_config: Res<SimulationConfig>,
-        visibility: Res<FactionVisibility>,
-        terrain: Res<TerrainGrid>,
-        query: Query<(&EntityId, &Position, &FactionId, &StatBlock)>,
-        mut captured: ResMut<CapturedSnapshot>,
-    ) {
-        captured.0 = Some(build_state_snapshot(&tick, &sim_config, &query, &visibility, &terrain, 0));
+        app.add_systems(
+            Update,
+            ai_poll_system.run_if(in_state(SimState::WaitingForAI)),
+        );
+
+        // Force into WaitingForAI state
+        app.world_mut()
+            .get_resource_mut::<NextState<SimState>>()
+            .unwrap()
+            .set(SimState::WaitingForAI);
+        app.update(); // Apply NextState
+
+        // Send a valid macro_directives batch with Idle
+        let directive_json = r#"{"type":"macro_directives","directives":[{"directive":"Idle"}]}"#;
+        action_tx.send(directive_json.to_string()).unwrap();
+
+        // Act
+        app.update(); // Poll system reads directive
+        app.update(); // Apply NextState → Running
+
+        // Assert
+        let _latest = app.world().get_resource::<LatestDirective>().unwrap();
+        // Check that the system transitioned to Running
+        let state = app.world().get_resource::<State<SimState>>().unwrap();
+        assert_eq!(
+            state.get(),
+            &SimState::Running,
+            "Should transition back to Running after receiving directive"
+        );
     }
 
     #[test]
-    fn test_snapshot_always_includes_own_entities() {
-        let mut app = App::new();
-        app.insert_resource(SimulationConfig::default());
-        app.insert_resource(TickCounter { tick: 30 });
-        let mut vis = FactionVisibility::new(5, 5, 20.0);
-        vis.ensure_faction(0);
-        // Fog is black (no visible cells)
-        app.insert_resource(vis);
-        app.insert_resource(TerrainGrid::new(5, 5, 20.0));
-        app.insert_resource(CapturedSnapshot(None));
+    fn test_ai_poll_parses_all_directive_variants() {
+        // Test that various MacroDirective variants parse successfully in batch format
+        let test_cases = [
+            r#"{"type":"macro_directives","directives":[{"directive":"Idle"}]}"#,
+            r#"{"type":"macro_directives","directives":[{"directive":"UpdateNavigation","follower_faction":0,"target":{"type":"Faction","faction_id":1}}]}"#,
+            r#"{"type":"macro_directives","directives":[{"directive":"Retreat","faction":0,"retreat_x":50.0,"retreat_y":50.0}]}"#,
+            r#"{"type":"macro_directives","directives":[{"directive":"SetZoneModifier","target_faction":0,"x":100.0,"y":100.0,"radius":50.0,"cost_modifier":-50.0}]}"#,
+            r#"{"type":"macro_directives","directives":[{"directive":"SplitFaction","source_faction":0,"new_sub_faction":101,"percentage":0.3,"epicenter":[500.0,500.0]}]}"#,
+            r#"{"type":"macro_directives","directives":[{"directive":"MergeFaction","source_faction":101,"target_faction":0}]}"#,
+            r#"{"type":"macro_directives","directives":[{"directive":"SetAggroMask","source_faction":101,"target_faction":1,"allow_combat":false}]}"#,
+        ];
 
-        app.add_systems(Update, capture_snapshot_system);
-
-        app.world_mut().spawn((
-            EntityId { id: 10 },
-            Position { x: 10.0, y: 10.0 }, // Faction 0
-            FactionId(0),
-            StatBlock::default(),
-        ));
-
-        app.update();
-
-        let snap = app.world().resource::<CapturedSnapshot>().0.as_ref().unwrap();
-        assert_eq!(snap.entities.len(), 1, "Should include own entity even if invisible in fog");
-        assert_eq!(snap.entities[0].id, 10);
+        for (i, json) in test_cases.iter().enumerate() {
+            #[derive(serde::Deserialize)]
+            struct BatchResponse {
+                #[serde(rename = "type")]
+                msg_type: String,
+                directives: Vec<MacroDirective>,
+            }
+            let parsed = serde_json::from_str::<BatchResponse>(json);
+            assert!(
+                parsed.is_ok(),
+                "Variant {} should parse as BatchResponse: {:?} — Error: {:?}",
+                i,
+                json,
+                parsed.err()
+            );
+            assert_eq!(parsed.unwrap().msg_type, "macro_directives");
+        }
     }
 
     #[test]
-    fn test_snapshot_filters_enemies_by_fog() {
+    fn test_ai_poll_legacy_fallback() {
+        // Arrange
         let mut app = App::new();
-        app.insert_resource(SimulationConfig::default());
-        app.insert_resource(TickCounter { tick: 30 });
-        let mut vis = FactionVisibility::new(5, 5, 20.0);
-        vis.ensure_faction(0);
-        
-        // Enemy 1 at (0,0) - make visible
-        let vg = vis.visible.get_mut(&0).unwrap();
-        FactionVisibility::set_bit(vg, 0); // cell (0,0) is visible
-        
-        app.insert_resource(vis);
-        app.insert_resource(TerrainGrid::new(5, 5, 20.0));
-        app.insert_resource(CapturedSnapshot(None));
+        app.add_plugins(bevy_state::app::StatesPlugin);
+        app.init_state::<SimState>();
 
-        app.add_systems(Update, capture_snapshot_system);
+        let (state_tx, _state_rx) = mpsc::sync_channel::<String>(1);
+        let (action_tx, action_rx) = mpsc::sync_channel::<String>(1);
+        app.insert_resource(AiBridgeChannels {
+            state_tx,
+            action_rx: Mutex::new(action_rx),
+        });
+        app.insert_resource(AiBridgeConfig {
+            send_interval_ticks: 30,
+            zmq_timeout_secs: 5,
+        });
+        app.insert_resource(LatestDirective::default());
+        app.insert_resource(crate::bridges::zmq_bridge::reset::PendingReset::default());
+        app.insert_resource(crate::config::TrainingMode(false));
 
-        // Enemy in visible cell
-        app.world_mut().spawn((
-            EntityId { id: 20 },
-            Position { x: 10.0, y: 10.0 }, // Cell (0,0)
-            FactionId(1), // Enemy
-            StatBlock::default(),
-        ));
+        app.add_systems(
+            Update,
+            ai_poll_system.run_if(in_state(SimState::WaitingForAI)),
+        );
 
-        // Enemy in fog cell
-        app.world_mut().spawn((
-            EntityId { id: 21 },
-            Position { x: 90.0, y: 90.0 }, // Cell (4,4)
-            FactionId(1), // Enemy
-            StatBlock::default(),
-        ));
+        // Force into WaitingForAI
+        app.world_mut()
+            .get_resource_mut::<NextState<SimState>>()
+            .unwrap()
+            .set(SimState::WaitingForAI);
+        app.update(); // Apply NextState
 
-        app.update();
+        // Send legacy MacroAction format
+        let legacy_json = r#"{"type":"macro_directive","directive":"Idle"}"#;
+        action_tx.send(legacy_json.to_string()).unwrap();
 
-        let snap = app.world().resource::<CapturedSnapshot>().0.as_ref().unwrap();
-        assert_eq!(snap.entities.len(), 1, "Should only include visible enemies");
-        assert_eq!(snap.entities[0].id, 20, "Should include enemy at visible cell");
+        // Act
+        app.update(); // Poll system reads legacy action
+
+        // Assert
+        let latest = app.world().get_resource::<LatestDirective>().unwrap();
+        assert!(
+            latest.directives.is_empty(),
+            "Legacy fallback should evaluate as err and return empty directives"
+        );
     }
 }

@@ -2,4 +2,4 @@
 pub mod telemetry;
 
 #[cfg(feature = "debug-telemetry")]
-pub use telemetry::{TelemetryPlugin, PerfTelemetry};
+pub use telemetry::{PerfTelemetry, TelemetryPlugin};

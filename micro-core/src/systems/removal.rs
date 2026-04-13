@@ -11,9 +11,9 @@
 //! - `crate::components::{EntityId, StatBlock}`
 //! - `crate::rules::{RemovalRuleSet, RemovalCondition, RemovalEvents}`
 
-use bevy::prelude::*;
 use crate::components::{EntityId, StatBlock};
-use crate::rules::{RemovalRuleSet, RemovalCondition, RemovalEvents};
+use crate::rules::{RemovalCondition, RemovalEvents, RemovalRuleSet};
+use bevy::prelude::*;
 
 /// Checks all entities against removal rules and despawns those
 /// crossing stat thresholds.
@@ -80,19 +80,17 @@ mod tests {
         let mut app = setup_app();
 
         app.insert_resource(RemovalRuleSet {
-            rules: vec![
-                RemovalRule {
-                    stat_index: 0,
-                    threshold: 0.0,
-                    condition: RemovalCondition::LessOrEqual,
-                },
-            ],
+            rules: vec![RemovalRule {
+                stat_index: 0,
+                threshold: 0.0,
+                condition: RemovalCondition::LessOrEqual,
+            }],
         });
 
-        let entity = app.world_mut().spawn((
-            EntityId { id: 42 },
-            StatBlock::with_defaults(&[(0, 0.0)]),
-        )).id(); // Dies
+        let entity = app
+            .world_mut()
+            .spawn((EntityId { id: 42 }, StatBlock::with_defaults(&[(0, 0.0)])))
+            .id(); // Dies
 
         app.update();
 
@@ -107,19 +105,17 @@ mod tests {
         let mut app = setup_app();
 
         app.insert_resource(RemovalRuleSet {
-            rules: vec![
-                RemovalRule {
-                    stat_index: 0,
-                    threshold: 0.0,
-                    condition: RemovalCondition::LessOrEqual,
-                },
-            ],
+            rules: vec![RemovalRule {
+                stat_index: 0,
+                threshold: 0.0,
+                condition: RemovalCondition::LessOrEqual,
+            }],
         });
 
-        let entity = app.world_mut().spawn((
-            EntityId { id: 99 },
-            StatBlock::with_defaults(&[(0, 50.0)]),
-        )).id(); // Lives
+        let entity = app
+            .world_mut()
+            .spawn((EntityId { id: 99 }, StatBlock::with_defaults(&[(0, 50.0)])))
+            .id(); // Lives
 
         app.update();
 
@@ -134,19 +130,20 @@ mod tests {
         let mut app = setup_app();
 
         app.insert_resource(RemovalRuleSet {
-            rules: vec![
-                RemovalRule {
-                    stat_index: 0,
-                    threshold: 100.0,
-                    condition: RemovalCondition::GreaterOrEqual,
-                },
-            ],
+            rules: vec![RemovalRule {
+                stat_index: 0,
+                threshold: 100.0,
+                condition: RemovalCondition::GreaterOrEqual,
+            }],
         });
 
-        let entity = app.world_mut().spawn((
-            EntityId { id: 100 },
-            StatBlock::with_defaults(&[(0, 100.0)]),
-        )).id(); // Crosses upper threshold
+        let entity = app
+            .world_mut()
+            .spawn((
+                EntityId { id: 100 },
+                StatBlock::with_defaults(&[(0, 100.0)]),
+            ))
+            .id(); // Crosses upper threshold
 
         app.update();
 
@@ -161,19 +158,17 @@ mod tests {
         let mut app = setup_app();
 
         app.insert_resource(RemovalRuleSet {
-            rules: vec![
-                RemovalRule {
-                    stat_index: 0,
-                    threshold: 100.0,
-                    condition: RemovalCondition::GreaterOrEqual,
-                },
-            ],
+            rules: vec![RemovalRule {
+                stat_index: 0,
+                threshold: 100.0,
+                condition: RemovalCondition::GreaterOrEqual,
+            }],
         });
 
-        let entity = app.world_mut().spawn((
-            EntityId { id: 101 },
-            StatBlock::with_defaults(&[(0, 99.0)]),
-        )).id(); // Does not cross threshold
+        let entity = app
+            .world_mut()
+            .spawn((EntityId { id: 101 }, StatBlock::with_defaults(&[(0, 99.0)])))
+            .id(); // Does not cross threshold
 
         app.update();
 

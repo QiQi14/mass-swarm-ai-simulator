@@ -1,0 +1,75 @@
+{
+  "feature": "Debug Visualizer UI Refactor — Dual-Mode Application",
+  "global_status": "ALL_COMPLETE",
+  "total_tasks": 6,
+  "created_at": "2026-04-11T12:23:00+00:00",
+  "updated_at": "2026-04-11T14:57:10+00:00",
+  "tasks": [
+    {
+      "task_id": "task_01_vite_setup",
+      "status": "COMPLETE",
+      "phase": null,
+      "source_file": "tasks_pending/task_01_vite_setup.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-11T12:30:30+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-11T12:42:16+00:00"
+    },
+    {
+      "task_id": "task_02_design_system",
+      "status": "COMPLETE",
+      "phase": null,
+      "source_file": "tasks_pending/task_02_design_system.md",
+      "fail_reason": null,
+      "started_at": "2026-04-11T12:45:27+00:00",
+      "completed_at": "2026-04-11T12:45:33+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-11T12:49:00+00:00"
+    },
+    {
+      "task_id": "task_03_app_shell",
+      "status": "COMPLETE",
+      "phase": null,
+      "source_file": "tasks_pending/task_03_app_shell.md",
+      "fail_reason": null,
+      "started_at": "2026-04-11T13:13:52+00:00",
+      "completed_at": "2026-04-11T13:13:52+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-11T13:22:52+00:00"
+    },
+    {
+      "task_id": "task_04_training_panels",
+      "status": "COMPLETE",
+      "phase": null,
+      "source_file": "tasks_pending/task_04_training_panels.md",
+      "fail_reason": null,
+      "started_at": "2026-04-11T13:57:34+00:00",
+      "completed_at": "2026-04-11T13:57:45+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-11T14:15:50+00:00"
+    },
+    {
+      "task_id": "task_05_playground_panels",
+      "status": "COMPLETE",
+      "phase": null,
+      "source_file": "tasks_pending/task_05_playground_panels.md",
+      "fail_reason": null,
+      "started_at": "2026-04-11T14:56:56+00:00",
+      "completed_at": "2026-04-11T14:56:56+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-11T14:56:56+00:00"
+    },
+    {
+      "task_id": "task_06_integration_polish",
+      "status": "COMPLETE",
+      "phase": null,
+      "source_file": "tasks_pending/task_06_integration_polish.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-11T14:34:37+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-11T14:57:10+00:00"
+    }
+  ]
+}

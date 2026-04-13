@@ -10,17 +10,21 @@
 graph LR
     P1["Phase 1 ✅\nVertical Slice\n(Core + Bridges + Visualizer)"]
     P2["Phase 2 ✅\nCore Algorithms\n(Spatial, Pathfinding, Combat)"]
-    P3["Phase 3 ⬜\nMacro-Brain\n(Python RL)"]
+    P3["Phase 3.5 🔄\nMacro-Brain\n(Python RL & Prod Pipeline)"]
+    P3b["Phase 3.6 ⬜\nTactical Curriculum\n(Stages 4-8)"]
     P4["Phase 4 ⬜\nIntegration\n& Scale"]
     P5["Phase 5 ⬜\nWeb Engine\nIntegration"]
 
     P1 --> P2
     P2 --> P3
-    P3 --> P4
+    P3 --> P3b
+    P3b --> P4
     P4 --> P5
 
     style P1 fill:#238636,stroke:#2ea043,color:#fff
     style P2 fill:#238636,stroke:#2ea043,color:#fff
+    style P3 fill:#d29922,stroke:#e3b341,color:#000
+    style P3b fill:#8b949e,stroke:#6e7681,color:#fff
 ```
 
 > [!NOTE]
@@ -105,7 +109,7 @@ Build the AI training pipeline. Python wraps the Rust simulation as a Gymnasium 
 - Custom `gymnasium.Env` wrapping ZMQ communication (`SwarmEnv`)
 - State vectorization: JSON → flat tensor / low-res heatmap
 - Observation space and action space definitions
-- PPO training loop via Ray RLlib
+- PPO training loop via SB3 `MaskablePPO` (sb3-contrib) with 5-stage curriculum
 - Reward function design (e.g., territory captured, defenders eliminated)
 - Macro-action vocabulary: `TRIGGER_FRENZY`, `FLANK_LEFT`, etc.
 - Trained model checkpoint
@@ -132,6 +136,7 @@ Stress-test the full system at target scale and optimize for sustained performan
 - Full tri-node startup orchestration (documented startup order, health checks)
 - Simultaneous AI training + debug visualization against the same Micro-Core
 - Serialization upgrade: JSON → Bincode/MessagePack for high entity counts
+- Multi-layered Spatial Hash Grid: Fallback spatial lookup for slow-firing long-range units to resolve O(K) query bottlenecks
 - Performance profiling and bottleneck resolution
 - Configuration system for tick rate, AI eval frequency, entity cap
 - End-to-end integration tests
@@ -157,6 +162,7 @@ Prove the **"zero-gap engine integration"** thesis by consuming the Rust core an
 - **Rust → WASM:** Compile the Micro-Core simulation logic to WebAssembly (`wasm32-unknown-unknown` target via `wasm-pack`)
 - **ONNX Model Export:** `torch.onnx.export` → `macro_brain.onnx`
 - **ONNX Runtime Web:** Load and run the trained model in-browser via `onnxruntime-web`
+- **Interactive Playground Vs. Model:** Enable designers to play as Faction 1 against the Swarm ML model directly in-browser using the Web-Inference engine
 - **3D Rendering:** A web game engine (Three.js or Babylon.js) renders entities at coordinates provided by the WASM module — the engine's only job is visuals, exactly as described in TDD Section 6
 - **Integration Demo:** A standalone web page that loads the WASM core + ONNX model + 3D engine, runs the full simulation loop, and renders it in 3D
 - **Native C-ABI reference build:** Also produce a `.dylib`/`.so`/`.dll` with `#[no_mangle] pub extern "C"` wrappers + `cbindgen` headers, documenting the path for future Unity/Unreal integration
@@ -187,7 +193,8 @@ Prove the **"zero-gap engine integration"** thesis by consuming the Rust core an
 |-------|--------|-----------|------------------|
 | **Phase 1** | ✅ Complete | 2026-04-04 | Bevy 0.18 ECS, WS/ZMQ bridges, Debug Visualizer, bidirectional commands |
 | **Phase 2** | ✅ Complete | 2026-04-05 | Spatial hash grid, Chamfer flow fields, Boids steering, FoW, terrain, 111 unit tests |
-| **Phase 3** | ⬜ Not Started | — | Python Gymnasium env, PPO training, ZMQ action vocabulary |
+| **Phase 3.5** | 🔄 In Progress | — | Tactical curriculum v4.0, Stages 0-3 complete. Observation channel overhaul deployed. Stage 1 training (fresh start). |
+| **Phase 3.6** | ⬜ Not Started | — | Stages 4-8: fog scouting, flanking, lure & ambush, protected target, generalization |
 | **Phase 4** | ⬜ Not Started | — | 10K scale test, serialization upgrade, full tri-node orchestration |
 | **Phase 5** | ⬜ Not Started | — | WASM compilation, ONNX export, Three.js 3D rendering |
 
@@ -199,8 +206,69 @@ Phase 2 was split into two implementation cycles:
 
 2. **Debug Visualizer UX Refactor** (Tasks 09–15): Terrain grid, faction visibility, terrain-aware flow fields, visibility IPC, WS commands (Fibonacci spawn, terrain editing, scenario I/O), visualizer UI (spawn tools, fog renderer, paint mode), final integration.
 
-**Key bugs resolved during integration:** broadcast forwarder death, SimState physics freezing, `Changed<Position>` late-join, omniscient flow field, Play/Pause desync. All documented in `docs/study/`.
+**Key bugs resolved during integration:** broadcast forwarder death, SimState physics freezing, `Changed<Position>` late-join, omniscient flow field, Play/Pause desync. All documented in `docs/study/001-009`.
+
+### Phase 3 Completion Notes
+
+Phase 3 was implemented as 12 atomic tasks across 5 features:
+
+1. **MacroDirective Protocol** (Tasks 01–04): ZMQ protocol upgrade, Phase 3 resources, state vectorizer, Python scaffold.
+2. **Directive Executor** (Tasks 05–06): Executor system, engine overrides, SwarmEnv Gymnasium environment.
+3. **ZMQ Integration** (Task 07): AiResponse envelope, ResetEnvironment, terrain tier constants.
+4. **PPO Training** (Tasks 08–09): SB3 MaskablePPO pipeline, 5-stage curriculum learning, dynamic spawning, reward shaping.
+5. **Debug Visualizer Phase 3** (Tasks 10–12): ML Brain panel, zone modifier tools, faction splitters, aggro masks.
+
+**Key research:** RL training methodology, 3-tier interactable terrain, multi-master arbitration. All documented in `docs/study/010-012`.
+
+**Safety patches:** 8 patches preventing RL exploitation (Vaporization Guard, Moses Effect, Ghost State Cleanup, f32 Sort Panic, Pacifist Flank Block, Dynamic Epicenter, Sub-Faction Desync, ZMQ Deadlock Guard).
+
+### Phase 3.5 Completion Notes
+
+Phase 3.5 was introduced to solidify the training pipeline before large scale runs:
+
+1. **Python BotController:** Extracted bot strategy logic entirely into Python (Context-Agnostic refactor completion).
+2. **5-Stage Curriculum:** Procedural terrain logic, dynamic 50v50 entity scaling, mixed heuristic algorithms.
+3. **Training Orchestration:** Run Managers for tracking experiments in `runs/`, Validator CLIs, and `train.sh` launch scripts.
 
 > [!NOTE]
 > This roadmap was approved at the start of the project. Per-phase implementation plans are created via the `/planner` workflow and archived in `.agents/history/` after completion.
 
+### Phase 3.5 Tactical Curriculum Progress
+
+The 5-stage curriculum from Phase 3 was expanded to a 9-stage tactical curriculum (Stages 0-8):
+
+| Stage | Status | Description |
+|:---:|:---:|---|
+| 0 | ✅ Graduated | 1v1 Navigation — move to single target |
+| 1 | 🔄 Training | Target Selection — pick correct target among distractors |
+| 2 | ✅ Engine Ready | Pheromone Path — attract swarm through safe route |
+| 3 | ✅ Engine Ready | Repellent Field — push swarm away from danger zones |
+| 4 | ⬜ Needs Implementation | Fog Scouting + Retargeting — two-target sequential pursuit |
+| 5 | ⬜ Needs Architecture | Forced Flanking / Pincer — requires Micro-Core upgrades |
+| 6 | ⬜ Needs Architecture | Lure & Ambush — requires bait/kite bot rules |
+| 7 | ⬜ Needs Design | Protected Target — patrol + guard + HVT |
+| 8 | ⬜ Blocked | Randomized graduation — blocked on Stages 4-7 |
+
+**Key engine fixes deployed (v3.2, 2026-04-11):**
+- Zone modifier duration: configurable via profile (training: 1500 ticks ≈ 10 RL steps)
+- Repellent cost modifier: +50 → +200 (per conventions)
+- Stage 3 terrain exploit: danger zone hard_cost 300 → 100 (forces DropRepellent usage)
+- Navigation persistence: zone casts auto-replay last AttackCoord
+
+**Heterogeneous swarm mechanics (6-task DAG, 2026-04-11):**
+- UnitClassId component, dynamic combat ranges, stat-driven damage mitigation
+- Per-entity cooldown tracking, Python profile schema updates
+- Debug Visualizer UI Refactor: dual-mode Tactical Command Center
+
+**Observation Channel v4.0 (2026-04-12):**
+- Eliminated 3 hardcoded normalization constants (`* 100.0`)
+- ch2 activated: friendly ECP density (enables engage/retreat decision-making)
+- Fog merged into single 3-level channel (ch5), freeing ch6 for interactable terrain
+- ch6-7 plumbed as zeros for future curriculum mechanics
+- Profile-driven `max_entity_ecp` auto-computed from spawn stats
+- **221 Rust tests, 214 Python tests, 0 failures**
+
+> [!WARNING]
+> **Stages 5-6 require significant Rust Micro-Core and Debug Visualizer upgrades** before they can be implemented. See `TRAINING_STATUS.md` for detailed designs.
+
+**Full curriculum design:** See [TRAINING_STATUS.md](file:///Users/manifera/Documents/GitHub/mass-swarm-ai-simulator/TRAINING_STATUS.md#remaining-curriculum-work)

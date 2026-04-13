@@ -1,0 +1,129 @@
+{
+  "feature": "Tactical Decision-Making Training Curriculum",
+  "global_status": "REVIEW",
+  "total_tasks": 11,
+  "created_at": "2026-04-10T03:09:31+00:00",
+  "updated_at": "2026-04-10T04:22:06+00:00",
+  "tasks": [
+    {
+      "task_id": "task_01_action_obs_spaces",
+      "status": "COMPLETE",
+      "phase": "1",
+      "source_file": "tasks_pending/task_01_action_obs_spaces.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-10T03:27:01+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-10T03:37:04+00:00"
+    },
+    {
+      "task_id": "task_02_reward_components",
+      "status": "COMPLETE",
+      "phase": "1",
+      "source_file": "tasks_pending/task_02_reward_components.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-10T03:26:00+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-10T03:37:04+00:00"
+    },
+    {
+      "task_id": "task_03_vectorizer_lkp",
+      "status": "COMPLETE",
+      "phase": "1",
+      "source_file": "tasks_pending/task_03_vectorizer_lkp.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-10T03:32:52+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-10T03:37:05+00:00"
+    },
+    {
+      "task_id": "task_04_rust_fog_zmq",
+      "status": "COMPLETE",
+      "phase": "1",
+      "source_file": "tasks_pending/task_04_rust_fog_zmq.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-10T03:32:52+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-10T03:37:05+00:00"
+    },
+    {
+      "task_id": "task_05_action_mapper",
+      "status": "COMPLETE",
+      "phase": "2",
+      "source_file": "tasks_pending/task_05_action_mapper.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-10T03:49:19+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-10T03:55:31+00:00"
+    },
+    {
+      "task_id": "task_06_swarm_env_refactor",
+      "status": "COMPLETE",
+      "phase": "3",
+      "source_file": "tasks_pending/task_06_swarm_env_refactor.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-10T04:01:05+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-10T04:04:01+00:00"
+    },
+    {
+      "task_id": "task_07_curriculum_stages",
+      "status": "COMPLETE",
+      "phase": "2",
+      "source_file": "tasks_pending/task_07_curriculum_stages.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-10T03:50:48+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-10T03:55:32+00:00"
+    },
+    {
+      "task_id": "task_08_training_callbacks",
+      "status": "COMPLETE",
+      "phase": "4",
+      "source_file": "tasks_pending/task_08_training_callbacks.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-10T04:06:16+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-10T04:09:43+00:00"
+    },
+    {
+      "task_id": "task_09_feature_extractor_train",
+      "status": "COMPLETE",
+      "phase": "4",
+      "source_file": "tasks_pending/task_09_feature_extractor_train.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-10T04:06:48+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-10T04:09:43+00:00"
+    },
+    {
+      "task_id": "task_10_game_profile",
+      "status": "COMPLETE",
+      "phase": "5",
+      "source_file": "tasks_pending/task_10_game_profile.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-10T04:12:12+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-10T04:15:01+00:00"
+    },
+    {
+      "task_id": "task_11_integration_tests",
+      "status": "DONE",
+      "phase": "6",
+      "source_file": "tasks_pending/task_11_integration_tests.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-10T04:22:06+00:00",
+      "failed_at": null
+    }
+  ]
+}

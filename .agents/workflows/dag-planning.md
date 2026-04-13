@@ -92,6 +92,10 @@ Create the plan as an **Antigravity artifact** at `<appDataDir>/brain/<conversat
   - `Context_Bindings`: Explicitly list the exact rules/workflows the Executor must load.
   - `Strict_Instructions`: Step-by-step, exhaustive coding instructions. No placeholders.
   - `Verification_Strategy`: **REQUIRED.** Defines how QA will verify this task (see below).
+  - `Live_System_Impact`: **REQUIRED.** Classify the task's risk to running training:
+    - `safe` — Does not touch Rust core or Python training modules (e.g., docs, visualizer-only)
+    - `additive` — Only ADDS new optional code; existing functionality unchanged (e.g., new component, new dataclass fields with defaults)
+    - `destructive` — Modifies existing function signatures, removes symbols, or changes data formats. **Training MUST be paused before execution.**
 
 **Verification Strategy (Required per Task):**
 
@@ -105,7 +109,8 @@ Verification_Strategy:
     - "Function X returns correct output for input Y"
     - "Empty input returns empty array without throwing"
   Suggested_Test_Commands: (optional hints for QA)
-    - "npx vitest run src/features/my-feature"
+    - "cd micro-core && cargo test src/features/my-feature"
+    - "cd macro-brain && python -m pytest tests/test_my_feature.py -v"
   Manual_Steps: (for UI/complex tasks where automation is insufficient)
     - "Open config panel → click button → verify result"
     - "Use browser control to navigate to /page and verify rendering"

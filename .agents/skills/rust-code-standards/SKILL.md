@@ -1,7 +1,7 @@
 ---
 name: rust-code-standards
 description: Rust commenting conventions and unit testing patterns for the Micro-Core. Load this skill for ANY Rust task.
-keywords: [rust, test, unit-test, comment, doc, documentation, cargo-test]
+keywords: [rust, test, unit-test, comment, doc, documentation, cargo-test, verify]
 ---
 
 # Skill: Rust Code Standards
@@ -230,7 +230,12 @@ fn test_some_system() {
 
 ### 2.5 Testing Pure Functions and Data Types
 
-For non-ECS code (plain structs, enums, pure functions), use standard Rust testing:
+For non-ECS code (plain structs, enums, pure functions), **prefer doc tests** (see §2.8) over `#[cfg(test)]` when:
+- The test also serves as usage documentation
+- The function has a simple input → output contract
+- No Bevy App or complex test fixtures are needed
+
+When doc tests aren't appropriate (e.g., multi-step setup, error paths), use standard `#[cfg(test)]`:
 
 ```rust
 #[test]
@@ -298,6 +303,93 @@ mod tests {
 }
 ```
 
+### 2.8 Doc Tests (`rustdoc` examples)
+
+Rust's `cargo test` automatically runs code examples in `///` doc comments. Use doc tests to **combine documentation and testing** — this reduces `#[cfg(test)]` bloat while keeping examples always up-to-date.
+
+#### When to Use Doc Tests
+
+| Use doc tests for | Keep `#[cfg(test)]` for |
+|-------------------|------------------------|
+| Pure functions with simple I/O | Bevy ECS system tests (need `App`) |
+| Data type constructors & helpers | Multi-step integration tests |
+| Showing "how to use this API" | Edge cases & error paths |
+| Config/protocol struct examples | Performance-sensitive hot loops |
+
+#### Format
+
+```rust
+/// Get the cumulative multiplier for a specific stat, respecting entity targeting.
+///
+/// Returns `1.0` if no active multiplier buff targets this entity.
+///
+/// # Examples
+///
+/// ```
+/// use micro_core::config::*;
+///
+/// let mut buffs = FactionBuffs::default();
+/// // No buffs → multiplier is 1.0
+/// assert!((buffs.get_multiplier(0, 1, 0) - 1.0).abs() < f32::EPSILON);
+///
+/// // Add a 1.5× multiplier on stat 0, targeting all units (empty vec)
+/// buffs.buffs.insert(0, vec![ActiveBuffGroup {
+///     modifiers: vec![ActiveModifier {
+///         stat_index: 0,
+///         modifier_type: ModifierType::Multiplier,
+///         value: 1.5,
+///     }],
+///     remaining_ticks: 60,
+///     targets: Some(vec![]),  // All units
+/// }]);
+/// assert!((buffs.get_multiplier(0, 1, 0) - 1.5).abs() < f32::EPSILON);
+/// ```
+pub fn get_multiplier(&self, faction: u32, entity_id: u32, stat_index: usize) -> f32 {
+    // ...
+}
+```
+
+#### Rules
+
+1. **`# Examples` heading** — always include so `rustdoc` renders it properly
+2. **Use full import paths** — doc tests run as standalone, so `use micro_core::...` is required
+3. **Keep examples short** — 5-15 lines max. If the example needs 20+ lines of setup, use `#[cfg(test)]` instead
+4. **Test the happy path** — doc tests show *how to use*. Test edge cases in `#[cfg(test)]`
+5. **Run with `cargo test --doc`** — verifies all doc examples compile and pass
+
+#### Migration Strategy
+
+When refactoring existing files, migrate simple `#[cfg(test)]` tests to doc tests where appropriate:
+
+```rust
+// ❌ Before: test + comment duplicating the same info
+/// Check if combat is allowed between two factions.
+pub fn is_combat_allowed(&self, source: u32, target: u32) -> bool { ... }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_combat_allowed_default() {
+        let reg = AggroMaskRegistry::default();
+        assert!(reg.is_combat_allowed(0, 1)); // default: all allowed
+    }
+}
+
+// ✅ After: doc test = documentation + test in one place
+/// Check if combat is allowed between two factions.
+///
+/// # Examples
+///
+/// ```
+/// use micro_core::config::AggroMaskRegistry;
+///
+/// let reg = AggroMaskRegistry::default();
+/// assert!(reg.is_combat_allowed(0, 1)); // default: all pairs allowed
+/// ```
+pub fn is_combat_allowed(&self, source: u32, target: u32) -> bool { ... }
+```
+
+
 ---
 
 ## Part 3: Running Tests
@@ -305,6 +397,9 @@ mod tests {
 ```bash
 # Run all tests
 cd micro-core && cargo test
+
+# Run doc tests only
+cd micro-core && cargo test --doc
 
 # Run tests for a specific module
 cd micro-core && cargo test components      # all component tests
@@ -314,9 +409,93 @@ cd micro-core && cargo test config          # config tests
 # Run a specific test by name
 cd micro-core && cargo test test_movement_applies_velocity
 
-# Run tests with output (shows println! in tests)
-cd micro-core && cargo test -- --nocapture
+# Build gate
+cd micro-core && cargo build
+cd micro-core && cargo clippy
 
-# Run tests and show which ones passed
-cd micro-core && cargo test -- --show-output
+# Verbose output (when debugging failures)
+cd micro-core && cargo test -- --nocapture      # println! visible
+cd micro-core && cargo test -- --show-output    # show stdout for passing tests
 ```
+
+---
+
+## Part 4: File Organization & Module Splitting
+
+> **Origin:** Learned from `zmq_bridge.rs` growing to 421+ lines with 7 concerns. Now `zmq_bridge/systems.rs` is at **1098 lines** — a clear violation.
+
+### 4.1 When to Split
+
+A Rust source file **MUST** be split into submodules when it meets **ANY** of:
+
+| Trigger | Threshold |
+|---------|-----------|
+| Lines (excluding tests) | **> 300 lines** |
+| Distinct concerns | **3+ concerns** (e.g., data types + async I/O + Bevy systems) |
+| Parallel agent collision | Multiple agents need different parts of the same file |
+
+### 4.2 When NOT to Split
+
+A file **MAY** remain as a single module when:
+- It is under 300 lines
+- All items are tightly coupled (e.g., a single system + its helper + its tests)
+- Splitting would create modules with only 1-2 items each
+
+### 4.3 If Not Splitting: Document Why
+
+If a file exceeds 300 lines but you choose NOT to split, add a rationale at the top:
+
+```rust
+//! # ZMQ Bridge Plugin
+//!
+//! This module is intentionally kept as a single file because [reason].
+//! Consider splitting if it grows beyond [threshold] or gains [new concern].
+```
+
+### 4.4 Recommended Split Patterns
+
+**Bridge modules** (with config + I/O + systems):
+```
+bridges/zmq_bridge/
+├── mod.rs          // pub use re-exports + ZmqBridgePlugin
+├── config.rs       // AiBridgeConfig, AiBridgeChannels, SimState
+├── io_loop.rs      // zmq_io_loop async function
+├── systems.rs      // ai_trigger_system, ai_poll_system
+├── reset.rs        // reset_environment_system + ResetRequest
+└── snapshot.rs     // build_state_snapshot helper
+```
+
+**System modules** (with logic + tests exceeding 300 lines):
+```
+systems/
+├── movement.rs         // Single system, keeps tests inline
+├── interaction.rs      // Single system, keeps tests inline
+├── directive_executor/ // Complex system with multiple directives
+│   ├── mod.rs          // pub use + system registration
+│   ├── executor.rs     // directive_executor_system
+│   ├── buff_tick.rs    // buff_tick_system
+│   └── zone_tick.rs    // zone_tick_system
+```
+
+**Config modules** (types + impls exceeding 300 lines):
+```
+config/
+├── mod.rs              // pub use re-exports
+├── simulation.rs       // SimulationConfig, TickCounter, SimPaused, SimSpeed
+├── buff.rs             // BuffConfig, FactionBuffs, ActiveBuffGroup, ModifierType
+├── zones.rs            // ActiveZoneModifiers, InterventionTracker
+└── aggro.rs            // AggroMaskRegistry, ActiveSubFactions
+```
+
+### 4.5 Planning Implications
+
+When the Planner creates a task that will produce a file with 3+ concerns:
+1. **Pre-split** — Define the submodule structure in the task brief
+2. OR **Document the decision** — Add a note: "Single file acceptable because [reason]"
+
+### 4.6 Anti-patterns
+
+- **❌** Creating a 400+ line file without acknowledging size or documenting why splitting was deferred.
+- **❌** Splitting a 150-line file into 3 modules with 50 lines each — creates unnecessary navigation overhead.
+- **✅** Split into focused submodules with clear single responsibility, OR add a module-level comment explaining why it stays together.
+

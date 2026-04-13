@@ -54,21 +54,31 @@ During execution, a human may intercept your work and propose changes, provide c
    - Any deviations from the original task brief caused by the intervention
 3. **DO NOT silently incorporate changes.** The QA agent and Architect must be able to trace exactly what came from the spec vs. what came from a human mid-flight. Untracked changes are invisible to the verification pipeline.
 
----
+### Rule 5: Live System Safety
+The training pipeline (`macro-brain` → ZMQ → `micro-core`) may be running during your execution.
+
+- **Rust tasks:** DO NOT run `cargo build` or `cargo test` — use `cargo check` only. Full testing is QA's job in a controlled window. See `execution-lifecycle.md` Step 1b.
+- **Python tasks:** ONLY ADD new optional code. Never modify existing signatures or remove symbols. All new fields must have defaults.
+- **Profile files:** DO NOT modify any `.json` profile in `macro-brain/profiles/`.
+
+### Rule 6: Workspace Hygiene
+If you need to create standalone temporary `.py`, `.rs`, or `.js` test scripts to quickly verify logic, simulate API calls, or run isolated experiments during development, **DO NOT dump them in the repository root or project source folders**. You MUST create and place all scratch files inside `.agents/scratch/`. Keep the main source tree clean.
+
+
 
 ## Context Loading (Tier-Dependent)
 
-**If your tier is `basic`:**
-- Skip all external file reading. Your Task Brief below IS your complete instruction.
-- Implement the code exactly as specified in the Task Brief.
-- Follow the MANDATORY PROCESS rules above (changelog + scope), then halt.
-
 **If your tier is `standard` or `advanced`:**
-1. Read `.agents/context.md` — Thin index pointing to context sub-files
-2. Load ONLY the `context/*` sub-files listed in your `Context_Bindings` below
-3. Scan `.agents/knowledge/` — Lessons from previous sessions relevant to your task
-4. Read `.agents/workflows/execution-lifecycle.md` — Your 4-step execution loop
-5. Read `.agents/rules/execution-boundary.md` — Scope and contract constraints
+
+> **CRITICAL FIRST STEP:** The Planner might omit critical skills or knowledge in your `Context_Bindings`. It is YOUR responsibility to self-heal missing context.
+1. Read `.agents/skills/index.md` (Skills Catalog)
+2. Read `.agents/knowledge/README.md` (Master Knowledge Index)
+   *(If you discover a skill or knowledge domain relevant to your task that isn't in your `Context_Bindings`, **read it immediately** before starting.)*
+3. Read `.agents/context.md` — Thin index pointing to context sub-files
+4. Load ONLY the `context/*` sub-files listed in your `Context_Bindings` below
+5. Scan `.agents/knowledge/` — Lessons from previous sessions relevant to your task
+6. Read `.agents/workflows/execution-lifecycle.md` — Your 4-step execution loop
+7. Read `.agents/rules/execution-boundary.md` — Scope and contract constraints
 
 {{CONTEXT_BINDINGS_LIST}}
 

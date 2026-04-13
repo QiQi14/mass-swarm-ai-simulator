@@ -26,13 +26,14 @@ pub struct MovementConfig {
 }
 
 impl Default for MovementConfig {
+    /// Zero movement — entities don't move unless configured by game profile.
     fn default() -> Self {
         Self {
-            max_speed: 60.0,
-            steering_factor: 5.0,
-            separation_radius: 6.0,
-            separation_weight: 1.5,
-            flow_weight: 1.0,
+            max_speed: 0.0,
+            steering_factor: 0.0,
+            separation_radius: 0.0,
+            separation_weight: 0.0,
+            flow_weight: 0.0,
         }
     }
 }

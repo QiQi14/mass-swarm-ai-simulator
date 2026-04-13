@@ -11,8 +11,7 @@
 use std::sync::mpsc;
 
 /// Default fallback action when ZMQ times out or disconnects.
-pub(super) const FALLBACK_ACTION: &str =
-    r#"{"type":"macro_action","action":"HOLD","params":{}}"#;
+pub(super) const FALLBACK_ACTION: &str = r#"{"type":"macro_action","action":"HOLD","params":{}}"#;
 
 /// Async ZMQ I/O loop running in a dedicated background thread.
 ///
@@ -27,7 +26,7 @@ pub(super) async fn zmq_io_loop(
     action_tx: mpsc::SyncSender<String>,
     timeout_secs: u64,
 ) {
-    use tokio::time::{timeout, Duration};
+    use tokio::time::{Duration, timeout};
     use zeromq::{ReqSocket, Socket, SocketRecv, SocketSend};
 
     let mut socket = ReqSocket::new();

@@ -6,21 +6,34 @@
 //! - **Task:** task_03_ws_bidirectional_commands
 //! - **Contract:** implementation_plan.md → Phase 1 Micro-Phase 4
 //!
+//! **File Size Rationale:** This module is 580+ lines but contains only two tightly
+//! coupled systems (`ws_command_system` + `step_tick_system`) that share the same
+//! WS receiver channel. Splitting would fragment the ownership chain.
+//! Split if a third concern is added or tests exceed 300 lines.
+//!
 //! ## Depends On
 //! - `crate::config::{SimPaused, SimSpeed, SimStepRemaining, SimulationConfig}`
 //! - `crate::bridges::ws_protocol::WsCommand`
 //! - `crate::components::{Position, FactionId, StatBlock, Velocity, NextEntityId, EntityId}`
 
 use bevy::prelude::*;
-use std::sync::{mpsc, Mutex};
 use rand::Rng;
+use std::sync::{Mutex, mpsc};
 
 use crate::bridges::ws_protocol::WsCommand;
-use crate::components::{EntityId, FactionId, NextEntityId, Position, StatBlock, Velocity, VisionRadius, MovementConfig};
-use crate::config::{SimPaused, SimSpeed, SimStepRemaining, SimulationConfig};
-use crate::rules::FactionBehaviorMode;
-use crate::terrain::TerrainGrid;
+use crate::bridges::zmq_protocol::MacroDirective;
+use crate::components::{
+    EngineOverride, EntityId, FactionId, MovementConfig, NextEntityId, Position, StatBlock,
+    UnitClassId, Velocity, VisionRadius,
+};
+use crate::config::{
+    ActiveZoneModifiers, AggroMaskRegistry, SimPaused, SimSpeed, SimStepRemaining,
+    SimulationConfig, ZoneModifier,
+};
+use crate::rules::{FactionBehaviorMode, InteractionRuleSet, NavigationRuleSet, RemovalRuleSet};
+use crate::systems::directive_executor::LatestDirective;
 use crate::systems::ws_sync::BroadcastSender;
+use crate::terrain::TerrainGrid;
 
 // Created here because it was missing from Task 12
 #[derive(Resource, Default, Debug, Clone)]
@@ -32,6 +45,8 @@ pub struct WsCommandReceiver(pub Mutex<mpsc::Receiver<String>>);
 
 /// Processes incoming WebSocket commands and updates simulation state accordingly.
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::collapsible_if)]
+#[allow(clippy::type_complexity)]
 pub fn ws_command_system(
     receiver: Res<WsCommandReceiver>,
     mut commands: Commands,
@@ -40,38 +55,96 @@ pub fn ws_command_system(
     mut speed: ResMut<SimSpeed>,
     mut step: ResMut<SimStepRemaining>,
     _config: Res<SimulationConfig>,
-    faction_query: Query<(Entity, &EntityId, &Position, &Velocity, &FactionId, &StatBlock)>,
+    faction_query: Query<(
+        Entity,
+        &EntityId,
+        &Position,
+        &Velocity,
+        &FactionId,
+        &StatBlock,
+    )>,
     mut behavior_mode: ResMut<FactionBehaviorMode>,
     mut terrain: ResMut<TerrainGrid>,
-    mut active_fog: Option<ResMut<ActiveFogFaction>>,
     sender: Option<Res<BroadcastSender>>,
     mut removal_events: ResMut<crate::rules::RemovalEvents>,
+    mut optionals: (
+        Option<ResMut<ActiveFogFaction>>,
+        Option<ResMut<ActiveZoneModifiers>>,
+        Option<ResMut<LatestDirective>>,
+        Option<ResMut<AggroMaskRegistry>>,
+    ),
+    mut rule_sets: (
+        ResMut<NavigationRuleSet>,
+        ResMut<InteractionRuleSet>,
+        ResMut<RemovalRuleSet>,
+    ),
 ) {
-    let Ok(rx) = receiver.0.lock() else { return; };
+    let Ok(rx) = receiver.0.lock() else {
+        return;
+    };
     while let Ok(json) = rx.try_recv() {
         if let Ok(cmd) = serde_json::from_str::<WsCommand>(&json) {
             match cmd.cmd.as_str() {
                 "toggle_sim" => {
                     paused.0 = !paused.0;
-                    println!("[WS Command] Simulation {}", if paused.0 { "paused" } else { "resumed" });
+                    println!(
+                        "[WS Command] Simulation {}",
+                        if paused.0 { "paused" } else { "resumed" }
+                    );
                 }
                 "step" => {
-                    let count = cmd.params.get("count")
+                    let count = cmd
+                        .params
+                        .get("count")
                         .and_then(|v| v.as_u64())
                         .unwrap_or(1) as u32;
                     step.0 = count;
                     println!("[WS Command] Stepping {} tick(s)", count);
                 }
                 "spawn_wave" => {
-                    let faction_id = cmd.params.get("faction_id").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-                    let amount = cmd.params.get("amount").and_then(|v| v.as_u64()).unwrap_or(1) as u32;
+                    let faction_id = cmd
+                        .params
+                        .get("faction_id")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0) as u32;
+                    let amount = cmd
+                        .params
+                        .get("amount")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(1) as u32;
                     let x = cmd.params.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
                     let y = cmd.params.get("y").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
-                    let spread = cmd.params.get("spread").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+                    let spread = cmd
+                        .params
+                        .get("spread")
+                        .and_then(|v| v.as_f64())
+                        .unwrap_or(0.0) as f32;
+
+                    let mut stats = Vec::new();
+                    if let Some(stats_array) = cmd.params.get("stats").and_then(|v| v.as_array()) {
+                        for stat_val in stats_array {
+                            if let (Some(idx), Some(val)) = (
+                                stat_val.get("index").and_then(|v| v.as_u64()),
+                                stat_val.get("value").and_then(|v| v.as_f64()),
+                            ) {
+                                stats.push((idx as usize, val as f32));
+                            }
+                        }
+                    }
+                    if stats.is_empty() {
+                        stats.push((0, 100.0));
+                    }
 
                     let mut rng = rand::rng();
                     let golden_angle = 137.5f32.to_radians();
-                    let default_stats = [(0, 1.0)];
+
+                    let default_mc = MovementConfig {
+                        max_speed: 60.0,
+                        steering_factor: 5.0,
+                        separation_radius: 6.0,
+                        separation_weight: 1.5,
+                        flow_weight: 1.0,
+                    };
 
                     let mut spawned_count = 0;
                     for i in 0..amount {
@@ -83,26 +156,35 @@ pub fn ws_command_system(
                             (x, y)
                         };
 
-                        if terrain.get_hard_cost(terrain.world_to_cell(spawn_x, spawn_y)) == u16::MAX {
+                        if terrain.get_hard_cost(terrain.world_to_cell(spawn_x, spawn_y))
+                            == u16::MAX
+                        {
                             continue;
                         }
 
                         commands.spawn((
                             EntityId { id: next_id.0 },
-                            Position { x: spawn_x, y: spawn_y },
+                            Position {
+                                x: spawn_x,
+                                y: spawn_y,
+                            },
                             Velocity {
                                 dx: rng.random_range(-1.0..1.0),
                                 dy: rng.random_range(-1.0..1.0),
                             },
                             FactionId(faction_id),
-                            StatBlock::with_defaults(&default_stats),
+                            StatBlock::with_defaults(&stats),
                             VisionRadius::default(),
-                            MovementConfig::default(),
+                            default_mc,
+                            UnitClassId::default(),
                         ));
                         next_id.0 += 1;
                         spawned_count += 1;
                     }
-                    println!("[WS Command] Spawned {}/{} faction_{} at ({}, {}) spread {}", spawned_count, amount, faction_id, x, y, spread);
+                    println!(
+                        "[WS Command] Spawned {}/{} faction_{} at ({}, {}) spread {}",
+                        spawned_count, amount, faction_id, x, y, spread
+                    );
                 }
                 "set_speed" => {
                     if let Some(m) = cmd.params.get("multiplier").and_then(|v| v.as_f64()) {
@@ -126,13 +208,22 @@ pub fn ws_command_system(
                 }
                 "set_faction_mode" => {
                     if let (Some(faction_id), Some(mode)) = (
-                        cmd.params.get("faction_id").and_then(|v| v.as_u64()).map(|v| v as u32),
+                        cmd.params
+                            .get("faction_id")
+                            .and_then(|v| v.as_u64())
+                            .map(|v| v as u32),
                         cmd.params.get("mode").and_then(|v| v.as_str()),
                     ) {
                         match mode {
-                            "static" => { behavior_mode.static_factions.insert(faction_id); }
-                            "brain"  => { behavior_mode.static_factions.remove(&faction_id); }
-                            _ => { println!("[WS Command] Unknown mode: {}", mode); }
+                            "static" => {
+                                behavior_mode.static_factions.insert(faction_id);
+                            }
+                            "brain" => {
+                                behavior_mode.static_factions.remove(&faction_id);
+                            }
+                            _ => {
+                                println!("[WS Command] Unknown mode: {}", mode);
+                            }
                         }
                         println!("[WS Command] Faction {} mode set to: {}", faction_id, mode);
                     }
@@ -144,7 +235,7 @@ pub fn ws_command_system(
                                 cell.get("x").and_then(|v| v.as_u64()),
                                 cell.get("y").and_then(|v| v.as_u64()),
                                 cell.get("hard").and_then(|v| v.as_u64()),
-                                cell.get("soft").and_then(|v| v.as_u64())
+                                cell.get("soft").and_then(|v| v.as_u64()),
                             ) {
                                 terrain.set_cell(x as u32, y as u32, hard as u16, soft as u16);
                             }
@@ -205,8 +296,14 @@ pub fn ws_command_system(
                             terrain.width = w as u32;
                             terrain.height = h as u32;
                             terrain.cell_size = cs as f32;
-                            terrain.hard_costs = hard.iter().filter_map(|v| v.as_u64().map(|n| n as u16)).collect();
-                            terrain.soft_costs = soft.iter().filter_map(|v| v.as_u64().map(|n| n as u16)).collect();
+                            terrain.hard_costs = hard
+                                .iter()
+                                .filter_map(|v| v.as_u64().map(|n| n as u16))
+                                .collect();
+                            terrain.soft_costs = soft
+                                .iter()
+                                .filter_map(|v| v.as_u64().map(|n| n as u16))
+                                .collect();
                         }
                     }
 
@@ -219,39 +316,280 @@ pub fn ws_command_system(
                                 e.get("faction_id").and_then(|v| v.as_u64()),
                             ) {
                                 let id = id as u32;
-                                if id > max_loaded_id { max_loaded_id = id; }
-                                
+                                if id > max_loaded_id {
+                                    max_loaded_id = id;
+                                }
+
                                 let mut base_stats = [0.0; crate::components::MAX_STATS];
                                 if let Some(stats_arr) = e.get("stats").and_then(|v| v.as_array()) {
-                                    for (i, val) in stats_arr.iter().enumerate().take(base_stats.len()) {
+                                    for (i, val) in
+                                        stats_arr.iter().enumerate().take(base_stats.len())
+                                    {
                                         base_stats[i] = val.as_f64().unwrap_or(0.0) as f32;
                                     }
                                 }
 
                                 commands.spawn((
                                     EntityId { id },
-                                    Position { x: x as f32, y: y as f32 },
+                                    Position {
+                                        x: x as f32,
+                                        y: y as f32,
+                                    },
                                     Velocity { dx: 0.0, dy: 0.0 },
                                     FactionId(faction as u32),
                                     StatBlock(base_stats),
                                     VisionRadius::default(),
                                     MovementConfig::default(),
+                                    UnitClassId::default(),
                                 ));
                             }
                         }
                     }
                     next_id.0 = max_loaded_id + 1;
-                    println!("[WS Command] load_scenario complete, NextEntityId: {}", next_id.0);
+                    println!(
+                        "[WS Command] load_scenario complete, NextEntityId: {}",
+                        next_id.0
+                    );
                 }
                 "set_fog_faction" => {
-                    if let Some(ref mut af) = active_fog {
-                        if cmd.params.get("faction_id").map_or(true, |v| v.is_null()) {
+                    if let Some(ref mut af) = optionals.0 {
+                        if cmd.params.get("faction_id").is_none_or(|v| v.is_null()) {
                             af.0 = None;
                             println!("[WS Command] set_fog_faction: disable");
-                        } else if let Some(fid) = cmd.params.get("faction_id").and_then(|v| v.as_u64()) {
+                        } else if let Some(fid) =
+                            cmd.params.get("faction_id").and_then(|v| v.as_u64())
+                        {
                             af.0 = Some(fid as u32);
                             println!("[WS Command] set_fog_faction: {}", fid);
                         }
+                    }
+                }
+                "place_zone_modifier" => {
+                    if let Some(ref mut zones) = optionals.1 {
+                        if let (
+                            Some(target_faction),
+                            Some(x),
+                            Some(y),
+                            Some(radius),
+                            Some(cost_modifier),
+                            Some(ticks),
+                        ) = (
+                            cmd.params.get("target_faction").and_then(|v| v.as_u64()),
+                            cmd.params.get("x").and_then(|v| v.as_f64()),
+                            cmd.params.get("y").and_then(|v| v.as_f64()),
+                            cmd.params.get("radius").and_then(|v| v.as_f64()),
+                            cmd.params.get("cost_modifier").and_then(|v| v.as_f64()),
+                            cmd.params.get("ticks").and_then(|v| v.as_u64()),
+                        ) {
+                            zones.zones.push(ZoneModifier {
+                                target_faction: target_faction as u32,
+                                x: x as f32,
+                                y: y as f32,
+                                radius: radius as f32,
+                                cost_modifier: cost_modifier as f32,
+                                ticks_remaining: ticks as u32,
+                            });
+                            println!(
+                                "[WS Command] Placed ZoneModifier at ({}, {}) cost {}",
+                                x, y, cost_modifier
+                            );
+                        }
+                    }
+                }
+                "split_faction" => {
+                    if let Some(ref mut ld) = optionals.2 {
+                        if let (Some(source), Some(target), Some(pct), Some(ex), Some(ey)) = (
+                            cmd.params.get("source_faction").and_then(|v| v.as_u64()),
+                            cmd.params.get("new_sub_faction").and_then(|v| v.as_u64()),
+                            cmd.params.get("percentage").and_then(|v| v.as_f64()),
+                            cmd.params.get("epicenter_x").and_then(|v| v.as_f64()),
+                            cmd.params.get("epicenter_y").and_then(|v| v.as_f64()),
+                        ) {
+                            ld.directives = vec![MacroDirective::SplitFaction {
+                                source_faction: source as u32,
+                                new_sub_faction: target as u32,
+                                percentage: pct as f32,
+                                epicenter: [ex as f32, ey as f32],
+                            }];
+                            println!("[WS Command] Sent SplitFaction");
+                        }
+                    }
+                }
+                "merge_faction" => {
+                    if let Some(ref mut ld) = optionals.2 {
+                        if let (Some(source), Some(target)) = (
+                            cmd.params.get("source_faction").and_then(|v| v.as_u64()),
+                            cmd.params.get("target_faction").and_then(|v| v.as_u64()),
+                        ) {
+                            ld.directives = vec![MacroDirective::MergeFaction {
+                                source_faction: source as u32,
+                                target_faction: target as u32,
+                            }];
+                            println!("[WS Command] Sent MergeFaction");
+                        }
+                    }
+                }
+                "set_aggro_mask" => {
+                    if let Some(ref mut am) = optionals.3 {
+                        if let (Some(source), Some(target), Some(allow)) = (
+                            cmd.params.get("source_faction").and_then(|v| v.as_u64()),
+                            cmd.params.get("target_faction").and_then(|v| v.as_u64()),
+                            cmd.params.get("allow_combat").and_then(|v| v.as_bool()),
+                        ) {
+                            am.masks.insert((source as u32, target as u32), allow);
+                            println!(
+                                "[WS Command] SetAggroMask {} -> {} = {}",
+                                source, target, allow
+                            );
+                        }
+                    }
+                }
+                "inject_directive" => {
+                    if let Some(ref mut ld) = optionals.2 {
+                        if let Some(dir_val) = cmd.params.get("directive") {
+                            if let Ok(dir) =
+                                serde_json::from_value::<MacroDirective>(dir_val.clone())
+                            {
+                                ld.directives = vec![dir];
+                                println!("[WS Command] Injected Raw MacroDirective");
+                            } else {
+                                eprintln!("[WS Command] Failed to parse MacroDirective");
+                            }
+                        }
+                    }
+                }
+                "set_engine_override" => {
+                    if let (Some(entity_id), Some(vx), Some(vy), Some(ticks)) = (
+                        cmd.params.get("entity_id").and_then(|v| v.as_u64()),
+                        cmd.params.get("vx").and_then(|v| v.as_f64()),
+                        cmd.params.get("vy").and_then(|v| v.as_f64()),
+                        cmd.params.get("ticks").and_then(|v| v.as_u64()),
+                    ) {
+                        for (entity, eid, _, _, _, _) in faction_query.iter() {
+                            if eid.id == entity_id as u32 {
+                                commands.entity(entity).insert(EngineOverride {
+                                    forced_velocity: Vec2::new(vx as f32, vy as f32),
+                                    ticks_remaining: if ticks > 0 {
+                                        Some(ticks as u32)
+                                    } else {
+                                        None
+                                    },
+                                });
+                                println!("[WS Command] Set EngineOverride on {}", entity_id);
+                                break;
+                            }
+                        }
+                    }
+                }
+                "clear_engine_override" => {
+                    if let Some(entity_id) = cmd.params.get("entity_id").and_then(|v| v.as_u64()) {
+                        for (entity, eid, _, _, _, _) in faction_query.iter() {
+                            if eid.id == entity_id as u32 {
+                                commands.entity(entity).remove::<EngineOverride>();
+                                println!("[WS Command] Cleared EngineOverride on {}", entity_id);
+                                break;
+                            }
+                        }
+                    }
+                }
+                "set_navigation" => {
+                    if let Some(rules_array) = cmd.params.get("rules").and_then(|v| v.as_array()) {
+                        rule_sets.0.rules.clear();
+                        for rule_json in rules_array {
+                            if let (Some(follower), Some(target_json)) = (
+                                rule_json.get("follower_faction").and_then(|v| v.as_u64()),
+                                rule_json.get("target"),
+                            ) {
+                                if let Ok(target) =
+                                    serde_json::from_value::<
+                                        crate::bridges::zmq_protocol::NavigationTarget,
+                                    >(target_json.clone())
+                                {
+                                    rule_sets.0.rules.push(crate::rules::NavigationRule {
+                                        follower_faction: follower as u32,
+                                        target,
+                                    });
+                                }
+                            }
+                        }
+                        println!(
+                            "[WS Command] Set {} navigation rules",
+                            rule_sets.0.rules.len()
+                        );
+                    }
+                }
+                "set_interaction" => {
+                    if let Some(rules_array) = cmd.params.get("rules").and_then(|v| v.as_array()) {
+                        rule_sets.1.rules.clear();
+                        for rule_json in rules_array {
+                            if let (Some(source), Some(target), Some(range)) = (
+                                rule_json.get("source_faction").and_then(|v| v.as_u64()),
+                                rule_json.get("target_faction").and_then(|v| v.as_u64()),
+                                rule_json.get("range").and_then(|v| v.as_f64()),
+                            ) {
+                                let effects = rule_json
+                                    .get("effects")
+                                    .and_then(|v| v.as_array())
+                                    .map(|fx| {
+                                        fx.iter()
+                                            .filter_map(|e| {
+                                                Some(crate::rules::StatEffect {
+                                                    stat_index: e.get("stat_index")?.as_u64()?
+                                                        as usize,
+                                                    delta_per_second: e
+                                                        .get("delta_per_second")?
+                                                        .as_f64()?
+                                                        as f32,
+                                                })
+                                            })
+                                            .collect()
+                                    })
+                                    .unwrap_or_default();
+
+                                rule_sets.1.rules.push(crate::rules::InteractionRule {
+                                    source_faction: source as u32,
+                                    target_faction: target as u32,
+                                    range: range as f32,
+                                    effects,
+                                    source_class: None,
+                                    target_class: None,
+                                    range_stat_index: None,
+                                    mitigation: None,
+                                    cooldown_ticks: None,
+                                    aoe: None,
+                                    penetration: None,
+                                });
+                            }
+                        }
+                        println!(
+                            "[WS Command] Set {} interaction rules",
+                            rule_sets.1.rules.len()
+                        );
+                    }
+                }
+                "set_removal" => {
+                    if let Some(rules_array) = cmd.params.get("rules").and_then(|v| v.as_array()) {
+                        rule_sets.2.rules.clear();
+                        for rule_json in rules_array {
+                            if let (Some(stat_idx), Some(threshold)) = (
+                                rule_json.get("stat_index").and_then(|v| v.as_u64()),
+                                rule_json.get("threshold").and_then(|v| v.as_f64()),
+                            ) {
+                                let condition =
+                                    match rule_json.get("condition").and_then(|v| v.as_str()) {
+                                        Some("GreaterThanEqual") => {
+                                            crate::rules::RemovalCondition::GreaterOrEqual
+                                        }
+                                        _ => crate::rules::RemovalCondition::LessOrEqual,
+                                    };
+                                rule_sets.2.rules.push(crate::rules::RemovalRule {
+                                    stat_index: stat_idx as usize,
+                                    threshold: threshold as f32,
+                                    condition,
+                                });
+                            }
+                        }
+                        println!("[WS Command] Set {} removal rules", rule_sets.2.rules.len());
                     }
                 }
                 other => {
@@ -264,10 +602,7 @@ pub fn ws_command_system(
 
 /// Decrements step counter and auto-pauses when step mode completes.
 /// Runs every tick when steps remain (regardless of SimPaused).
-pub fn step_tick_system(
-    mut step: ResMut<SimStepRemaining>,
-    mut paused: ResMut<SimPaused>,
-) {
+pub fn step_tick_system(mut step: ResMut<SimStepRemaining>, mut paused: ResMut<SimPaused>) {
     if step.0 > 0 {
         step.0 -= 1;
         if step.0 == 0 {
@@ -299,7 +634,10 @@ mod tests {
         app.insert_resource(TerrainGrid::new(50, 50, 20.0));
         app.insert_resource(ActiveFogFaction(None));
         app.init_resource::<crate::rules::RemovalEvents>();
-        
+        app.init_resource::<crate::rules::NavigationRuleSet>();
+        app.init_resource::<crate::rules::InteractionRuleSet>();
+        app.init_resource::<crate::rules::RemovalRuleSet>();
+
         let (btx, _) = broadcast::channel(10);
         app.insert_resource(BroadcastSender(btx));
 
@@ -350,7 +688,10 @@ mod tests {
         // Put a wall right at (50, 50)
         let cell_x = 50.0 / 20.0;
         let cell_y = 50.0 / 20.0;
-        app.world_mut().get_resource_mut::<TerrainGrid>().unwrap().set_cell(cell_x as u32, cell_y as u32, u16::MAX, 0);
+        app.world_mut()
+            .get_resource_mut::<TerrainGrid>()
+            .unwrap()
+            .set_cell(cell_x as u32, cell_y as u32, u16::MAX, 0);
 
         let cmd = serde_json::json!({
             "type": "command",
@@ -366,7 +707,11 @@ mod tests {
 
         app.update();
 
-        let count = app.world_mut().query::<&Position>().iter(app.world()).count();
+        let count = app
+            .world_mut()
+            .query::<&Position>()
+            .iter(app.world())
+            .count();
         assert_eq!(count, 0, "Should have skipped spawning inside wall");
     }
 
@@ -399,7 +744,10 @@ mod tests {
         let (mut app, tx) = setup_app();
 
         // First set terrain
-        app.world_mut().get_resource_mut::<TerrainGrid>().unwrap().set_cell(5, 5, u16::MAX, 0);
+        app.world_mut()
+            .get_resource_mut::<TerrainGrid>()
+            .unwrap()
+            .set_cell(5, 5, u16::MAX, 0);
 
         let cmd = serde_json::json!({
             "type": "command",
@@ -419,7 +767,10 @@ mod tests {
     fn test_load_scenario_updates_next_entity_id() {
         let (mut app, tx) = setup_app();
 
-        app.world_mut().get_resource_mut::<NextEntityId>().unwrap().0 = 1;
+        app.world_mut()
+            .get_resource_mut::<NextEntityId>()
+            .unwrap()
+            .0 = 1;
 
         let cmd = serde_json::json!({
             "type": "command",
@@ -437,9 +788,20 @@ mod tests {
 
         let next_id = app.world().get_resource::<NextEntityId>().unwrap().0;
         assert_eq!(next_id, 51);
-        
+
         let mut count = 0;
-        for (_, &EntityId { id }, _, _, _, _) in app.world_mut().query::<(Entity, &EntityId, &Position, &Velocity, &FactionId, &StatBlock)>().iter(app.world()) {
+        for (_, &EntityId { id }, _, _, _, _) in app
+            .world_mut()
+            .query::<(
+                Entity,
+                &EntityId,
+                &Position,
+                &Velocity,
+                &FactionId,
+                &StatBlock,
+            )>()
+            .iter(app.world())
+        {
             count += 1;
             assert!(id == 1 || id == 50);
         }
@@ -457,10 +819,77 @@ mod tests {
 
         app.update();
         assert_eq!(app.world().resource::<SimStepRemaining>().0, 1);
-        assert_eq!(app.world().resource::<SimPaused>().0, false);
+        assert!(!app.world().resource::<SimPaused>().0);
 
         app.update();
         assert_eq!(app.world().resource::<SimStepRemaining>().0, 0);
-        assert_eq!(app.world().resource::<SimPaused>().0, true);
+        assert!(app.world().resource::<SimPaused>().0);
+    }
+    #[test]
+    fn test_set_navigation_ws_command() {
+        let (mut app, tx) = setup_app();
+        let cmd = serde_json::json!({
+            "type": "command",
+            "cmd": "set_navigation",
+            "params": {
+                "rules": [
+                    { "follower_faction": 0, "target": { "type": "Faction", "faction_id": 1 } }
+                ]
+            }
+        });
+        tx.send(cmd.to_string()).unwrap();
+        app.update();
+        let nav_rules = app
+            .world()
+            .get_resource::<crate::rules::NavigationRuleSet>()
+            .unwrap();
+        assert_eq!(nav_rules.rules.len(), 1);
+        assert_eq!(nav_rules.rules[0].follower_faction, 0);
+    }
+
+    #[test]
+    fn test_set_interaction_ws_command() {
+        let (mut app, tx) = setup_app();
+        let cmd = serde_json::json!({
+            "type": "command",
+            "cmd": "set_interaction",
+            "params": {
+                "rules": [
+                    { "source_faction": 0, "target_faction": 1, "range": 15.0, "effects": [{ "stat_index": 0, "delta_per_second": -10.0 }] }
+                ]
+            }
+        });
+        tx.send(cmd.to_string()).unwrap();
+        app.update();
+        let int_rules = app
+            .world()
+            .get_resource::<crate::rules::InteractionRuleSet>()
+            .unwrap();
+        assert_eq!(int_rules.rules.len(), 1);
+        assert_eq!(int_rules.rules[0].source_faction, 0);
+        assert_eq!(int_rules.rules[0].range, 15.0);
+    }
+
+    #[test]
+    fn test_set_removal_ws_command() {
+        let (mut app, tx) = setup_app();
+        let cmd = serde_json::json!({
+            "type": "command",
+            "cmd": "set_removal",
+            "params": {
+                "rules": [
+                    { "stat_index": 0, "threshold": 0.0, "condition": "LessThanEqual" }
+                ]
+            }
+        });
+        tx.send(cmd.to_string()).unwrap();
+        app.update();
+        let rem_rules = app
+            .world()
+            .get_resource::<crate::rules::RemovalRuleSet>()
+            .unwrap();
+        assert_eq!(rem_rules.rules.len(), 1);
+        assert_eq!(rem_rules.rules[0].stat_index, 0);
+        assert_eq!(rem_rules.rules[0].threshold, 0.0);
     }
 }

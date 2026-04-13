@@ -14,5 +14,5 @@
 
 pub mod ws_protocol;
 pub mod ws_server;
-pub mod zmq_protocol;
 pub mod zmq_bridge;
+pub mod zmq_protocol;

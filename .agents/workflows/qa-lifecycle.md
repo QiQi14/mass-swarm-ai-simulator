@@ -19,13 +19,20 @@ Follow this 6-step workflow to certify a task and capture lessons:
   - Is the logic placed in the correct layer (e.g., Domain vs. Data)?
   - Are there any leftover `// TODO` or placeholders?
 
+> **⚠️ WORKSPACE HYGIENE** 
+> If you need to create standalone temporary `.py`, `.rs`, or `.js` test scripts to quickly verify logic, simulate API calls, or run isolated experiments during testing, **DO NOT dump them in the repository root or project source folders**. You MUST create and place all scratch files inside `.agents/scratch/`. Keep the main source tree clean.
+
 ## Step 3: Functional Validation (Dynamic Testing)
 
 > **CRITICAL:** Static analysis (tsc, eslint, gradle build) proves code COMPILES, not that it WORKS. Passing a build check alone is NEVER sufficient to certify a task.
 
 ### Step 3A: Build Gate (Prerequisite — Not Sufficient)
-- Run the build/compile check (`tsc --noEmit`, `gradle build`, etc.).
+- Run the build/compile check (`cargo build`, `cargo clippy`, etc.).
 - This is a **prerequisite**, not a pass condition. Passing this alone is NOT enough to certify.
+- **⚠️ Training Safety:** Before running `cargo test` or `cargo build`:
+  1. Check if training is running: `lsof -i :8080 2>/dev/null | grep -q LISTEN && echo "TRAINING ACTIVE — DO NOT cargo test"`
+  2. If training is active, ask the user to pause training first, OR use `cargo check` (compile-only, no linking, safe to run during training).
+  3. Only proceed with `cargo test` after confirming no active training session.
 
 ### Step 3B: Regression Scan (Reuse Prior Tests)
 - Before writing new tests, scan `.agents/history/*/tests/INDEX.md` for previously archived tests relevant to the same feature area or files.
@@ -52,6 +59,7 @@ Follow this 6-step workflow to certify a task and capture lessons:
 - If tests fail → investigate whether it's a test bug or an implementation bug:
   - **Implementation bug** → FAIL the task with the defect list.
   - **Test bug** → fix the test and re-run.
+  - **Need more detail** → Re-run with `-- --nocapture` or `-- --show-output` for full verbose output.
 
 ### Step 3E: Acceptance Criteria Walkthrough (Mandatory)
 - Walk through each item in `Verification_Strategy.Acceptance_Criteria`.

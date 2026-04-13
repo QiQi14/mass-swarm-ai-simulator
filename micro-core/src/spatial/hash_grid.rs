@@ -9,9 +9,9 @@
 //! ## Depends On
 //! - `crate::components::Position`
 
-use bevy::prelude::*;
-use bevy::platform::collections::HashMap;
 use crate::components::Position;
+use bevy::platform::collections::HashMap;
+use bevy::prelude::*;
 
 /// Spatial hash grid for O(1) amortized proximity lookups.
 ///
@@ -20,6 +20,10 @@ use crate::components::Position;
 /// world position by `cell_size`. Uses `bevy::utils::HashMap`
 /// (AHash) for fast integer key lookups.
 ///
+/// Each cell stores `(Entity, Vec2, u32)` where the `u32` is the
+/// entity's faction_id — embedded during rebuild to eliminate ECS
+/// random-access lookups during proximity queries.
+///
 /// ## Performance
 /// - `rebuild()`: O(N) where N = entity count
 /// - `query_radius()`: O(K) where K = entities in searched cells
@@ -27,7 +31,7 @@ use crate::components::Position;
 #[derive(Resource, Debug)]
 pub struct SpatialHashGrid {
     pub cell_size: f32,
-    grid: HashMap<IVec2, Vec<(Entity, Vec2)>>,
+    grid: HashMap<IVec2, Vec<(Entity, Vec2, u32)>>,
 }
 
 impl SpatialHashGrid {
@@ -47,18 +51,21 @@ impl SpatialHashGrid {
     ///
     /// Called once per tick. Full rebuild is simpler and often faster
     /// than incremental updates because most entities move every tick.
-    pub fn rebuild(&mut self, entities: &[(Entity, Vec2)]) {
+    /// The `u32` in each tuple is the entity's faction_id, embedded
+    /// to avoid ECS lookups during proximity queries.
+    pub fn rebuild(&mut self, entities: &[(Entity, Vec2, u32)]) {
         // Clear existing entries but keep allocated memory
         for bucket in self.grid.values_mut() {
             bucket.clear();
         }
         // Reinsert all entities
-        for &(entity, pos) in entities {
+        for &(entity, pos, faction) in entities {
             let cell = self.world_to_cell(pos);
-            self.grid.entry(cell).or_default().push((entity, pos));
+            self.grid.entry(cell).or_default().push((entity, pos, faction));
         }
         // Remove empty buckets to prevent unbounded memory growth
-        self.grid.retain(|_, v: &mut Vec<(Entity, Vec2)>| !v.is_empty());
+        self.grid
+            .retain(|_, v: &mut Vec<(Entity, Vec2, u32)>| !v.is_empty());
     }
 
     /// Returns all entities within `radius` of `center`.
@@ -67,7 +74,7 @@ impl SpatialHashGrid {
     /// 1. Compute AABB of query circle in cell coordinates.
     /// 2. Iterate all cells in the AABB range.
     /// 3. For each entity, check squared Euclidean distance <= R^2.
-    pub fn query_radius(&self, center: Vec2, radius: f32) -> Vec<(Entity, Vec2)> {
+    pub fn query_radius(&self, center: Vec2, radius: f32) -> Vec<(Entity, Vec2, u32)> {
         let mut results = Vec::new();
         let radius_sq = radius * radius;
 
@@ -78,10 +85,10 @@ impl SpatialHashGrid {
         for cy in min_cell.y..=max_cell.y {
             for cx in min_cell.x..=max_cell.x {
                 if let Some(bucket) = self.grid.get(&IVec2::new(cx, cy)) {
-                    for &(entity, pos) in bucket {
+                    for &(entity, pos, faction) in bucket {
                         let diff = pos - center;
                         if diff.x * diff.x + diff.y * diff.y <= radius_sq {
-                            results.push((entity, pos));
+                            results.push((entity, pos, faction));
                         }
                     }
                 }
@@ -95,12 +102,13 @@ impl SpatialHashGrid {
     /// Unlike `query_radius()`, this allocates nothing — the closure processes
     /// each entity in-place. Used by the movement system (Task 06) for 10K+
     /// entity separation queries at 60 TPS, avoiding 600K heap allocs/sec.
+    /// The closure receives `(Entity, Vec2, u32)` where `u32` is faction_id.
     ///
     /// ## Algorithm
     /// Same AABB cell scan + squared distance filter as `query_radius()`.
     pub fn for_each_in_radius<F>(&self, center: Vec2, radius: f32, mut f: F)
     where
-        F: FnMut(Entity, Vec2),
+        F: FnMut(Entity, Vec2, u32),
     {
         let radius_sq = radius * radius;
         let min_cell = self.world_to_cell(center - Vec2::splat(radius));
@@ -109,10 +117,10 @@ impl SpatialHashGrid {
         for cy in min_cell.y..=max_cell.y {
             for cx in min_cell.x..=max_cell.x {
                 if let Some(bucket) = self.grid.get(&IVec2::new(cx, cy)) {
-                    for &(entity, pos) in bucket {
+                    for &(entity, pos, faction) in bucket {
                         let diff = pos - center;
                         if diff.x * diff.x + diff.y * diff.y <= radius_sq {
-                            f(entity, pos);
+                            f(entity, pos, faction);
                         }
                     }
                 }
@@ -135,14 +143,17 @@ impl SpatialHashGrid {
 /// Rebuilds the spatial hash grid every tick from all entity positions.
 ///
 /// Runs in `Update` schedule, before `interaction_system`.
+/// Embeds `FactionId` into the grid payload to eliminate ECS lookups
+/// during proximity-based faction checks.
 pub fn update_spatial_grid_system(
     telemetry: Option<ResMut<crate::plugins::telemetry::PerfTelemetry>>,
     mut grid: ResMut<SpatialHashGrid>,
-    query: Query<(Entity, &Position)>,
+    query: Query<(Entity, &Position, &crate::components::FactionId)>,
 ) {
     let start = telemetry.as_ref().map(|_| std::time::Instant::now());
-    let entities: Vec<(Entity, Vec2)> = query.iter()
-        .map(|(e, p)| (e, Vec2::new(p.x, p.y)))
+    let entities: Vec<(Entity, Vec2, u32)> = query
+        .iter()
+        .map(|(e, p, f)| (e, Vec2::new(p.x, p.y), f.0))
         .collect();
     grid.rebuild(&entities);
     if let (Some(mut t), Some(s)) = (telemetry, start) {
@@ -173,7 +184,7 @@ mod tests {
         let mut world = World::new();
         let e = make_entity(&mut world);
         let mut grid = SpatialHashGrid::new(20.0);
-        grid.rebuild(&[(e, Vec2::new(50.0, 50.0))]);
+        grid.rebuild(&[(e, Vec2::new(50.0, 50.0), 0)]);
 
         let results = grid.query_radius(Vec2::new(50.0, 50.0), 5.0);
         assert_eq!(results.len(), 1, "Should find entity at exact position");
@@ -185,7 +196,7 @@ mod tests {
         let mut world = World::new();
         let e = make_entity(&mut world);
         let mut grid = SpatialHashGrid::new(20.0);
-        grid.rebuild(&[(e, Vec2::new(50.0, 50.0))]);
+        grid.rebuild(&[(e, Vec2::new(50.0, 50.0), 0)]);
 
         let results = grid.query_radius(Vec2::new(200.0, 200.0), 5.0);
         assert!(results.is_empty(), "Distant query should find nothing");
@@ -199,9 +210,9 @@ mod tests {
         let e3 = make_entity(&mut world);
         let mut grid = SpatialHashGrid::new(20.0);
         grid.rebuild(&[
-            (e1, Vec2::new(10.0, 10.0)),
-            (e2, Vec2::new(30.0, 10.0)),
-            (e3, Vec2::new(90.0, 90.0)),
+            (e1, Vec2::new(10.0, 10.0), 0),
+            (e2, Vec2::new(30.0, 10.0), 0),
+            (e3, Vec2::new(90.0, 90.0), 0),
         ]);
 
         let results = grid.query_radius(Vec2::new(20.0, 10.0), 15.0);
@@ -213,7 +224,7 @@ mod tests {
         let mut world = World::new();
         let e = make_entity(&mut world);
         let mut grid = SpatialHashGrid::new(20.0);
-        grid.rebuild(&[(e, Vec2::new(20.0, 20.0))]);
+        grid.rebuild(&[(e, Vec2::new(20.0, 20.0), 0)]);
 
         let results = grid.query_radius(Vec2::new(20.0, 20.0), 1.0);
         assert_eq!(results.len(), 1, "Boundary entity must be found");
@@ -225,10 +236,7 @@ mod tests {
         let e_near = make_entity(&mut world);
         let e_far = make_entity(&mut world);
         let mut grid = SpatialHashGrid::new(20.0);
-        grid.rebuild(&[
-            (e_near, Vec2::new(5.0, 0.0)),
-            (e_far, Vec2::new(15.0, 0.0)),
-        ]);
+        grid.rebuild(&[(e_near, Vec2::new(5.0, 0.0), 0), (e_far, Vec2::new(15.0, 0.0), 0)]);
 
         let results = grid.query_radius(Vec2::ZERO, 10.0);
         assert_eq!(results.len(), 1, "Only e_near (dist=5) within R=10");
@@ -240,7 +248,7 @@ mod tests {
         let mut world = World::new();
         let e = make_entity(&mut world);
         let mut grid = SpatialHashGrid::new(20.0);
-        let data = vec![(e, Vec2::new(50.0, 50.0))];
+        let data = vec![(e, Vec2::new(50.0, 50.0), 0)];
         grid.rebuild(&data);
         grid.rebuild(&data);
 
@@ -251,11 +259,11 @@ mod tests {
     #[test]
     fn test_performance_1000_entities() {
         let mut world = World::new();
-        let entities: Vec<(Entity, Vec2)> = (0..1000)
+        let entities: Vec<(Entity, Vec2, u32)> = (0..1000)
             .map(|i| {
                 let e = make_entity(&mut world);
                 let pos = Vec2::new((i % 50) as f32 * 20.0, (i / 50) as f32 * 20.0);
-                (e, pos)
+                (e, pos, 0)
             })
             .collect();
 
@@ -273,29 +281,32 @@ mod tests {
         let e3 = make_entity(&mut world);
         let mut grid = SpatialHashGrid::new(20.0);
         grid.rebuild(&[
-            (e1, Vec2::new(10.0, 10.0)),
-            (e2, Vec2::new(30.0, 10.0)),
-            (e3, Vec2::new(90.0, 90.0)),
+            (e1, Vec2::new(10.0, 10.0), 0),
+            (e2, Vec2::new(30.0, 10.0), 0),
+            (e3, Vec2::new(90.0, 90.0), 0),
         ]);
 
         let center = Vec2::new(20.0, 10.0);
         let radius = 15.0;
 
         let results_query = grid.query_radius(center, radius);
-        
+
         let mut results_closure = Vec::new();
-        grid.for_each_in_radius(center, radius, |e, p| {
-            results_closure.push((e, p));
+        grid.for_each_in_radius(center, radius, |e, p, f| {
+            results_closure.push((e, p, f));
         });
 
         // The order is not guaranteed so we should compare sets
         let mut sorted_query = results_query.clone();
-        sorted_query.sort_by_key(|&(e, _)| e);
-        
-        let mut sorted_closure = results_closure.clone();
-        sorted_closure.sort_by_key(|&(e, _)| e);
+        sorted_query.sort_by_key(|&(e, _, _)| e);
 
-        assert_eq!(sorted_query, sorted_closure, "for_each_in_radius should yield same entities as query_radius");
+        let mut sorted_closure = results_closure.clone();
+        sorted_closure.sort_by_key(|&(e, _, _)| e);
+
+        assert_eq!(
+            sorted_query, sorted_closure,
+            "for_each_in_radius should yield same entities as query_radius"
+        );
         assert_eq!(sorted_closure.len(), 2, "Should find e1 and e2, not e3");
     }
 }

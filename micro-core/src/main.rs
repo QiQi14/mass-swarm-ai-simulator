@@ -12,16 +12,31 @@
 //! - `std::time::Duration`
 
 use bevy::prelude::*;
+use bevy_state::prelude::in_state;
 
-use micro_core::components::NextEntityId;
-use micro_core::config::{SimulationConfig, TickCounter, SimPaused, SimSpeed, SimStepRemaining};
 use micro_core::bridges::zmq_bridge::ZmqBridgePlugin;
-use micro_core::rules::{RemovalEvents, FactionBehaviorMode, NavigationRuleSet, InteractionRuleSet, RemovalRuleSet};
-use micro_core::spatial::SpatialHashGrid;
+use micro_core::components::NextEntityId;
+use micro_core::config::{
+    ActiveSubFactions, ActiveZoneModifiers, AggroMaskRegistry, BuffConfig, CooldownTracker,
+    DensityConfig, FactionBuffs, InterventionTracker, SimPaused, SimSpeed, SimStepRemaining,
+    SimulationConfig, TickCounter, TrainingMode,
+};
 use micro_core::pathfinding::FlowFieldRegistry;
+use micro_core::rules::{
+    FactionBehaviorMode, InteractionRuleSet, NavigationRuleSet, RemovalEvents, RemovalRuleSet,
+};
+use micro_core::spatial::SpatialHashGrid;
+use micro_core::systems::directive_executor::{
+    LatestDirective, buff_tick_system, directive_executor_system, zone_tick_system,
+};
+use micro_core::systems::engine_override::engine_override_system;
+use micro_core::systems::{
+    initial_spawn_system, movement_system, tick_counter_system, visibility_update_system,
+    ws_command::ActiveFogFaction, ws_command::WsCommandReceiver, ws_command::step_tick_system,
+    ws_command::ws_command_system,
+};
 use micro_core::terrain::TerrainGrid;
 use micro_core::visibility::FactionVisibility;
-use micro_core::systems::{initial_spawn_system, movement_system, tick_counter_system, visibility_update_system, ws_command::WsCommandReceiver, ws_command::ws_command_system, ws_command::step_tick_system, ws_command::ActiveFogFaction};
 
 /// Maximum ticks before auto-exit in smoke test mode.
 /// Set to 0 or remove this system for "run forever" mode.
@@ -30,6 +45,8 @@ const SMOKE_TEST_MAX_TICKS: u64 = 300; // ~5 seconds at 60 TPS
 fn main() {
     let mut init_entity_count = None;
     let mut is_smoke_test = false;
+    let mut is_training = false;
+    let mut is_throttle = false;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         if arg == "--entity-count" {
@@ -38,6 +55,10 @@ fn main() {
             }
         } else if arg == "--smoke-test" {
             is_smoke_test = true;
+        } else if arg == "--training" {
+            is_training = true;
+        } else if arg == "--throttle" {
+            is_throttle = true;
         }
     }
 
@@ -52,9 +73,20 @@ fn main() {
     });
 
     let mut app = App::new();
+
+    // Configure AI bridge timeout BEFORE the plugin builds.
+    // Training: long timeout (30s) — Rust must wait for Python inference.
+    // Manual play: short timeout (default 5s) — keeps the sim responsive.
+    if is_training {
+        app.insert_resource(micro_core::bridges::zmq_bridge::AiBridgeConfig {
+            send_interval_ticks: 30,
+            zmq_timeout_secs: 30,
+        });
+    }
+
     app.add_plugins(MinimalPlugins)
         .add_plugins(bevy_state::app::StatesPlugin)
-        .set_runner(custom_runner)
+        .set_runner(move |app| custom_runner(app, is_training, is_throttle))
         .add_plugins(ZmqBridgePlugin);
 
     let mut config = SimulationConfig::default();
@@ -71,7 +103,8 @@ fn main() {
     app.insert_resource(config)
         .init_resource::<TickCounter>()
         .init_resource::<NextEntityId>()
-        .init_resource::<SimPaused>()
+        .insert_resource(SimPaused(!is_training))
+        .insert_resource(TrainingMode(is_training))
         .init_resource::<SimSpeed>()
         .init_resource::<SimStepRemaining>()
         .init_resource::<RemovalEvents>()
@@ -84,33 +117,138 @@ fn main() {
         .insert_resource(TerrainGrid::new(grid_w, grid_h, cell_size))
         .insert_resource(FactionVisibility::new(grid_w, grid_h, cell_size))
         .init_resource::<ActiveFogFaction>()
+        // Phase 3 resources — required by directive_executor, flow_field_update, movement, zmq_bridge
+        .init_resource::<ActiveZoneModifiers>()
+        .init_resource::<InterventionTracker>()
+        .init_resource::<FactionBuffs>()
+        .init_resource::<BuffConfig>()
+        .init_resource::<CooldownTracker>()
+        .init_resource::<DensityConfig>()
+        .init_resource::<AggroMaskRegistry>()
+        .init_resource::<ActiveSubFactions>()
+        .init_resource::<LatestDirective>()
+        // Boids 2.0 — Unit type registry for heterogeneous swarm behaviors
+        .init_resource::<micro_core::config::UnitTypeRegistry>()
         .insert_resource(micro_core::systems::ws_sync::BroadcastSender(tx))
-        .insert_resource(WsCommandReceiver(std::sync::Mutex::new(ws_cmd_rx)))
-        // Startup systems (run once)
-        .add_systems(Startup, initial_spawn_system)
-        // Per-tick systems (run every frame)
-        // Simulation systems — gated behind pause/step controls
-        .add_systems(Update, (
-            micro_core::systems::spawning::wave_spawn_system,
-            micro_core::systems::flow_field_update::flow_field_update_system,
-            micro_core::spatial::update_spatial_grid_system,
-            micro_core::systems::interaction::interaction_system,
-            micro_core::systems::removal::removal_system,
-            movement_system,
-        ).chain().run_if(|paused: Res<SimPaused>, step: Res<SimStepRemaining>| !paused.0 || step.0 > 0))
-        // Always-running systems (work while paused for terrain painting and fog preview)
-        .add_systems(Update, (
-            tick_counter_system,
-            ws_command_system,
-            visibility_update_system,
-            step_tick_system
-                .after(movement_system),
-            micro_core::systems::ws_sync::ws_sync_system,
-            log_system,
-        ));
+        .insert_resource(WsCommandReceiver(std::sync::Mutex::new(ws_cmd_rx)));
+
+    // Startup systems (run once) — disabled in training mode
+    // In training mode, entities are spawned by ResetEnvironment from Python
+    if !is_training {
+        app.add_systems(Startup, initial_spawn_system);
+    }
+
+    // Simulation systems — gated behind pause/step controls.
+    // In TRAINING mode: also gated on SimState::Running for lock-step sync
+    //   → Rust freezes during WaitingForAI (PPO batch collection is deterministic)
+    // In PLAY mode: runs continuously regardless of AI state
+    //   → If Python is slow, entities keep their last directive (graceful degradation)
+    use micro_core::bridges::zmq_bridge::SimState;
+    let sim_gate = |paused: Res<SimPaused>, step: Res<SimStepRemaining>| !paused.0 || step.0 > 0;
+
+    if is_training {
+        // ── Training: lock-step sync ────────────────────────
+        app.add_systems(
+            Update,
+            (
+                micro_core::systems::flow_field_update::flow_field_update_system,
+                micro_core::spatial::update_spatial_grid_system,
+                micro_core::systems::interaction::interaction_system,
+                micro_core::systems::aoe_interaction::aoe_interaction_system,
+                micro_core::systems::penetration::penetration_interaction_system,
+                micro_core::systems::removal::removal_system,
+                micro_core::systems::tactical_sensor::tactical_sensor_system,
+                movement_system,
+            )
+                .chain()
+                .run_if(sim_gate)
+                .run_if(in_state(SimState::Running)),
+        );
+        app.add_systems(
+            Update,
+            (
+                directive_executor_system,
+                zone_tick_system,
+                buff_tick_system,
+            )
+                .chain()
+                .run_if(|paused: Res<SimPaused>, step: Res<SimStepRemaining>| !paused.0 || step.0 > 0)
+                .run_if(in_state(SimState::Running))
+                .before(movement_system),
+        )
+        .add_systems(
+            Update,
+            engine_override_system
+                .after(movement_system)
+                .run_if(|paused: Res<SimPaused>, step: Res<SimStepRemaining>| !paused.0 || step.0 > 0)
+                .run_if(in_state(SimState::Running)),
+        )
+        .add_systems(
+            Update,
+            (
+                tick_counter_system.run_if(in_state(SimState::Running)),
+                ws_command_system,
+                visibility_update_system,
+                step_tick_system.after(movement_system),
+                micro_core::systems::ws_sync::ws_sync_system,
+            ),
+        );
+    } else {
+        // ── Play mode: continuous simulation ────────────────
+        app.add_systems(
+            Update,
+            (
+                micro_core::systems::flow_field_update::flow_field_update_system,
+                micro_core::spatial::update_spatial_grid_system,
+                micro_core::systems::interaction::interaction_system,
+                micro_core::systems::aoe_interaction::aoe_interaction_system,
+                micro_core::systems::penetration::penetration_interaction_system,
+                micro_core::systems::removal::removal_system,
+                micro_core::systems::tactical_sensor::tactical_sensor_system,
+                movement_system,
+            )
+                .chain()
+                .run_if(sim_gate),
+        );
+        app.add_systems(
+            Update,
+            (
+                directive_executor_system,
+                zone_tick_system,
+                buff_tick_system,
+            )
+                .chain()
+                .run_if(|paused: Res<SimPaused>, step: Res<SimStepRemaining>| !paused.0 || step.0 > 0)
+                .before(movement_system),
+        )
+        .add_systems(
+            Update,
+            engine_override_system
+                .after(movement_system)
+                .run_if(|paused: Res<SimPaused>, step: Res<SimStepRemaining>| !paused.0 || step.0 > 0),
+        )
+        .add_systems(
+            Update,
+            (
+                tick_counter_system,
+                ws_command_system,
+                visibility_update_system,
+                step_tick_system.after(movement_system),
+                micro_core::systems::ws_sync::ws_sync_system,
+                log_system,
+            ),
+        );
+    }
 
     #[cfg(feature = "debug-telemetry")]
-    app.add_plugins(micro_core::plugins::TelemetryPlugin);
+    {
+        app.add_plugins(micro_core::plugins::TelemetryPlugin);
+        app.add_systems(
+            Update,
+            micro_core::plugins::telemetry::flow_field_broadcast_system
+                .after(micro_core::systems::flow_field_update::flow_field_update_system),
+        );
+    }
 
     if is_smoke_test {
         app.add_systems(Update, smoke_test_exit_system);
@@ -120,10 +258,7 @@ fn main() {
 }
 
 /// Logs simulation status every 60 ticks (~1 second).
-fn log_system(
-    counter: Res<TickCounter>,
-    query: Query<&micro_core::components::Position>,
-) {
+fn log_system(counter: Res<TickCounter>, query: Query<&micro_core::components::Position>) {
     if counter.tick > 0 && counter.tick.is_multiple_of(60) {
         let entity_count = query.iter().count();
         println!("[Tick {}] Entities alive: {}", counter.tick, entity_count);
@@ -132,27 +267,28 @@ fn log_system(
 
 /// Auto-exits after SMOKE_TEST_MAX_TICKS for CI-friendly testing.
 /// Remove this system for "run forever" mode when bridges are added.
-fn smoke_test_exit_system(
-    counter: Res<TickCounter>,
-    mut exit: MessageWriter<AppExit>,
-) {
+fn smoke_test_exit_system(counter: Res<TickCounter>, mut exit: MessageWriter<AppExit>) {
     if SMOKE_TEST_MAX_TICKS > 0 && counter.tick >= SMOKE_TEST_MAX_TICKS {
         println!("[Tick {}] Smoke test complete. Exiting.", counter.tick);
         exit.write(AppExit::Success);
     }
 }
 
-fn custom_runner(mut app: App) -> AppExit {
+fn custom_runner(mut app: App, is_training: bool, is_throttle: bool) -> AppExit {
     let frame_duration = std::time::Duration::from_secs_f64(1.0 / 60.0);
+    // Throttle: sleep to maintain 60 TPS even in training mode (human-observable)
+    let should_sleep = !is_training || is_throttle;
     loop {
         let start = std::time::Instant::now();
         app.update();
         if let Some(exit_code) = app.should_exit() {
             return exit_code;
         }
-        let elapsed = start.elapsed();
-        if elapsed < frame_duration {
-            std::thread::sleep(frame_duration - elapsed);
+        if should_sleep {
+            let elapsed = start.elapsed();
+            if elapsed < frame_duration {
+                std::thread::sleep(frame_duration - elapsed);
+            }
         }
     }
 }

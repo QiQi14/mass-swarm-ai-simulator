@@ -3,216 +3,49 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mass-Swarm AI Debug Visualizer</title>
+    <title>SwarmControl — Debug Visualizer</title>
+    <meta name="description" content="Real-time debug visualizer for the Mass-Swarm AI Simulator">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <!-- Geist preferred via @fontsource in CSS; DM Sans + IBM Plex Mono as HTML fallback -->
 </head>
 <body>
-    <div class="app-container">
-        <!-- Main Canvas Area -->
-        <main class="canvas-container">
+    <div class="app-container" id="app">
+        <!-- Canvas Area -->
+        <main class="canvas-area" id="canvas-area">
             <canvas id="canvas-bg"></canvas>
             <canvas id="canvas-entities"></canvas>
-            
-            <!-- Floating connection status -->
-            <div class="connection-status">
-                <div class="status-indicator">
-                    <div id="status-dot" class="dot disconnected"></div>
-                    <span id="status-text">Disconnected</span>
-                </div>
+            <div class="connection-badge" id="connection-badge">
+                <div class="status-dot" id="status-dot"></div>
+                <span id="status-text">Connecting…</span>
             </div>
-            
-            <!-- Canvas instruction overlay (hidden on interaction) -->
-            <div class="canvas-hint">
-                Pan: drag · Zoom: scroll · Use sidebar tools to spawn, paint, or inspect
+            <div class="canvas-hint" id="canvas-hint">
+                Pan: drag · Zoom: scroll · Double-click: reset view
             </div>
         </main>
 
-        <!-- Right Sidebar Panel -->
-        <aside class="control-panel">
-            <header class="panel-header">
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="bottom-sheet-handle" id="bottom-sheet-handle">
+                <div class="handle-pill"></div>
+            </div>
+            
+            <header class="sidebar-header">
                 <div>
-                    <h1>Swarm<span>Control</span></h1>
-                    <span class="version-badge">v0.1.0</span>
+                    <h1>Swarm<span class="accent">Control</span></h1>
+                    <span class="version-badge">v0.2.0</span>
                 </div>
             </header>
-
-            <section class="panel-section">
-                <h2>Telemetry</h2>
-                <div class="stats-grid">
-                    <div class="stat-box">
-                        <span class="stat-label">TPS</span>
-                        <div class="stat-with-graph">
-                            <span id="stat-tps" class="stat-value mono">0</span>
-                            <canvas id="graph-tps" class="sparkline" width="60" height="24"></canvas>
-                        </div>
-                    </div>
-                    <div class="stat-box">
-                        <span class="stat-label">Tick</span>
-                        <span id="stat-tick" class="stat-value mono">0</span>
-                    </div>
-                    <div class="stat-box full-width">
-                        <span class="stat-label">Total Entities</span>
-                        <div class="stat-with-graph" style="justify-content: space-between; width: 100%;">
-                            <span id="stat-entities" class="stat-value mono">0</span>
-                            <canvas id="graph-entities" class="sparkline" width="60" height="24"></canvas>
-                        </div>
-                    </div>
-                    <div class="stat-box swarm">
-                        <span class="stat-label">Swarm</span>
-                        <span id="stat-swarm" class="stat-value mono">0</span>
-                    </div>
-                    <div class="stat-box defender">
-                        <span class="stat-label">Defender</span>
-                        <span id="stat-defender" class="stat-value mono">0</span>
-                    </div>
-                </div>
-            </section>
-
-            <section class="panel-section">
-                <h2>System Performance</h2>
-                <div id="perf-bars" class="perf-bar-chart">
-                    <!-- Populated dynamically from PerfTelemetry -->
-                </div>
-            </section>
-
-            <section id="inspector-panel" class="panel-section" style="display: none;">
-                <h2>Entity Inspector</h2>
-                <div class="inspector-grid">
-                    <span class="inspector-label">ID</span>
-                    <span id="insp-id" class="inspector-value mono">—</span>
-                    <span class="inspector-label">Faction</span>
-                    <span id="insp-faction" class="inspector-value mono">—</span>
-                    <span class="inspector-label">Position</span>
-                    <span id="insp-pos" class="inspector-value mono">—</span>
-                    <span class="inspector-label">Velocity</span>
-                    <span id="insp-vel" class="inspector-value mono">—</span>
-                    <span class="inspector-label">Stats</span>
-                    <span id="insp-stats" class="inspector-value mono">—</span>
-                </div>
-                <button id="insp-deselect" class="btn secondary" style="margin-top: 10px;">Deselect</button>
-            </section>
-
-            <section class="panel-section">
-                <h2>Simulation Controls</h2>
-                <div class="controls-row">
-                    <button id="play-pause-btn" class="btn primary">Pause</button>
-                    <!-- Small decorative visualization -->
-                    <div class="pulse-ring"></div>
-                </div>
-                <div class="controls-row step-controls">
-                    <button id="step-btn" class="btn secondary">Step</button>
-                    <div class="input-wrapper">
-                        <input type="number" id="step-count-input" class="input-field" value="1" min="1" max="1000">
-                        <span class="input-suffix">ticks</span>
-                    </div>
-                </div>
-            </section>
-
-            <section class="panel-section">
-                <h2>Spawn Tools</h2>
-                <div class="spawn-controls">
-                    <div class="controls-row" style="margin-bottom: 8px;">
-                        <button id="spawn-mode-btn" class="btn secondary">🎯 Spawn Mode</button>
-                    </div>
-                    <div id="spawn-tools-body">
-                        <div class="spawn-row">
-                            <label class="spawn-label">Faction</label>
-                            <div class="faction-selector">
-                                <select id="spawn-faction" class="input-field"></select>
-                                <button id="add-faction-btn" class="btn icon-btn" title="Add faction">+</button>
-                                <button id="delete-faction-btn" class="btn icon-btn danger" title="Delete faction">−</button>
-                            </div>
-                        </div>
-                        <div class="spawn-row">
-                            <label class="spawn-label">Amount</label>
-                            <input type="range" id="spawn-amount-slider" min="1" max="500" value="50" class="slider">
-                            <input type="number" id="spawn-amount" class="input-field compact" value="50" min="1" max="10000">
-                        </div>
-                        <div class="spawn-row">
-                            <label class="spawn-label">Spread</label>
-                            <input type="range" id="spawn-spread-slider" min="0" max="200" value="30" class="slider">
-                            <input type="number" id="spawn-spread" class="input-field compact" value="30" min="0" max="400">
-                        </div>
-                    </div>
-                    <div id="spawn-hint" class="spawn-hint" style="display: none;">
-                        Click on the canvas to place units
-                    </div>
-                </div>
-            </section>
-
-            <section class="panel-section">
-                <h2>Terrain Editor</h2>
-                <div class="controls-row">
-                    <button id="paint-mode-btn" class="btn secondary">🖌 Paint Mode</button>
-                </div>
-                <div id="brush-tools" class="brush-toolbar" style="display: none;">
-                    <button class="brush-btn active" data-brush="wall">⬛ Wall</button>
-                    <button class="brush-btn" data-brush="mud">🟫 Mud</button>
-                    <button class="brush-btn" data-brush="pushable">🟧 Pushable</button>
-                    <button class="brush-btn" data-brush="clear">⬜ Clear</button>
-                </div>
-                <div class="controls-row" style="margin-top: 8px;">
-                    <button id="save-scenario-btn" class="btn secondary">💾 Save</button>
-                    <button id="load-scenario-btn" class="btn secondary">📂 Load</button>
-                    <input type="file" id="scenario-file-input" accept=".json" style="display:none">
-                </div>
-                <button id="clear-terrain-btn" class="btn secondary" style="margin-top:4px">🗑 Clear All Terrain</button>
-            </section>
-
-            <section class="panel-section">
-                <h2>Faction Behavior</h2>
-                <div id="faction-toggles"></div>
-            </section>
-
-            <section class="panel-section">
-                <h2>Viewport Layers</h2>
-                <div class="toggle-group">
-                    <label class="toggle-control">
-                        <input type="checkbox" id="toggle-grid" checked>
-                        <span class="control-indicator"></span>
-                        <span class="control-label">Coordinate Grid</span>
-                    </label>
-                    <label class="toggle-control">
-                        <input type="checkbox" id="toggle-spatial-grid">
-                        <span class="control-indicator"></span>
-                        <span class="control-label">Spatial Hash Grid</span>
-                    </label>
-                    <label class="toggle-control">
-                        <input type="checkbox" id="toggle-flow-field">
-                        <span class="control-indicator"></span>
-                        <span class="control-label">Flow Field Arrows</span>
-                    </label>
-                    <label class="toggle-control">
-                        <input type="checkbox" id="toggle-velocity">
-                        <span class="control-indicator"></span>
-                        <span class="control-label">Velocity Vectors</span>
-                    </label>
-                    <div id="fog-toggles-container">
-                        <!-- Populated dynamically -->
-                    </div>
-                </div>
-            </section>
-
-            <section class="panel-section">
-                <h2>Legend</h2>
-                <div class="legend-list">
-                    <div class="legend-item">
-                        <span class="color-swatch swarm-color"></span>
-                        <span>Swarm Units</span>
-                    </div>
-                    <div class="legend-item">
-                        <span class="color-swatch defender-color"></span>
-                        <span>Defender Units</span>
-                    </div>
-                </div>
-            </section>
+            <nav class="tab-bar" id="tab-bar">
+                <!-- Tabs injected by tabs.js -->
+            </nav>
+            <div class="panel-scroll" id="panel-scroll">
+                <!-- Panels injected by panel registry -->
+            </div>
         </aside>
     </div>
 
-    <!-- The actual visualization logic -->
-    <script src="visualizer.js"></script>
+    <script type="module" src="/src/main.js"></script>
 </body>
 </html>

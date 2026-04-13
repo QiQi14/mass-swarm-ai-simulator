@@ -66,7 +66,7 @@ Agents DO NOT manually clean up the root directory.
 
 ## Phase 5: Feature Ledger Update
 
-After archive, the feature must be recorded in `.agents/context/features.md` (the Logic Ledger).
+After archive, the feature must be recorded in `.agents/context/project/features.md` (the Logic Ledger).
 
 - **Who:** The Planner agent, at the START of its next session (Step 0 in `planner.md`)
 - **What:** A concise 3-5 line entry summarizing the feature, key decisions, and file locations

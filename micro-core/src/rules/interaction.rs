@@ -29,6 +29,47 @@ pub struct InteractionRule {
     pub range: f32,
     /// Effects to apply to the TARGET entity's StatBlock.
     pub effects: Vec<StatEffect>,
+
+    /// Filter: only apply this rule when the SOURCE entity has this class.
+    /// None = any class (backward compatible default).
+    #[serde(default)]
+    pub source_class: Option<u32>,
+
+    /// Filter: only apply this rule when the TARGET entity has this class.
+    /// None = any class (backward compatible default).
+    #[serde(default)]
+    pub target_class: Option<u32>,
+
+    /// If set, use the SOURCE entity's StatBlock[idx] as the combat range
+    /// instead of the fixed `range` field. Falls back to `range` if stat is missing.
+    #[serde(default)]
+    pub range_stat_index: Option<usize>,
+
+    /// Optional stat-driven damage mitigation on the TARGET.
+    #[serde(default)]
+    pub mitigation: Option<MitigationRule>,
+
+    /// If set, each source entity can only fire this rule every N ticks.
+    /// Tracked by `CooldownTracker` resource.
+    #[serde(default)]
+    pub cooldown_ticks: Option<u32>,
+
+    /// Optional AoE damage area. When present, the rule finds the nearest
+    /// single target in range as the impact center, then applies damage to
+    /// ALL targets within the shape (scaled by falloff gradient).
+    /// When absent, standard pairwise 1v1 damage applies (nearest target only).
+    #[serde(default)]
+    pub aoe: Option<super::aoe::AoeConfig>,
+
+    /// Optional penetration config. When present, the rule casts a ray
+    /// from source through nearest target and pierces through additional
+    /// targets along the line, with energy absorbed per hit.
+    ///
+    /// **Composable with AoE:** If both `aoe` and `penetration` are set,
+    /// the AoE shape filters the spatial hit zone and the penetration
+    /// system handles sequential energy absorption along the ray.
+    #[serde(default)]
+    pub penetration: Option<super::aoe::PenetrationConfig>,
 }
 
 /// A single stat modification. Applied to target entity per tick.
@@ -41,6 +82,27 @@ pub struct StatEffect {
     pub delta_per_second: f32,
 }
 
+/// Stat-driven damage mitigation applied to the TARGET entity.
+/// The engine doesn't know what "armor" or "shield" means — it just math.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MitigationRule {
+    /// Stat index on the TARGET entity providing mitigation value.
+    pub stat_index: usize,
+    /// How mitigation is applied to damage.
+    pub mode: MitigationMode,
+}
+
+/// How damage mitigation math is computed.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum MitigationMode {
+    /// damage = base_damage * (1.0 - target_stat.clamp(0.0, 1.0))
+    /// Example: stat=0.3 → 30% damage reduction
+    PercentReduction,
+    /// damage = (base_damage.abs() - target_stat).max(0.0) * base_damage.signum()
+    /// Example: stat=10.0 → 10 flat damage absorbed
+    FlatReduction,
+}
+
 /// Accumulates entity IDs removed this tick for WebSocket broadcast.
 /// Cleared at the start of each tick by the removal system.
 #[derive(Resource, Debug, Default, PartialEq)]
@@ -49,26 +111,9 @@ pub struct RemovalEvents {
 }
 
 impl Default for InteractionRuleSet {
-    /// Swarm demo default config:
-    /// - Rule 1: faction 0 damages faction 1 at -10.0/sec (stat[0])
-    /// - Rule 2: faction 1 damages faction 0 at -20.0/sec (stat[0])
+    /// Empty ruleset — no combat unless explicitly configured by game profile.
     fn default() -> Self {
-        Self {
-            rules: vec![
-                InteractionRule {
-                    source_faction: 0,
-                    target_faction: 1,
-                    range: 15.0,
-                    effects: vec![StatEffect { stat_index: 0, delta_per_second: -10.0 }],
-                },
-                InteractionRule {
-                    source_faction: 1,
-                    target_faction: 0,
-                    range: 15.0,
-                    effects: vec![StatEffect { stat_index: 0, delta_per_second: -20.0 }],
-                },
-            ],
-        }
+        Self { rules: vec![] }
     }
 }
 
@@ -79,17 +124,29 @@ mod tests {
     #[test]
     fn test_interaction_rule_set_default() {
         let ruleset = InteractionRuleSet::default();
-        assert_eq!(ruleset.rules.len(), 2);
+        assert_eq!(ruleset.rules.len(), 0);
     }
 
     #[test]
-    fn test_interaction_rule_set_factions() {
-        let ruleset = InteractionRuleSet::default();
+    fn test_interaction_rule_set_explicit_construction() {
+        let ruleset = InteractionRuleSet {
+            rules: vec![InteractionRule {
+                source_faction: 0,
+                target_faction: 1,
+                range: 10.0,
+                effects: vec![],
+                source_class: None,
+                target_class: None,
+                range_stat_index: None,
+                mitigation: None,
+                cooldown_ticks: None,
+                aoe: None,
+                penetration: None,
+            }],
+        };
+        assert_eq!(ruleset.rules.len(), 1);
         assert_eq!(ruleset.rules[0].source_faction, 0);
         assert_eq!(ruleset.rules[0].target_faction, 1);
-        
-        assert_eq!(ruleset.rules[1].source_faction, 1);
-        assert_eq!(ruleset.rules[1].target_faction, 0);
     }
 
     #[test]
@@ -104,5 +161,40 @@ mod tests {
     fn test_removal_events_default() {
         let events = RemovalEvents::default();
         assert!(events.removed_ids.is_empty());
+    }
+
+    #[test]
+    fn test_mitigation_rule_serde_roundtrip() {
+        let rules = vec![
+            MitigationRule {
+                stat_index: 2,
+                mode: MitigationMode::PercentReduction,
+            },
+            MitigationRule {
+                stat_index: 3,
+                mode: MitigationMode::FlatReduction,
+            },
+        ];
+        
+        let serialized = serde_json::to_string(&rules).unwrap();
+        let deserialized: Vec<MitigationRule> = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(rules, deserialized);
+    }
+
+    #[test]
+    fn test_interaction_rule_backward_compat() {
+        let legacy_json = r#"{
+            "source_faction": 0,
+            "target_faction": 1,
+            "range": 10.0,
+            "effects": []
+        }"#;
+        
+        let deserialized: InteractionRule = serde_json::from_str(legacy_json).unwrap();
+        assert_eq!(deserialized.source_class, None);
+        assert_eq!(deserialized.target_class, None);
+        assert_eq!(deserialized.range_stat_index, None);
+        assert_eq!(deserialized.mitigation, None);
+        assert_eq!(deserialized.cooldown_ticks, None);
     }
 }

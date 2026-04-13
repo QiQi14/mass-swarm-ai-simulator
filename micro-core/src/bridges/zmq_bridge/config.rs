@@ -11,7 +11,7 @@
 use bevy::prelude::*;
 use bevy_state::prelude::*;
 use serde::{Deserialize, Serialize};
-use std::sync::{mpsc, Mutex};
+use std::sync::{Mutex, mpsc};
 
 /// Simulation state for AI communication gating.
 ///
@@ -86,7 +86,10 @@ mod tests {
         let deserialized: AiBridgeConfig = serde_json::from_str(&json).unwrap();
 
         // Assert
-        assert_eq!(original.send_interval_ticks, deserialized.send_interval_ticks);
+        assert_eq!(
+            original.send_interval_ticks,
+            deserialized.send_interval_ticks
+        );
         assert_eq!(original.zmq_timeout_secs, deserialized.zmq_timeout_secs);
     }
 }

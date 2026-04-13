@@ -1,0 +1,86 @@
+{
+  "feature": "Unnamed Feature",
+  "global_status": "ALL_COMPLETE",
+  "total_tasks": 7,
+  "created_at": "2026-04-07T06:33:58+00:00",
+  "updated_at": "2026-04-07T08:02:45+00:00",
+  "tasks": [
+    {
+      "task_id": "task_j1_split_js_css",
+      "status": "COMPLETE",
+      "phase": "",
+      "source_file": "tasks_pending/task_j1_split_js_css.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-07T07:40:04+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-07T07:40:12+00:00"
+    },
+    {
+      "task_id": "task_p1_split_python",
+      "status": "COMPLETE",
+      "phase": "",
+      "source_file": "tasks_pending/task_p1_split_python.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-07T07:40:04+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-07T07:40:12+00:00"
+    },
+    {
+      "task_id": "task_r1_split_zmq_systems",
+      "status": "COMPLETE",
+      "phase": "",
+      "source_file": "tasks_pending/task_r1_split_zmq_systems.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-07T06:59:50+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-07T07:40:11+00:00"
+    },
+    {
+      "task_id": "task_r2_split_zmq_protocol",
+      "status": "COMPLETE",
+      "phase": "",
+      "source_file": "tasks_pending/task_r2_split_zmq_protocol.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-07T07:40:04+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-07T07:40:11+00:00"
+    },
+    {
+      "task_id": "task_r3_split_directive_executor",
+      "status": "COMPLETE",
+      "phase": "",
+      "source_file": "tasks_pending/task_r3_split_directive_executor.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-07T07:40:04+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-07T07:40:12+00:00"
+    },
+    {
+      "task_id": "task_r4_split_config_doctests",
+      "status": "COMPLETE",
+      "phase": "",
+      "source_file": "tasks_pending/task_r4_split_config_doctests.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-07T06:50:23+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-07T07:19:08+00:00"
+    },
+    {
+      "task_id": "task_r5_remaining_rust_splits",
+      "status": "COMPLETE",
+      "phase": "",
+      "source_file": "tasks_pending/task_r5_remaining_rust_splits.md",
+      "fail_reason": null,
+      "started_at": "2026-04-07T07:43:23+00:00",
+      "completed_at": "2026-04-07T07:58:11+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-07T08:02:45+00:00"
+    }
+  ]
+}

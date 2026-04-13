@@ -31,6 +31,7 @@ Before starting verification, you MUST read and follow these files:
 
 **Rules:**
 - `.agents/rules/qa-audit-protocol.md` — Zero-trust verification constraints
+- **Workspace Hygiene:** If creating temporary scripts to verify logic, place them in `.agents/scratch/`. Never dump them in the root repository or project source folders.
 {{CONTEXT_BINDINGS_LIST}}
 
 ---

@@ -23,6 +23,14 @@ pub struct TerrainGrid {
     pub cell_size: f32,
     pub hard_costs: Vec<u16>,
     pub soft_costs: Vec<u16>,
+    #[serde(default = "default_impassable")]
+    pub impassable_threshold: u16,
+    #[serde(default)]
+    pub destructible_min: u16,
+}
+
+fn default_impassable() -> u16 {
+    u16::MAX
 }
 
 impl TerrainGrid {
@@ -34,6 +42,8 @@ impl TerrainGrid {
             cell_size,
             hard_costs: vec![100u16; size],
             soft_costs: vec![100u16; size],
+            impassable_threshold: u16::MAX,
+            destructible_min: 0,
         }
     }
 
@@ -85,11 +95,93 @@ impl TerrainGrid {
         }
     }
 
+    /// Converts world coordinates to grid cell coordinates.
+    ///
+    /// ```rust
+    /// use micro_core::terrain::TerrainGrid;
+    /// use bevy::math::IVec2;
+    ///
+    /// let grid = TerrainGrid::new(50, 50, 20.0);
+    /// let cell = grid.world_to_cell(45.0, 25.0);
+    /// assert_eq!(cell, IVec2::new(2, 1));
+    /// ```
     pub fn world_to_cell(&self, x: f32, y: f32) -> IVec2 {
         IVec2::new(
             (x / self.cell_size).floor() as i32,
             (y / self.cell_size).floor() as i32,
         )
+    }
+
+    // ── 3-Tier Terrain Helpers ─────────────────────────────────────────
+
+    /// Returns true if the cell is a destructible wall (Tier 1).
+    /// Destructible walls block pathfinding but can be broken by zone modifiers.
+    pub fn is_destructible(&self, cell: IVec2) -> bool {
+        if self.destructible_min == 0 {
+            return false;
+        } // Feature disabled
+        let cost = self.get_hard_cost(cell);
+        cost >= self.destructible_min && cost < self.impassable_threshold
+    }
+
+    /// Returns true if the cell is a permanent wall (Tier 2).
+    /// Protected by the Moses Effect — immune to all modifiers.
+    pub fn is_permanent_wall(&self, cell: IVec2) -> bool {
+        self.get_hard_cost(cell) >= self.impassable_threshold
+    }
+
+    /// Returns true if the cell is any wall (Tier 1 or Tier 2).
+    ///
+    /// ```rust
+    /// use micro_core::terrain::TerrainGrid;
+    /// use bevy::math::IVec2;
+    ///
+    /// let mut grid = TerrainGrid::new(10, 10, 20.0);
+    /// grid.impassable_threshold = 1000;
+    /// grid.destructible_min = 500;
+    ///
+    /// grid.set_cell(5, 5, 1200, 0); // Permanent wall
+    /// grid.set_cell(2, 2, 600, 0);  // Destructible wall
+    /// grid.set_cell(1, 1, 100, 0);  // Normal cell
+    ///
+    /// assert!(grid.is_wall(IVec2::new(5, 5)));
+    /// assert!(grid.is_wall(IVec2::new(2, 2)));
+    /// assert!(!grid.is_wall(IVec2::new(1, 1)));
+    /// ```
+    pub fn is_wall(&self, cell: IVec2) -> bool {
+        let cost = self.get_hard_cost(cell);
+        cost >= self.impassable_threshold
+            || (self.destructible_min > 0 && cost >= self.destructible_min)
+    }
+
+    /// Apply damage to a destructible wall cell.
+    ///
+    /// Returns `true` if the wall collapsed (transitioned from Tier 1 to Tier 0).
+    /// Permanent walls (Tier 2) are immune — returns `false`.
+    /// Non-wall cells are not affected — returns `false`.
+    pub fn damage_cell(&mut self, cell: IVec2, damage: u16) -> bool {
+        if !self.in_bounds(cell) {
+            return false;
+        }
+        let idx = (cell.y as u32 * self.width + cell.x as u32) as usize;
+        let cost = self.hard_costs[idx];
+
+        // Permanent walls are immune
+        if cost >= self.impassable_threshold {
+            return false;
+        }
+
+        // Destructible walls — apply damage
+        if self.destructible_min > 0 && cost >= self.destructible_min {
+            let new_cost = cost.saturating_sub(damage);
+            if new_cost < self.destructible_min {
+                self.hard_costs[idx] = 100; // Collapse to passable
+                return true;
+            }
+            self.hard_costs[idx] = new_cost;
+        }
+
+        false
     }
 }
 
@@ -103,44 +195,70 @@ mod tests {
     fn test_terrain_default_costs_are_100() {
         // Arrange & Act
         let grid = TerrainGrid::new(5, 5, 20.0);
-        
+
         // Assert
         assert_eq!(grid.hard_costs.len(), 25);
         assert_eq!(grid.soft_costs.len(), 25);
-        assert!(grid.hard_costs.iter().all(|&c| c == 100), "All default hard costs should be 100");
-        assert!(grid.soft_costs.iter().all(|&c| c == 100), "All default soft costs should be 100");
+        assert!(
+            grid.hard_costs.iter().all(|&c| c == 100),
+            "All default hard costs should be 100"
+        );
+        assert!(
+            grid.soft_costs.iter().all(|&c| c == 100),
+            "All default soft costs should be 100"
+        );
     }
 
     #[test]
     fn test_terrain_wall_returns_max() {
         // Arrange
         let mut grid = TerrainGrid::new(5, 5, 20.0);
-        
+
         // Act
         grid.set_cell(2, 2, u16::MAX, 0);
 
         // Assert
-        assert_eq!(grid.get_hard_cost(IVec2::new(2, 2)), u16::MAX, "Hard cost should be u16::MAX");
+        assert_eq!(
+            grid.get_hard_cost(IVec2::new(2, 2)),
+            u16::MAX,
+            "Hard cost should be u16::MAX"
+        );
     }
 
     #[test]
     fn test_terrain_oob_returns_wall() {
         // Arrange
         let grid = TerrainGrid::new(5, 5, 20.0);
-        
+
         // Act & Assert
-        assert_eq!(grid.get_hard_cost(IVec2::new(-1, 0)), u16::MAX, "OOB hard cost should be u16::MAX");
-        assert_eq!(grid.get_hard_cost(IVec2::new(5, 0)), u16::MAX, "OOB hard cost should be u16::MAX");
+        assert_eq!(
+            grid.get_hard_cost(IVec2::new(-1, 0)),
+            u16::MAX,
+            "OOB hard cost should be u16::MAX"
+        );
+        assert_eq!(
+            grid.get_hard_cost(IVec2::new(5, 0)),
+            u16::MAX,
+            "OOB hard cost should be u16::MAX"
+        );
     }
 
     #[test]
     fn test_terrain_oob_returns_frozen() {
         // Arrange
         let grid = TerrainGrid::new(5, 5, 20.0);
-        
+
         // Act & Assert
-        assert_eq!(grid.get_soft_cost(IVec2::new(-1, 0)), 0, "OOB soft cost should be 0");
-        assert_eq!(grid.get_soft_cost(IVec2::new(0, 5)), 0, "OOB soft cost should be 0");
+        assert_eq!(
+            grid.get_soft_cost(IVec2::new(-1, 0)),
+            0,
+            "OOB soft cost should be 0"
+        );
+        assert_eq!(
+            grid.get_soft_cost(IVec2::new(0, 5)),
+            0,
+            "OOB soft cost should be 0"
+        );
     }
 
     #[test]
@@ -150,25 +268,34 @@ mod tests {
         grid.set_cell(1, 1, u16::MAX, 0);
         grid.set_cell(2, 2, u16::MAX, 0);
         grid.set_cell(3, 3, u16::MAX, 0);
-        
+
         // Act
         let obstacles = grid.hard_obstacles();
 
         // Assert
         assert_eq!(obstacles.len(), 3, "Should return exactly 3 obstacles");
-        assert!(obstacles.contains(&IVec2::new(1, 1)), "Should contain (1, 1)");
-        assert!(obstacles.contains(&IVec2::new(2, 2)), "Should contain (2, 2)");
-        assert!(obstacles.contains(&IVec2::new(3, 3)), "Should contain (3, 3)");
+        assert!(
+            obstacles.contains(&IVec2::new(1, 1)),
+            "Should contain (1, 1)"
+        );
+        assert!(
+            obstacles.contains(&IVec2::new(2, 2)),
+            "Should contain (2, 2)"
+        );
+        assert!(
+            obstacles.contains(&IVec2::new(3, 3)),
+            "Should contain (3, 3)"
+        );
     }
 
     #[test]
     fn test_terrain_set_cell_bounds_check() {
         // Arrange
         let mut grid = TerrainGrid::new(5, 5, 20.0);
-        
+
         // Act
         grid.set_cell(5, 5, 200, 50); // OOB, should not panic
-        
+
         // Assert
         // Verified by not panicking during 'Act' phase
     }
@@ -179,13 +306,19 @@ mod tests {
         let mut grid = TerrainGrid::new(5, 5, 20.0);
         grid.set_cell(1, 1, u16::MAX, 0);
         grid.set_cell(2, 2, 200, 30);
-        
+
         // Act
         grid.reset();
-        
+
         // Assert
-        assert!(grid.hard_costs.iter().all(|&c| c == 100), "All hard costs should be reset to 100");
-        assert!(grid.soft_costs.iter().all(|&c| c == 100), "All soft costs should be reset to 100");
+        assert!(
+            grid.hard_costs.iter().all(|&c| c == 100),
+            "All hard costs should be reset to 100"
+        );
+        assert!(
+            grid.soft_costs.iter().all(|&c| c == 100),
+            "All soft costs should be reset to 100"
+        );
     }
 
     #[test]
@@ -193,27 +326,181 @@ mod tests {
         // Arrange
         let mut original = TerrainGrid::new(5, 5, 20.0);
         original.set_cell(2, 3, u16::MAX, 0);
-        
+
         // Act
         let json = serde_json::to_string(&original).unwrap();
         let deserialized: TerrainGrid = serde_json::from_str(&json).unwrap();
-        
+
         // Assert
         assert_eq!(original.width, deserialized.width, "Width should match");
         assert_eq!(original.height, deserialized.height, "Height should match");
-        assert_eq!(original.hard_costs, deserialized.hard_costs, "Hard costs should match");
-        assert_eq!(original.soft_costs, deserialized.soft_costs, "Soft costs should match");
+        assert_eq!(
+            original.hard_costs, deserialized.hard_costs,
+            "Hard costs should match"
+        );
+        assert_eq!(
+            original.soft_costs, deserialized.soft_costs,
+            "Soft costs should match"
+        );
     }
 
     #[test]
     fn test_terrain_world_to_cell_conversion() {
         // Arrange
         let grid = TerrainGrid::new(5, 5, 20.0);
-        
+
         // Act
         let cell = grid.world_to_cell(25.0, 45.0);
-        
+
         // Assert
-        assert_eq!(cell, IVec2::new(1, 2), "World pos (25.0, 45.0) should map to cell (1, 2)");
+        assert_eq!(
+            cell,
+            IVec2::new(1, 2),
+            "World pos (25.0, 45.0) should map to cell (1, 2)"
+        );
+    }
+
+    // ── 3-Tier Terrain Helper Tests ───────────────────────────────────
+
+    #[test]
+    fn test_tier_thresholds_injectable() {
+        let mut grid = TerrainGrid::new(5, 5, 20.0);
+        grid.impassable_threshold = u16::MAX;
+        grid.destructible_min = 60_001;
+
+        assert!(
+            grid.destructible_min > 100,
+            "Destructible min must be above passable"
+        );
+        assert_eq!(
+            grid.impassable_threshold,
+            u16::MAX,
+            "Permanent wall threshold can be set"
+        );
+    }
+
+    #[test]
+    fn test_destructible_disabled_by_default() {
+        let mut grid = TerrainGrid::new(5, 5, 20.0);
+        grid.set_cell(2, 2, 60_001, 100);
+        assert!(
+            !grid.is_destructible(IVec2::new(2, 2)),
+            "Destructible feature should be disabled by default"
+        );
+    }
+
+    #[test]
+    fn test_is_destructible_tier1() {
+        let mut grid = TerrainGrid::new(5, 5, 20.0);
+        grid.impassable_threshold = u16::MAX;
+        grid.destructible_min = 60_001;
+        grid.set_cell(2, 2, grid.destructible_min, 100);
+        assert!(grid.is_destructible(IVec2::new(2, 2)));
+    }
+
+    #[test]
+    fn test_is_destructible_passable_returns_false() {
+        let mut grid = TerrainGrid::new(5, 5, 20.0);
+        grid.impassable_threshold = u16::MAX;
+        grid.destructible_min = 60_001;
+        assert!(!grid.is_destructible(IVec2::new(0, 0)));
+    }
+
+    #[test]
+    fn test_is_destructible_permanent_returns_false() {
+        let mut grid = TerrainGrid::new(5, 5, 20.0);
+        grid.impassable_threshold = u16::MAX;
+        grid.destructible_min = 60_001;
+        grid.set_cell(2, 2, grid.impassable_threshold, 0);
+        assert!(!grid.is_destructible(IVec2::new(2, 2)));
+    }
+
+    #[test]
+    fn test_is_permanent_wall() {
+        let mut grid = TerrainGrid::new(5, 5, 20.0);
+        grid.impassable_threshold = u16::MAX;
+        grid.set_cell(1, 1, grid.impassable_threshold, 0);
+        assert!(grid.is_permanent_wall(IVec2::new(1, 1)));
+        assert!(!grid.is_permanent_wall(IVec2::new(0, 0)));
+    }
+
+    #[test]
+    fn test_is_wall_both_tiers() {
+        let mut grid = TerrainGrid::new(5, 5, 20.0);
+        grid.impassable_threshold = u16::MAX;
+        grid.destructible_min = 60_001;
+        grid.set_cell(1, 1, grid.destructible_min, 100);
+        grid.set_cell(2, 2, grid.impassable_threshold, 0);
+
+        assert!(grid.is_wall(IVec2::new(1, 1)), "Destructible is a wall");
+        assert!(grid.is_wall(IVec2::new(2, 2)), "Permanent is a wall");
+        assert!(!grid.is_wall(IVec2::new(0, 0)), "Passable is not a wall");
+    }
+
+    #[test]
+    fn test_damage_cell_permanent_wall_immune() {
+        let mut grid = TerrainGrid::new(5, 5, 20.0);
+        grid.impassable_threshold = u16::MAX;
+        grid.destructible_min = 60_001;
+        grid.set_cell(2, 2, grid.impassable_threshold, 0);
+
+        let collapsed = grid.damage_cell(IVec2::new(2, 2), 10_000);
+        assert!(!collapsed, "Permanent wall should be immune to damage");
+        assert_eq!(
+            grid.get_hard_cost(IVec2::new(2, 2)),
+            grid.impassable_threshold
+        );
+    }
+
+    #[test]
+    fn test_damage_cell_destructible_reduces() {
+        let mut grid = TerrainGrid::new(5, 5, 20.0);
+        grid.impassable_threshold = u16::MAX;
+        grid.destructible_min = 60_001;
+        let initial = grid.destructible_min + 500;
+        grid.set_cell(2, 2, initial, 100);
+
+        let collapsed = grid.damage_cell(IVec2::new(2, 2), 100);
+        assert!(!collapsed, "Wall should not collapse with small damage");
+        assert_eq!(grid.get_hard_cost(IVec2::new(2, 2)), initial - 100);
+    }
+
+    #[test]
+    fn test_damage_cell_destructible_collapses() {
+        let mut grid = TerrainGrid::new(5, 5, 20.0);
+        grid.impassable_threshold = u16::MAX;
+        grid.destructible_min = 60_001;
+        grid.set_cell(2, 2, grid.destructible_min, 100);
+
+        let collapsed = grid.damage_cell(IVec2::new(2, 2), grid.destructible_min);
+        assert!(
+            collapsed,
+            "Wall should collapse when damage exceeds threshold"
+        );
+        assert_eq!(
+            grid.get_hard_cost(IVec2::new(2, 2)),
+            100,
+            "Collapsed wall becomes passable"
+        );
+    }
+
+    #[test]
+    fn test_damage_cell_passable_no_effect() {
+        let mut grid = TerrainGrid::new(5, 5, 20.0);
+        grid.impassable_threshold = u16::MAX;
+        grid.destructible_min = 60_001;
+        let collapsed = grid.damage_cell(IVec2::new(0, 0), 1000);
+        assert!(
+            !collapsed,
+            "Passable terrain should not be affected by damage"
+        );
+        assert_eq!(grid.get_hard_cost(IVec2::new(0, 0)), 100);
+    }
+
+    #[test]
+    fn test_damage_cell_oob_safe() {
+        let mut grid = TerrainGrid::new(5, 5, 20.0);
+        let collapsed = grid.damage_cell(IVec2::new(-1, -1), 1000);
+        assert!(!collapsed, "OOB damage should return false");
     }
 }

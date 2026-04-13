@@ -36,15 +36,9 @@ pub enum RemovalCondition {
 }
 
 impl Default for RemovalRuleSet {
-    /// Swarm demo default: remove when stat[0] (health) <= 0.0.
+    /// Empty ruleset — no entity removal unless configured by game profile.
     fn default() -> Self {
-        Self {
-            rules: vec![RemovalRule {
-                stat_index: 0,
-                threshold: 0.0,
-                condition: RemovalCondition::LessOrEqual,
-            }],
-        }
+        Self { rules: vec![] }
     }
 }
 
@@ -55,14 +49,29 @@ mod tests {
     #[test]
     fn test_removal_rule_set_default() {
         let ruleset = RemovalRuleSet::default();
+        assert_eq!(ruleset.rules.len(), 0);
+    }
+
+    #[test]
+    fn test_removal_rule_explicit_construction() {
+        let ruleset = RemovalRuleSet {
+            rules: vec![RemovalRule {
+                stat_index: 1,
+                threshold: 50.0,
+                condition: RemovalCondition::GreaterOrEqual,
+            }],
+        };
         assert_eq!(ruleset.rules.len(), 1);
-        assert_eq!(ruleset.rules[0].stat_index, 0);
-        assert_eq!(ruleset.rules[0].condition, RemovalCondition::LessOrEqual);
+        assert_eq!(ruleset.rules[0].stat_index, 1);
+        assert_eq!(ruleset.rules[0].condition, RemovalCondition::GreaterOrEqual);
     }
 
     #[test]
     fn test_removal_condition_variants() {
-        assert_ne!(RemovalCondition::LessOrEqual, RemovalCondition::GreaterOrEqual);
+        assert_ne!(
+            RemovalCondition::LessOrEqual,
+            RemovalCondition::GreaterOrEqual
+        );
     }
 
     #[test]

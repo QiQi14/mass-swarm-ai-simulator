@@ -7,6 +7,10 @@
 //! - **Task:** task_03_flow_field_registry
 //! - **Contract:** implementation_plan.md → Contract 4
 //!
+//! **File Size Rationale:** This module implements a single Dijkstra-based flow field
+//! algorithm. The 500+ lines are due to the integration field computation + inline tests.
+//! All functions share the same `FlowField` data structure. Keep as single file.
+//!
 //! ## Algorithm
 //! 1. Integration Field: Multi-source Chamfer Dijkstra (BinaryHeap)
 //!    - Orthogonal cost: 10, Diagonal cost: 14
@@ -157,7 +161,9 @@ impl FlowField {
                     .unwrap_or(100);
 
                 // Absolute wall — skip entirely (never enters BFS queue)
-                if terrain_penalty == u16::MAX { continue; }
+                if terrain_penalty == u16::MAX {
+                    continue;
+                }
 
                 // Integer math: (10 × 200) / 100 = 20 (double cost for mud)
                 let effective_cost = (move_cost * terrain_penalty as u32) / 100;
@@ -191,7 +197,8 @@ impl FlowField {
                 let get_cost = |nx: i32, ny: i32| -> u16 {
                     let n = IVec2::new(nx, ny);
                     if self.in_bounds(n) && !obstacle_set.contains(&n) {
-                        let neighbor_cost = cost_map.map(|cm| cm[self.cell_index(n)]).unwrap_or(100);
+                        let neighbor_cost =
+                            cost_map.map(|cm| cm[self.cell_index(n)]).unwrap_or(100);
                         if neighbor_cost == u16::MAX {
                             current_cost
                         } else {
@@ -396,7 +403,7 @@ mod tests {
         ff.calculate(&[Vec2::new(4.5, 1.5)], &[IVec2::new(2, 1)], None);
 
         // Assert — Obstacle cell should have MAX cost
-        assert_eq!(ff.costs[1 * 5 + 2], u16::MAX, "Obstacle must have MAX cost");
+        assert_eq!(ff.costs[5 + 2], u16::MAX, "Obstacle must have MAX cost");
 
         // Cell (1,1) near obstacle should route around
         let dir = ff.sample(Vec2::new(1.5, 1.5));
@@ -451,7 +458,7 @@ mod tests {
 
         // Act
         ff1.calculate(&[Vec2::new(2.5, 2.5)], &[], None);
-        ff2.calculate(&[Vec2::new(2.5, 2.5)], &[], Some(&vec![100; 25]));
+        ff2.calculate(&[Vec2::new(2.5, 2.5)], &[], Some(&[100; 25]));
 
         // Assert
         assert_eq!(ff1.costs, ff2.costs);
@@ -486,7 +493,11 @@ mod tests {
 
         // Assert
         assert_eq!(ff.costs[1], u16::MAX, "Wall cell should have MAX cost");
-        assert_eq!(ff.costs[0], u16::MAX, "Cell blocked by wall should be unreachable");
+        assert_eq!(
+            ff.costs[0],
+            u16::MAX,
+            "Cell blocked by wall should be unreachable"
+        );
     }
 
     #[test]

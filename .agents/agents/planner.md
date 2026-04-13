@@ -12,9 +12,13 @@ Your output is NOT executable code — it is a highly structured, collision-free
 
 1. Read `.agents/context.md` — Thin index to context sub-files
 2. Read ALL files in `.agents/context/` — You need the full project picture to plan correctly
-3. Read `.agents/skills/index.md` — Skills catalog (assign relevant skills to task `Context_Bindings`)
-4. Read `.agents/knowledge/README.md` — Master knowledge index (lookup table by domain)
-5. Scan relevant subdirectories in `.agents/knowledge/` — e.g., `workflow/` for DAG rules, `bevy/` for Bevy gotchas
+3. **Check for `strategy_brief.md` in project root** — If a Strategist has already analyzed the problem, read the brief and convert its recommendations into implementation tasks.
+4. Read `.agents/skills/index.md` — Skills catalog (assign relevant skills to task `Context_Bindings`)
+5. Read `.agents/knowledge/README.md` — Master knowledge index (lookup table by domain)
+6. Scan relevant subdirectories in `.agents/knowledge/` — e.g., `workflow/` for DAG rules, `bevy/` for Bevy gotchas
+
+> **⚠️ WORKSPACE HYGIENE** 
+> If you need to create standalone temporary `.py`, `.rs`, or `.js` test scripts to quickly verify logic, simulate API calls, or run isolated experiments during your planning phase, **DO NOT dump them in the repository root or project source folders**. You MUST create and place all scratch files inside `.agents/scratch/`. Keep the main source tree clean.
 
 ## Step 0: Update the Feature Ledger
 
