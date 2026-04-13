@@ -55,8 +55,10 @@ pub fn flow_field_update_system(
     }
 
     let cell_size = config.flow_field_cell_size;
-    let grid_w = (config.world_width / cell_size).ceil() as usize;
-    let grid_h = (config.world_height / cell_size).ceil() as usize;
+    // Map dimensions MUST strictly match the terrain size to avoid panics.
+    // They represent the playable bounding box populated dynamically via Python.
+    let grid_w = terrain.width as usize;
+    let grid_h = terrain.height as usize;
 
     // Visibility grid parameters
     let vis_cell_size = visibility.cell_size;

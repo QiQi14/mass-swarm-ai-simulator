@@ -1,0 +1,385 @@
+# Feature 3: Spawn Generators & Terrain (Tasks 03–04)
+
+## Purpose
+
+Create new spawn generators for Stages 5 (AoE cone flanking), 6 (AoE circle spread), and 7 (kinetic penetration screening), plus a V-wall terrain generator for Stage 5. Update Stage 8 randomized pool to include new stages.
+
+---
+
+## Task 03: Spawn Generators
+
+### Target Files
+
+- `macro-brain/src/training/curriculum.py`
+
+### Dependencies
+
+None (Phase 1 — spawn generators are independent of combat rules)
+
+### Context Bindings
+
+- `context/training` (existing spawn patterns, map configs)
+
+---
+
+### Strict Instructions
+
+#### Step 1: Update `STAGE_MAP_CONFIGS` (no changes needed)
+
+The existing map configs already match the strategy brief:
+- Stage 5: 800×800, 40×40, fog=True ✅
+- Stage 6: 1000×1000, 50×50, fog=True ✅  
+- Stage 7: 1000×1000, 50×50, fog=True ✅
+
+#### Step 2: Rewrite `_spawns_stage5()`
+
+Replace the placeholder stage 5 spawn generator with the AoE cone flanking scenario:
+
+```python
+def _spawns_stage5(rng: Generator | None = None, profile: GameProfile | None = None) -> tuple[list[dict], dict]:
+    """Stage 5: Forced Flanking — AoE Cone Enemy (800×800).
+    
+    Brain (60 units) spawns at left edge.
+    Enemy (30 × 200 HP) HoldPosition at the V-chokepoint center.
+    Enemy has AoE cone weapon — frontal charge = death, flanking = win.
+    
+    Combat math: see strategy_brief.md §4 Stage 5.
+    """
+    brain_count = 60
+    enemy_count = 30
+    
+    # Enemy faction ID — randomize to prevent faction memorization
+    enemy_fid = 1 if rng is None or rng.random() > 0.5 else 2
+    
+    # Brain at left edge, slight Y jitter
+    brain_y = 400.0 + (rng.uniform(-60, 60) if rng is not None else 0.0)
+    
+    # Enemy at center (chokepoint)
+    enemy_x = 400.0 + (rng.uniform(-20, 20) if rng is not None else 0.0)
+    enemy_y = 400.0 + (rng.uniform(-20, 20) if rng is not None else 0.0)
+    
+    spawns = [
+        {"faction_id": 0, "count": brain_count, "x": 100.0, "y": brain_y,
+         "spread": 60.0, "stats": [{"index": 0, "value": 100.0}]},
+        {"faction_id": enemy_fid, "count": enemy_count, "x": enemy_x, "y": enemy_y,
+         "spread": 40.0, "stats": [{"index": 0, "value": 200.0}]},
+    ]
+    return spawns, {"trap_faction": enemy_fid, "target_faction": enemy_fid}
+```
+
+#### Step 3: Rewrite `_spawns_stage6()`
+
+Replace with the AoE circle spread formation scenario:
+
+```python
+def _spawns_stage6(rng: Generator | None = None, profile: GameProfile | None = None) -> tuple[list[dict], dict]:
+    """Stage 6: Spread Formation — AoE Circle Enemy (1000×1000).
+    
+    Brain (60 units) spawns at center.
+    Enemy (40 × 150 HP) Charge behavior with AoE Circle splash.
+    Enemy rushes brain — if brain clumps, AoE circle wipes them.
+    Brain must spread using Retreat + DropRepellent.
+    
+    Combat math: see strategy_brief.md §4 Stage 6.
+    """
+    brain_count = 60
+    enemy_count = 40
+    
+    enemy_fid = 1 if rng is None or rng.random() > 0.5 else 2
+    
+    # Brain at center
+    brain_x = 500.0 + (rng.uniform(-40, 40) if rng is not None else 0.0)
+    brain_y = 500.0 + (rng.uniform(-40, 40) if rng is not None else 0.0)
+    
+    # Enemy at random edge
+    if rng is not None:
+        edge = rng.integers(0, 4)
+    else:
+        edge = 0
+    
+    edge_positions = [
+        (100.0, 500.0),   # left
+        (900.0, 500.0),   # right
+        (500.0, 100.0),   # top
+        (500.0, 900.0),   # bottom
+    ]
+    enemy_x, enemy_y = edge_positions[edge]
+    
+    spawns = [
+        {"faction_id": 0, "count": brain_count, "x": brain_x, "y": brain_y,
+         "spread": 60.0, "stats": [{"index": 0, "value": 100.0}]},
+        {"faction_id": enemy_fid, "count": enemy_count, "x": enemy_x, "y": enemy_y,
+         "spread": 40.0, "stats": [{"index": 0, "value": 150.0}]},
+    ]
+    return spawns, {"trap_faction": enemy_fid, "target_faction": enemy_fid}
+```
+
+#### Step 4: Rewrite `_spawns_stage7()`
+
+Replace with the kinetic penetration + heterogeneous army scenario:
+
+```python
+def _spawns_stage7(rng: Generator | None = None, profile: GameProfile | None = None) -> tuple[list[dict], dict]:
+    """Stage 7: Screening — Kinetic Penetration + Heterogeneous Army (1000×1000).
+    
+    Brain heterogeneous:
+      Class 0 (Infantry): 35 × 80 HP, standard speed
+      Class 1 (Tank):     15 × 300 HP, stat[4]=0.8 absorption, slower
+    
+    Enemy turrets: 10 × 200 HP, HoldPosition, Kinetic Penetration weapon.
+    Protected HVT: 10 × 60 HP, HoldPosition behind turrets.
+    
+    Brain must route Tanks in front of Infantry to absorb kinetic rays.
+    
+    Combat math: see strategy_brief.md §4 Stage 7.
+    """
+    # Enemy faction assignments
+    turret_fid = 1 if rng is None or rng.random() > 0.5 else 2
+    hvt_fid = 2 if turret_fid == 1 else 1
+    
+    # Brain at left side
+    brain_y = 500.0 + (rng.uniform(-80, 80) if rng is not None else 0.0)
+    
+    # Turrets at 2/3 distance
+    turret_x = 650.0 + (rng.uniform(-30, 30) if rng is not None else 0.0)
+    turret_y = 500.0 + (rng.uniform(-40, 40) if rng is not None else 0.0)
+    
+    # HVT behind turrets
+    hvt_x = turret_x + 100.0
+    hvt_y = turret_y
+    
+    spawns = [
+        # Brain Infantry (class 0)
+        {"faction_id": 0, "count": 35, "x": 100.0, "y": brain_y,
+         "spread": 60.0, "stats": [{"index": 0, "value": 80.0}],
+         "unit_class_id": 0},
+        # Brain Tanks (class 1) — slightly behind infantry
+        {"faction_id": 0, "count": 15, "x": 80.0, "y": brain_y,
+         "spread": 40.0,
+         "stats": [{"index": 0, "value": 300.0}, {"index": 4, "value": 0.8}],
+         "unit_class_id": 1},
+        # Enemy turrets
+        {"faction_id": turret_fid, "count": 10, "x": turret_x, "y": turret_y,
+         "spread": 60.0, "stats": [{"index": 0, "value": 200.0}]},
+        # Protected HVT
+        {"faction_id": hvt_fid, "count": 10, "x": hvt_x, "y": hvt_y,
+         "spread": 40.0, "stats": [{"index": 0, "value": 60.0}]},
+    ]
+    return spawns, {"trap_faction": turret_fid, "target_faction": hvt_fid}
+```
+
+#### Step 5: Update `_spawns_stage8()`
+
+Include Stages 3, 4, 5, 6, 7 in the pool:
+
+```python
+def _spawns_stage8(rng: Generator | None = None, profile: GameProfile | None = None) -> tuple[list[dict], dict]:
+    """Stage 8: Randomized — picks from Stages 1-7."""
+    stage_choices = [1, 2, 3, 4, 5, 6, 7]
+    if rng is not None:
+        idx = rng.integers(0, len(stage_choices))
+        choice = stage_choices[idx]
+    else:
+        import random
+        choice = random.choice(stage_choices)
+    
+    generators = {
+        1: _spawns_stage1,
+        2: _spawns_stage2,
+        3: _spawns_stage3,
+        4: _spawns_stage4,
+        5: _spawns_stage5,
+        6: _spawns_stage6,
+        7: _spawns_stage7,
+    }
+    return generators[choice](rng=rng, profile=profile)
+```
+
+> [!IMPORTANT]
+> **Stage 8 also needs the correct combat rules for the chosen sub-stage.** This is handled in Task 05 (SwarmEnv integration). The spawns function must also return the chosen sub-stage number. Add a `_stage8_choice` field or modify the return signature.
+
+**Revised approach for Stage 8 sub-stage tracking:**
+
+Add a module-level variable to track the last Stage 8 choice:
+
+```python
+_last_stage8_choice: int = 1  # Module-level, set by _spawns_stage8
+
+def _spawns_stage8(rng, profile):
+    global _last_stage8_choice
+    # ... pick choice ...
+    _last_stage8_choice = choice
+    return generators[choice](rng=rng, profile=profile)
+
+def get_last_stage8_choice() -> int:
+    """Return which sub-stage was picked for the last Stage 8 episode."""
+    return _last_stage8_choice
+```
+
+---
+
+## Task 04: V-Wall Terrain Generator
+
+### Target Files
+
+- `macro-brain/src/utils/terrain_generator.py`
+
+### Dependencies
+
+None (Phase 1)
+
+### Context Bindings
+
+- `context/training` (terrain conventions)
+- `context/engine` (terrain cost model)
+
+### Strict Instructions
+
+#### Add `generate_stage5_terrain()` to `terrain_generator.py`
+
+```python
+def generate_stage5_terrain(seed: int | None = None) -> dict:
+    """Stage 5: V-shaped wall chokepoint for forced flanking.
+    
+    Layout (40×40 active grid, cell_size=20 → 800×800 world):
+      - Open left side (brain spawn zone)
+      - V-shaped permanent wall at center, opening toward brain
+      - Open flanks above and below the V
+      - Enemy sits at the V's apex
+    
+    The brain MUST flank around the V arms; frontal charge through
+    the narrow opening = AoE cone death zone.
+    
+    V geometry (in grid coords, active 40×40):
+      Left tip: x=15, y=20 (center of map)
+      Upper arm: from (15,20) to (30,8)  — wall thickness 2
+      Lower arm: from (15,20) to (30,32) — wall thickness 2
+    
+    NOTE: Uses ACTIVE grid size (40×40), NOT full 50×50.
+    """
+    from src.training.curriculum import get_map_config
+    config = get_map_config(5)
+    w, h = config.active_grid_w, config.active_grid_h  # 40×40
+    
+    hard = np.full((h, w), TIER0_PASSABLE, dtype=np.uint16)
+    soft = np.full((h, w), TIER0_PASSABLE, dtype=np.uint16)
+    
+    rng = np.random.default_rng(seed)
+    
+    # V-wall parameters
+    tip_x, tip_y = 15, 20  # Left tip (narrow end toward brain)
+    end_x = 30              # Right end of V arms
+    
+    # Slight randomization to prevent memorization
+    tip_x += int(rng.integers(-1, 2))
+    upper_end_y = 8 + int(rng.integers(-2, 3))
+    lower_end_y = 32 + int(rng.integers(-2, 3))
+    
+    # Draw upper arm: line from (tip_x, tip_y) to (end_x, upper_end_y)
+    _draw_thick_line(hard, tip_x, tip_y, end_x, upper_end_y, thickness=2)
+    
+    # Draw lower arm: line from (tip_x, tip_y) to (end_x, lower_end_y)
+    _draw_thick_line(hard, tip_x, tip_y, end_x, lower_end_y, thickness=2)
+    
+    return {
+        "hard_costs": hard.flatten().tolist(),
+        "soft_costs": soft.flatten().tolist(),
+        "width": w,
+        "height": h,
+        "cell_size": config.cell_size,
+    }
+
+
+def _draw_thick_line(grid: np.ndarray, x0: int, y0: int, x1: int, y1: int, thickness: int = 2):
+    """Draw a thick line of permanent walls using Bresenham's algorithm.
+    
+    Wall value: TIER2_PERMANENT (65535).
+    """
+    h, w = grid.shape
+    # Bresenham's line
+    dx = abs(x1 - x0)
+    dy = abs(y1 - y0)
+    sx = 1 if x0 < x1 else -1
+    sy = 1 if y0 < y1 else -1
+    err = dx - dy
+    
+    cx, cy = x0, y0
+    while True:
+        # Draw thick point (circle of radius thickness)
+        for ty in range(-thickness, thickness + 1):
+            for tx in range(-thickness, thickness + 1):
+                if tx * tx + ty * ty <= thickness * thickness:
+                    gx, gy = cx + tx, cy + ty
+                    if 0 <= gx < w and 0 <= gy < h:
+                        grid[gy, gx] = TIER2_PERMANENT
+        
+        if cx == x1 and cy == y1:
+            break
+        e2 = 2 * err
+        if e2 > -dy:
+            err -= dy
+            cx += sx
+        if e2 < dx:
+            err += dx
+            cy += sy
+```
+
+#### Update `generate_terrain_for_stage()` dispatch
+
+Add Stage 5 to the dispatch:
+
+```python
+def generate_terrain_for_stage(stage: int, seed: int | None = None) -> dict | None:
+    if stage <= 1:
+        return generate_flat_terrain()
+    elif stage == 2:
+        return generate_stage2_terrain(seed=seed)
+    elif stage == 3:
+        return generate_stage3_terrain(seed=seed)
+    elif stage == 5:
+        return generate_stage5_terrain(seed=seed)  # ← NEW
+    elif stage == 6:
+        return generate_flat_terrain()  # Open field for spread
+    else:
+        return generate_complex_terrain(seed=seed)
+```
+
+> [!NOTE]
+> **Stage 6 terrain:** Open field (flat). The AoE circle mechanic doesn't need terrain — it works purely via damage physics.
+>
+> **Stage 7 terrain:** Also flat/simple. The turret + HVT positions create the strategic landscape, not walls.
+
+---
+
+## Verification Strategy
+
+### Task 03 (Spawns)
+
+```yaml
+Verification_Strategy:
+  Test_Type: unit
+  Test_Stack: Python / pytest
+  Acceptance_Criteria:
+    - "Stage 5 spawns exactly 2 groups (brain=60, enemy=30)"
+    - "Stage 5 enemy has 200 HP stats"
+    - "Stage 6 spawns brain(60) at center and enemy(40) at edge"
+    - "Stage 6 enemy has 150 HP stats"
+    - "Stage 7 spawns 4 groups: infantry(35), tanks(15), turrets(10), hvt(10)"
+    - "Stage 7 infantry has unit_class_id=0 with 80 HP"
+    - "Stage 7 tanks have unit_class_id=1 with 300 HP and stat[4]=0.8"
+    - "Stage 8 pool includes stages 1-7"
+    - "get_last_stage8_choice() returns the correct sub-stage"
+```
+
+### Task 04 (Terrain)
+
+```yaml
+Verification_Strategy:
+  Test_Type: unit
+  Test_Stack: Python / pytest
+  Acceptance_Criteria:
+    - "generate_stage5_terrain() returns dict with 'hard_costs' of length 1600 (40×40)"
+    - "V-wall cells are 65535"
+    - "Cells away from V-wall are 100"
+    - "Stage 6 terrain is flat (generate_flat_terrain)"
+```

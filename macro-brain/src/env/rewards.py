@@ -287,7 +287,7 @@ def compute_shaped_reward(
         own_lost = max(0, prev_own - curr_own)
         
         if stage == 4:
-            own_lost = 0  # Eliminate the dead penalty for Stage 4
+            own_lost = 0  # Eliminate death penalty for Stage 4 (fog)
 
         reward += enemies_killed * reward_weights.kill_reward
         reward += own_lost * reward_weights.death_penalty  # death_penalty is negative
@@ -303,8 +303,8 @@ def compute_shaped_reward(
         elif curr_own == 0 and prev_own > 0:
             reward += reward_weights.loss_terminal  # loss_terminal is negative
 
-    # ── 5. EXPLORATION (Stages 2, 4, 7, 8) ─────────────────────
-    if stage in (2, 4, 7, 8) and fog_explored is not None:
+    # ── 5. EXPLORATION (Fog-enabled stages: 4+) ────────────────────
+    if stage >= 4 and fog_explored is not None:
         reward += exploration_reward(
             fog_explored, prev_fog_explored,
             reward_weights.exploration_reward,

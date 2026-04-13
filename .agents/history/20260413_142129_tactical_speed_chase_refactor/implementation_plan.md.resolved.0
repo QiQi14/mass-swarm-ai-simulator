@@ -1,0 +1,219 @@
+# Curriculum v5.0: Physics-Enforced Tactical Training
+
+## Goal
+
+Redesign stages 5–8 of the training curriculum to exploit the new AoE, Penetration, and heterogeneous unit engine features. Stages 0–4 are unchanged. The new stages teach flanking (AoE cone), spread formation (AoE circle), and screening (kinetic penetration) through **physics** — not reward engineering.
+
+## Design Principles (from Strategy Brief)
+
+1. **One skill per stage** — never overload
+2. **Physics, not rewards** — engine mechanics make the correct strategy numerically superior
+3. **Brute-force impossible** — "ball up and rush" must fail (verified via combat math)
+4. **No Rust changes** — all engine features (AoE, Penetration, UnitTypeRegistry) already exist 
+5. **Stage-specific combat rules** — constructed in Python and sent via the reset payload
+
+> [!IMPORTANT]
+> **Critical Gap:** The Python `CombatRuleConfig` dataclass and `_build_combat_rule()` method currently have **no** `aoe` or `penetration` fields. These must be added before Stages 5–7 can send the new interaction rules to Rust. This is the foundational Task 01.
+
+---
+
+## User Review Required
+
+> [!IMPORTANT]
+> **Open Questions from Strategy Brief** (need answers before execution):
+> 
+> 1. **Stage 5 map size** — Keep 800×800 or expand to 1000×1000? (Plan uses 800×800 as per brief)
+> 2. **Stage 6 action unlock** — Retreat is the new action at Stage 6. Is this correct, or should it move earlier?
+> 3. **Stage 7 acclimation** — Should we add a Stage 6.5 for heterogeneous intro WITHOUT screening? (Plan assumes NO — Stage 7 jumps straight to heterogeneous)
+> 4. **Profile structure** — Plan uses stage-specific combat rules constructed in Python at reset time (not embedded in the master profile). This is the most flexible approach.
+> 5. **ch6 activation** — Should ch6 become "allied sub-faction density" for flanking geometry? (Plan defers this to a future task — it requires vectorizer changes outside curriculum scope)
+
+---
+
+## Architecture: Stage-Specific Combat Rules
+
+The current system sends `self.profile.combat_rules_payload()` at reset — a fixed set of 4 basic melee rules. The new design adds a **stage-specific override layer**:
+
+```python
+# In SwarmEnv.reset():
+base_rules = self.profile.combat_rules_payload()       # Basic melee (Stages 0-4)
+stage_rules = get_stage_combat_rules(self.curriculum_stage)  # NEW: AoE/penetration rules
+all_rules = base_rules + stage_rules                    # Merged list
+payload["combat_rules"] = all_rules
+```
+
+This is **additive** — basic melee rules always apply. Stages 5+ add extra AoE/penetration rules on top.
+
+### Shared Contracts
+
+#### AoE Combat Rule Payload (Python → Rust JSON)
+
+```json
+{
+  "source_faction": 1,
+  "target_faction": 0,
+  "range": 80.0,
+  "effects": [{"stat_index": 0, "delta_per_second": -15.0}],
+  "source_class": 0,
+  "aoe": {
+    "shape": {
+      "type": "ConvexPolygon",
+      "vertices": [[80.0, 0.0], [-10.0, 46.0], [-10.0, -46.0]],
+      "rotation_mode": "TargetAligned"
+    },
+    "falloff": "Linear"
+  }
+}
+```
+
+#### Penetration Combat Rule Payload (Python → Rust JSON)
+
+```json
+{
+  "source_faction": 1,
+  "target_faction": 0,
+  "range": 200.0,
+  "effects": [{"stat_index": 0, "delta_per_second": -30.0}],
+  "cooldown_ticks": 60,
+  "penetration": {
+    "ray_width": 3.0,
+    "energy_model": {"Kinetic": {"base_energy": 200.0}},
+    "absorption_stat_index": 4,
+    "absorption_ignores_mitigation": true
+  }
+}
+```
+
+#### Unit Type Definitions Payload (Python → Rust JSON)
+
+```json
+{
+  "unit_types": [
+    {
+      "class_id": 0,
+      "stats": [{"index": 0, "value": 80.0}],
+      "engagement_range": 0.0
+    },
+    {
+      "class_id": 1,
+      "stats": [{"index": 0, "value": 300.0}, {"index": 4, "value": 0.8}],
+      "engagement_range": 0.0,
+      "movement": {"max_speed": 40.0}
+    }
+  ]
+}
+```
+
+---
+
+## DAG Execution Phases
+
+```mermaid
+graph TD
+    T01[Task 01: Python Config Extensions<br>AoE + Penetration dataclasses]
+    T02[Task 02: Stage-Specific Combat Rule Builder<br>get_stage_combat_rules]
+    T03[Task 03: New Spawn Generators<br>Stages 5, 6, 7]
+    T04[Task 04: V-Wall Terrain Generator<br>Stage 5 chokepoint]
+    T05[Task 05: SwarmEnv Integration<br>Stage-specific rules + unit_types]
+    T06[Task 06: Profile & Curriculum Updates<br>Stage descriptions, bot behaviors, graduation]
+    T07[Task 07: Reward Tuning<br>AoE survival + spread metrics]
+    T08[Task 08: Integration Testing<br>Smoke test + combat math validation]
+
+    T01 --> T02
+    T01 --> T03
+    T01 --> T04
+    T02 --> T05
+    T03 --> T05
+    T04 --> T05
+    T05 --> T06
+    T05 --> T07
+    T06 --> T08
+    T07 --> T08
+```
+
+### Phase 1 (Parallel — No Dependencies)
+| Task | Domain | Files | Tier | Impact |
+|------|--------|-------|------|--------|
+| Task 01 | Config | `definitions.py`, `parser.py`, `game_profile.py` | standard | additive |
+| Task 03 | Training | `curriculum.py` | standard | additive |
+| Task 04 | Training | `terrain_generator.py` | basic | additive |
+
+### Phase 2 (Depends on Task 01)
+| Task | Domain | Files | Tier | Impact |
+|------|--------|-------|------|--------|
+| Task 02 | Training | `stage_combat_rules.py` [NEW] | standard | additive |
+
+### Phase 3 (Depends on Tasks 02, 03, 04)
+| Task | Domain | Files | Tier | Impact |
+|------|--------|-------|------|--------|
+| Task 05 | RL Env | `swarm_env.py` | standard | destructive |
+
+### Phase 4a (Depends on Task 05)
+| Task | Domain | Files | Tier | Impact |
+|------|--------|-------|------|--------|
+| Task 06 | Config | `tactical_curriculum.json`, `callbacks.py`, `stages.md` | standard | destructive |
+| Task 07 | Rewards | `rewards.py` | standard | additive |
+
+### Phase 4b (Depends on Tasks 06, 07)
+| Task | Domain | Files | Tier | Impact |
+|------|--------|-------|------|--------|
+| Task 08 | QA | Tests + smoke test | advanced | safe |
+
+---
+
+## File Summary
+
+| File | Task | Action | Notes |
+|------|------|--------|-------|
+| `macro-brain/src/config/definitions.py` | T01 | MODIFY | Add `AoeConfigDef`, `PenetrationConfigDef` dataclasses |
+| `macro-brain/src/config/parser.py` | T01 | MODIFY | Parse `aoe` and `penetration` from combat rule JSON |
+| `macro-brain/src/config/game_profile.py` | T01 | MODIFY | Include `aoe`/`penetration` in `_build_combat_rule()` |
+| `macro-brain/src/training/stage_combat_rules.py` | T02 | NEW | Stage-specific combat rule factory |
+| `macro-brain/src/training/curriculum.py` | T03 | MODIFY | New spawn generators for Stages 5, 6, 7, 8 |
+| `macro-brain/src/utils/terrain_generator.py` | T04 | MODIFY | Add `generate_stage5_terrain()` (V-wall) |
+| `macro-brain/src/env/swarm_env.py` | T05 | MODIFY | Integrate stage combat rules + unit_types |
+| `macro-brain/profiles/tactical_curriculum.json` | T06 | MODIFY | Updated stage descriptions, bot behaviors |
+| `macro-brain/src/training/callbacks.py` | T06 | MODIFY | Updated action unlock schedule |
+| `.agents/context/training/stages.md` | T06 | MODIFY | Updated documentation |
+| `macro-brain/src/env/rewards.py` | T07 | MODIFY | Spread formation reward, AoE-aware survival |
+| `macro-brain/tests/test_stage_combat_rules.py` | T08 | NEW | Unit tests for combat rule construction |
+| `macro-brain/tests/test_curriculum_v5.py` | T08 | NEW | Integration tests for Stages 5-7 spawns + terrain |
+
+---
+
+## Feature Details
+
+- [Feature 1: Python Config Extensions (Task 01)](./implementation_plan_feature_1.md)
+- [Feature 2: Stage-Specific Combat Rules (Task 02)](./implementation_plan_feature_2.md)
+- [Feature 3: Spawn Generators & Terrain (Tasks 03-04)](./implementation_plan_feature_3.md)
+- [Feature 4: Environment Integration (Tasks 05-07)](./implementation_plan_feature_4.md)
+
+---
+
+## Verification Plan
+
+### Automated Tests
+
+1. **Unit tests** — `cd macro-brain && .venv/bin/python -m pytest tests/test_stage_combat_rules.py -v`
+   - AoE rule construction produces valid Rust-compatible JSON
+   - Penetration rule construction produces valid Rust-compatible JSON
+   - Unit type definitions serialized correctly
+
+2. **Spawn tests** — `cd macro-brain && .venv/bin/python -m pytest tests/test_curriculum_v5.py -v`
+   - Stage 5 spawns: 60 brain units, 30 enemy with AoE rules
+   - Stage 6 spawns: 60 brain units, 40 enemy with AoE Circle
+   - Stage 7 spawns: 2 brain classes (Infantry + Tank), 10 turrets + 10 HVT
+   - Stage 8 pool includes Stages 3, 4, 5, 6, 7
+
+3. **Rust smoke test** — `cd micro-core && cargo run -- --smoke-test`
+   - Verify 300-tick run with new rule types doesn't crash
+
+4. **Existing tests** — `cd micro-core && cargo test` (181 tests) + `cd macro-brain && .venv/bin/python -m pytest tests/ -v` (51+ tests)
+   - All existing tests must continue passing
+
+### Manual Verification
+
+1. Start training with `./train.sh` at Stage 5
+2. Verify in debug visualizer that AoE cone damage is visible
+3. Confirm brain wipes on frontal charge (validates combat math)
+4. Confirm brain survives when flanking from 2 angles

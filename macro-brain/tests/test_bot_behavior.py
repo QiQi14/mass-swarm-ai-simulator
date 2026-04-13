@@ -39,7 +39,7 @@ from src.config.game_profile import load_profile
 def test_profile_loads_and_parses_bot_behaviors():
     profile = load_profile("profiles/tactical_curriculum.json")
     assert hasattr(profile, "bot_stage_behaviors")
-    assert len(profile.bot_stage_behaviors) == 16
+    assert len(profile.bot_stage_behaviors) == 18
 
     # Check stage 1
     payload1 = profile.bot_behaviors_payload(1)
@@ -54,7 +54,7 @@ def test_profile_loads_and_parses_bot_behaviors():
     # Check stage 7
     payload7 = profile.bot_behaviors_payload(7)
     assert len(payload7) == 2
-    assert payload7[0]["strategy"]["type"] == "Patrol"
+    assert payload7[0]["strategy"]["type"] == "Charge"
 
 def test_backward_compatibility():
     # Remove bot_stage_behaviors to act as an old profile

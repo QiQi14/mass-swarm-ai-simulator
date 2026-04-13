@@ -1,0 +1,151 @@
+# Fix: Retreat → ActivateSkill + ECP Formula Pipeline
+
+## Problem Statement
+
+Two critical issues discovered during Stage 6 training:
+
+### Issue 1: Retreat ≡ AttackCoord (Zero Behavioral Difference)
+
+The Retreat directive in the Rust engine ([executor.rs:L111-132](file:///Users/manifera/Documents/GitHub/mass-swarm-ai-simulator/micro-core/src/systems/directive_executor/executor.rs#L111-L132)) is **literally identical** to `UpdateNavigation` with a `Waypoint` target:
+
+```rust
+// Retreat (lines 111-132)
+MacroDirective::Retreat { faction, retreat_x, retreat_y } => {
+    let target = NavigationTarget::Waypoint { x: retreat_x, y: retreat_y };
+    // ... exact same nav_rules push/update as UpdateNavigation
+}
+```
+
+The model can already "retreat" by using `AttackCoord` to navigate to an empty coordinate. Action slot 6 is **wasted** — it teaches nothing new and dilutes the policy's action distribution.
+
+### Issue 2: ECP = HP Only (Not "Effective Combat Power")
+
+The ECP density channel (ch2/ch3) currently computes only `stat[0]` (HP) as "combat power" ([snapshot.rs:L86-88](file:///Users/manifera/Documents/GitHub/mass-swarm-ai-simulator/micro-core/src/bridges/zmq_bridge/snapshot.rs#L86-L88)):
+
+```rust
+let primary_stat = density_config.ecp_stat_index
+    .and_then(|idx| stat_block.0.get(idx).copied())
+    .unwrap_or(0.0);
+```
+
+This is **not** Effective Combat Power. A Tank with 300 HP + 0.8 absorption looks identical to 3 Infantry with 100 HP each. The agent cannot distinguish threat composition from ch2/ch3 alone.
+
+The `EcpFormulaPayload` struct already exists ([payloads.rs:L228-231](file:///Users/manifera/Documents/GitHub/mass-swarm-ai-simulator/micro-core/src/bridges/zmq_protocol/payloads.rs#L228-L231)) and is plumbed through the reset pipeline, but **never consumed** — `reset.rs` stores it in `ResetRequest` but does not apply it to `DensityConfig`.
+
+## Observation Channel Audit (Full)
+
+| Channel | Status | Notes |
+|:---:|:---:|---|
+| ch0 (friendly count) | ✅ Correct | Brain + sub-factions merged. `_place_density` accumulation working. |
+| ch1 (enemy count) | ✅ Correct | All enemy factions merged. LKP correctly applied under fog. |
+| ch2 (friendly ECP) | ⚠️ **HP only** | Uses `ecp_density_maps` but Rust only feeds `stat[ecp_stat_index]`. No multi-stat formula. |
+| ch3 (enemy ECP) | ⚠️ **HP only** | Same issue — agent sees HP mass, not true combat threat. |
+| ch4 (terrain) | ✅ Correct | Proper normalization, wall=1.0, padding=1.0 |
+| ch5 (fog) | ✅ Correct | 3-level merge, padding=1.0 (visible) |
+| ch6 (sub-faction density) | ✅ Correct | Newly activated, accumulates sub-faction density |
+| ch7 (objective ping) | ✅ Correct | Stage 4 intel ping with decay |
+
+> [!IMPORTANT]
+> All channels except ch2/ch3 are verified correct. The ECP formula fix addresses ch2/ch3.
+
+## Proposed Changes
+
+### Feature 1: Retreat → ActivateSkill
+
+Replace action slot 6 from a duplicate navigation action to **ActivateSkill** — triggers the game profile's `activate_buff` on the brain faction. The coordinate parameter is **ignored** (non-spatial action).
+
+> [!IMPORTANT]
+> The Rust `ActivateBuff` directive already exists and is fully functional ([executor.rs:L77-109](file:///Users/manifera/Documents/GitHub/mass-swarm-ai-simulator/micro-core/src/systems/directive_executor/executor.rs#L77-L109)). The buff system supports cooldowns, modifiers, and entity targeting. **Zero Rust changes needed.**
+
+#### [MODIFY] [spaces.py](file:///Users/manifera/Documents/GitHub/mass-swarm-ai-simulator/macro-brain/src/env/spaces.py)
+- Rename `ACTION_RETREAT = 6` → `ACTION_ACTIVATE_SKILL = 6`
+- Update `ACTION_NAMES[6]` from `"Retreat"` to `"ActivateSkill"`
+- Remove `ACTION_RETREAT` from `SPATIAL_ACTIONS` (skill doesn't use coordinates)
+- Update docstring
+
+#### [MODIFY] [actions.py](file:///Users/manifera/Documents/GitHub/mass-swarm-ai-simulator/macro-brain/src/env/actions.py)
+- Replace `ACTION_RETREAT` import with `ACTION_ACTIVATE_SKILL`
+- Change the `elif action_type == ACTION_RETREAT` branch to call `build_activate_buff_directive(brain_faction, profile.abilities.activate_buff)` instead of `build_retreat_directive`
+- **Note**: `multidiscrete_to_directives` now needs access to the profile's `ActivateBuffDef`. Add `activate_buff: ActivateBuffDef | None = None` parameter.
+
+#### [MODIFY] [swarm_env.py](file:///Users/manifera/Documents/GitHub/mass-swarm-ai-simulator/macro-brain/src/env/swarm_env.py)
+- Pass `activate_buff=self.profile.abilities.activate_buff` to `multidiscrete_to_directives`
+- Rename internal references from `ACTION_RETREAT` to `ACTION_ACTIVATE_SKILL`
+- Update docstring
+
+#### [MODIFY] [tactical_curriculum.json](file:///Users/manifera/Documents/GitHub/mass-swarm-ai-simulator/macro-brain/profiles/tactical_curriculum.json)
+- Rename action index 6 from `"Retreat"` to `"ActivateSkill"`
+
+#### [MODIFY] [callbacks.py](file:///Users/manifera/Documents/GitHub/mass-swarm-ai-simulator/macro-brain/src/training/callbacks.py)
+- Update any action name references from `"Retreat"` to `"ActivateSkill"`
+
+---
+
+### Feature 2: Multi-Stat ECP Formula
+
+Wire the already-plumbed `EcpFormulaPayload` through to the Rust snapshot builder, so ECP is computed as the **product** of multiple stat values (e.g., `HP × damage_mult`, or `HP × armor`).
+
+#### [MODIFY] [buff.rs](file:///Users/manifera/Documents/GitHub/mass-swarm-ai-simulator/micro-core/src/config/buff.rs) (DensityConfig)
+- Add field: `pub ecp_formula: Option<Vec<usize>>`
+- When `ecp_formula` is `Some(indices)`, the snapshot builder computes `ECP = ∏ stat[i] for i in indices`
+- When `None`, fallback to single `ecp_stat_index` (backward compat)
+
+#### [MODIFY] [reset.rs](file:///Users/manifera/Documents/GitHub/mass-swarm-ai-simulator/micro-core/src/bridges/zmq_bridge/reset.rs)
+- After line 292 (`ecp_stat_index` application), add:
+  ```rust
+  if let Some(ref formula) = reset.ecp_formula {
+      configs.density_config.ecp_formula = Some(formula.stat_indices.clone());
+  }
+  ```
+
+#### [MODIFY] [snapshot.rs](file:///Users/manifera/Documents/GitHub/mass-swarm-ai-simulator/micro-core/src/bridges/zmq_bridge/snapshot.rs)
+- Replace the single-stat ECP calculation (lines 86-88) with:
+  ```rust
+  let primary_stat = if let Some(ref formula) = density_config.ecp_formula {
+      // Multi-stat product: ECP = stat[i0] × stat[i1] × ...
+      formula.iter()
+          .map(|&idx| stat_block.0.get(idx).copied().unwrap_or(1.0))
+          .product::<f32>()
+  } else {
+      // Legacy fallback: single stat index
+      density_config.ecp_stat_index
+          .and_then(|idx| stat_block.0.get(idx).copied())
+          .unwrap_or(0.0)
+  };
+  ```
+
+#### [MODIFY] [swarm_env.py](file:///Users/manifera/Documents/GitHub/mass-swarm-ai-simulator/macro-brain/src/env/swarm_env.py)
+- Add `"ecp_formula": {"stat_indices": [0]}` to the reset payload (default: HP-only)
+- For Stage 7+ heterogeneous units, compute stage-specific formula
+
+#### [MODIFY] [stage_combat_rules.py](file:///Users/manifera/Documents/GitHub/mass-swarm-ai-simulator/macro-brain/src/training/stage_combat_rules.py)
+- Add `get_stage_ecp_formula(stage: int) -> dict | None` function
+- Stage 0-6: `None` (use default `ecp_stat_index`)
+- Stage 7+: `{"stat_indices": [0]}` initially (expand later as needed)
+
+---
+
+### Test Updates
+
+#### [MODIFY] [test_bot_behavior.py](file:///Users/manifera/Documents/GitHub/mass-swarm-ai-simulator/macro-brain/tests/test_bot_behavior.py)
+- Update any action name assertions from `"Retreat"` to `"ActivateSkill"`
+
+## Open Questions
+
+> [!IMPORTANT]
+> **ECP formula design**: For the current curriculum, should ECP simply be `stat[0]` (HP) for all stages, or do we want Stage 7+ (heterogeneous units) to use a multi-stat formula like `HP × (1 + armor)`? The infrastructure supports any product of stat indices. Using plain HP keeps things simpler initially while still fixing the pipeline.
+
+> [!IMPORTANT]
+> **ActivateSkill unlock stage**: The current profile unlocks it at Stage 6. Should we move it earlier (e.g., Stage 1 where the debuff mechanic already uses `ActivateBuff`), or keep Stage 6 as the introduction point?
+
+## Verification Plan
+
+### Automated Tests
+1. `pytest tests/ -v` — all existing tests must pass
+2. `cargo test` — all Rust tests must pass  
+3. Verify `ACTION_ACTIVATE_SKILL` is non-spatial (not in `SPATIAL_ACTIONS`)
+4. Verify `ecp_formula` is correctly applied in snapshot builder
+
+### Manual Verification
+1. Start Stage 1 training — confirm no ECP critical error
+2. Start Stage 6 — verify ActivateSkill fires the buff (check Rust logs for `[Reset] ActivateBuff` output)

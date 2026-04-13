@@ -12,6 +12,7 @@
 //! - `std::time::Duration`
 
 use bevy::prelude::*;
+use bevy_state::app::AppExtStates;
 use bevy_state::prelude::in_state;
 
 use micro_core::bridges::zmq_bridge::ZmqBridgePlugin;
@@ -76,7 +77,7 @@ fn main() {
 
     // Configure AI bridge timeout BEFORE the plugin builds.
     // Training: long timeout (30s) — Rust must wait for Python inference.
-    // Manual play: short timeout (default 5s) — keeps the sim responsive.
+    // Manual play: ZMQ bridge is NOT started — no Python connection.
     if is_training {
         app.insert_resource(micro_core::bridges::zmq_bridge::AiBridgeConfig {
             send_interval_ticks: 30,
@@ -86,8 +87,21 @@ fn main() {
 
     app.add_plugins(MinimalPlugins)
         .add_plugins(bevy_state::app::StatesPlugin)
-        .set_runner(move |app| custom_runner(app, is_training, is_throttle))
-        .add_plugins(ZmqBridgePlugin);
+        .set_runner(move |app| custom_runner(app, is_training, is_throttle));
+
+    // ZMQ AI Bridge: ONLY in training mode.
+    // In playground mode, Python training can run on port 5555 without
+    // hijacking the Rust engine. We register the required resources/state
+    // manually so other systems (movement, interaction) don't panic.
+    if is_training {
+        app.add_plugins(ZmqBridgePlugin);
+    } else {
+        // Playground: register the resources that systems expect, but
+        // do NOT start the ZMQ thread or AI trigger/poll systems.
+        use micro_core::bridges::zmq_bridge::{PendingReset, SimState};
+        app.init_resource::<PendingReset>();
+        app.init_state::<SimState>();
+    }
 
     let mut config = SimulationConfig::default();
     if let Some(c) = init_entity_count {
@@ -136,6 +150,7 @@ fn main() {
     // In training mode, entities are spawned by ResetEnvironment from Python
     if !is_training {
         app.add_systems(Startup, initial_spawn_system);
+        app.add_systems(Startup, default_playground_rules_system);
     }
 
     // Simulation systems — gated behind pause/step controls.
@@ -255,6 +270,79 @@ fn main() {
     }
 
     app.run();
+}
+
+/// Sets up a default "Swarm vs Defender" game profile for playground mode.
+/// Without this, the context-agnostic engine starts with zero rules and
+/// entities just sit idle. Provides bidirectional chase, proximity combat,
+/// and removal at stat[0] ≤ 0 so the initial spawn works immediately.
+///
+/// Users can override these via WS commands (set_navigation, set_interaction,
+/// set_removal, Algorithm Test presets, or Game Setup wizard).
+fn default_playground_rules_system(
+    mut nav_rules: ResMut<NavigationRuleSet>,
+    mut interaction_rules: ResMut<InteractionRuleSet>,
+    mut removal_rules: ResMut<RemovalRuleSet>,
+) {
+    use micro_core::bridges::zmq_protocol::NavigationTarget;
+    use micro_core::rules::{InteractionRule, NavigationRule, RemovalCondition, RemovalRule, StatEffect};
+
+    // Faction 0 chases Faction 1, and vice versa
+    nav_rules.rules = vec![
+        NavigationRule {
+            follower_faction: 0,
+            target: NavigationTarget::Faction { faction_id: 1 },
+        },
+        NavigationRule {
+            follower_faction: 1,
+            target: NavigationTarget::Faction { faction_id: 0 },
+        },
+    ];
+
+    // Bidirectional proximity combat: 15-unit range, -10 DPS to stat[0]
+    interaction_rules.rules = vec![
+        InteractionRule {
+            source_faction: 0,
+            target_faction: 1,
+            range: 15.0,
+            effects: vec![StatEffect {
+                stat_index: 0,
+                delta_per_second: -10.0,
+            }],
+            source_class: None,
+            target_class: None,
+            range_stat_index: None,
+            mitigation: None,
+            cooldown_ticks: None,
+            aoe: None,
+            penetration: None,
+        },
+        InteractionRule {
+            source_faction: 1,
+            target_faction: 0,
+            range: 15.0,
+            effects: vec![StatEffect {
+                stat_index: 0,
+                delta_per_second: -20.0,
+            }],
+            source_class: None,
+            target_class: None,
+            range_stat_index: None,
+            mitigation: None,
+            cooldown_ticks: None,
+            aoe: None,
+            penetration: None,
+        },
+    ];
+
+    // Remove entities when stat[0] (HP) ≤ 0
+    removal_rules.rules = vec![RemovalRule {
+        stat_index: 0,
+        threshold: 0.0,
+        condition: RemovalCondition::LessOrEqual,
+    }];
+
+    println!("[Playground] Default game profile loaded: bidirectional chase + combat + removal");
 }
 
 /// Logs simulation status every 60 ticks (~1 second).

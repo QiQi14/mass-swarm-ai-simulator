@@ -198,6 +198,8 @@ pub struct DensityConfig {
     /// `None` = ECP maps produce all zeros (no primary stat configured).
     /// Default: `Some(0)` — backward-compatible with existing profiles.
     pub ecp_stat_index: Option<usize>,
+    /// Multi-stat formula for ECP density calculation. Optional.
+    pub ecp_formula: Option<Vec<usize>>,
 }
 impl Default for DensityConfig {
     fn default() -> Self {
@@ -205,6 +207,7 @@ impl Default for DensityConfig {
             max_density: 50.0,
             max_entity_ecp: 100.0,
             ecp_stat_index: Some(0),
+            ecp_formula: None,
         }
     }
 }

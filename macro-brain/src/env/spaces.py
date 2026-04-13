@@ -23,18 +23,18 @@ ACTION_DROP_PHEROMONE = 2
 ACTION_DROP_REPELLENT = 3
 ACTION_SPLIT_TO_COORD = 4
 ACTION_MERGE_BACK = 5
-ACTION_RETREAT = 6
+ACTION_ACTIVATE_SKILL = 6
 ACTION_SCOUT = 7
 
 ACTION_NAMES = [
     "Hold", "AttackCoord", "DropPheromone", "DropRepellent",
-    "SplitToCoord", "MergeBack", "Retreat", "Scout",
+    "SplitToCoord", "MergeBack", "ActivateSkill", "Scout",
 ]
 
 # Which actions use spatial coordinates (component 1)
 SPATIAL_ACTIONS = {
     ACTION_ATTACK_COORD, ACTION_DROP_PHEROMONE, ACTION_DROP_REPELLENT,
-    ACTION_SPLIT_TO_COORD, ACTION_RETREAT, ACTION_SCOUT,
+    ACTION_SPLIT_TO_COORD, ACTION_SCOUT,
 }
 
 # Grid constants — observation always 50×50 regardless of map size

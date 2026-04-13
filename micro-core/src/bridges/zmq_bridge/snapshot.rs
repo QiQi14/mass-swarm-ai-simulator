@@ -83,9 +83,16 @@ pub(super) fn build_state_snapshot(
         all_entity_positions.push((pos.x, pos.y, faction.0));
         
         // Read primary stat for ECP from configurable index (V-01 fix)
-        let primary_stat = density_config.ecp_stat_index
-            .and_then(|idx| stat_block.0.get(idx).copied())
-            .unwrap_or(0.0);
+        // Feature 2: Multi-stat formula for ECP
+        let primary_stat = if let Some(ref formula) = density_config.ecp_formula {
+            formula.iter()
+                .map(|&idx| stat_block.0.get(idx).copied().unwrap_or(1.0))
+                .product::<f32>()
+        } else {
+            density_config.ecp_stat_index
+                .and_then(|idx| stat_block.0.get(idx).copied())
+                .unwrap_or(0.0)
+        };
         let damage_mult = buff_config.combat_damage_stat
             .map(|stat_idx| combat_buffs.get_multiplier(faction.0, eid.id, stat_idx))
             .unwrap_or(1.0);

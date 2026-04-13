@@ -1,11 +1,11 @@
 from typing import Any
 from dataclasses import asdict
 import numpy as np
-from src.config.definitions import ActivateBuffDef
+from src.config.definitions import ActivateBuffDef, SkillDef
 from src.env.spaces import (
     ACTION_HOLD, ACTION_ATTACK_COORD, ACTION_DROP_PHEROMONE,
     ACTION_DROP_REPELLENT, ACTION_SPLIT_TO_COORD, ACTION_MERGE_BACK,
-    ACTION_RETREAT, ACTION_SCOUT, SPATIAL_ACTIONS,
+    ACTION_ACTIVATE_SKILL, ACTION_SCOUT, SPATIAL_ACTIONS,
     decode_spatial, grid_to_world, MAX_GRID_WIDTH,
 )
 
@@ -43,15 +43,6 @@ def build_activate_buff_directive(faction: int, activate_buff: ActivateBuffDef) 
         "modifiers": [asdict(m) for m in activate_buff.modifiers],
         "duration_ticks": activate_buff.duration_ticks,
         "targets": [],
-    }
-
-def build_retreat_directive(faction: int, retreat_x: float, retreat_y: float) -> dict[str, Any]:
-    return {
-        "type": "macro_directive",
-        "directive": "Retreat",
-        "faction": faction,
-        "retreat_x": float(retreat_x),
-        "retreat_y": float(retreat_y),
     }
 
 def build_set_zone_modifier_directive(faction: int, x: float, y: float, radius: float = 100.0, cost_modifier: float = -50.0) -> dict[str, Any]:
@@ -102,6 +93,7 @@ def multidiscrete_to_directives(
     pad_offset_y: float = 0.0,
     split_percentage: float = 0.30,
     scout_percentage: float = 0.10,
+    skills: list[SkillDef] | None = None,
     last_nav_directive: dict | None = None,
 ) -> tuple[list[dict], dict | None]:
     """Map MultiDiscrete [action_type, flat_coord] to directive list.
@@ -184,12 +176,19 @@ def multidiscrete_to_directives(
         else:
             directives.append(build_hold_directive(brain_faction))
     
-    elif action_type == ACTION_RETREAT:
-        nav = build_retreat_directive(
-            brain_faction, world_x, world_y,
-        )
-        directives.append(nav)
-        updated_nav = nav
+    elif action_type == ACTION_ACTIVATE_SKILL:
+        if skills:
+            skill_idx = flat_coord % len(skills)
+            skill = skills[skill_idx]
+            directives.append(build_activate_buff_directive(
+                brain_faction,
+                ActivateBuffDef(
+                    modifiers=skill.modifiers,
+                    duration_ticks=skill.duration_ticks
+                )
+            ))
+        else:
+            directives.append(build_hold_directive(brain_faction))
     
     elif action_type == ACTION_SCOUT:
         # Scout: split a small recon group and send to target coordinate.

@@ -2,7 +2,7 @@
 
 8-channel fixed 50×50 tensor + 12-dim summary vector.
 
-Channel Layout (v4.0):
+Channel Layout (v5.0):
   🟦 Force Picture:
     ch0: all friendly count density (brain + sub-factions merged)
     ch1: all enemy count density (ALL enemies merged, LKP-processed under fog)
@@ -11,9 +11,9 @@ Channel Layout (v4.0):
   🟩 Environment:
     ch4: terrain cost (base + zone modifier effects, 0=pass, 1=wall; padding=1.0)
     ch5: fog awareness (merged 3-level: 0.0=unknown, 0.5=explored, 1.0=visible)
-  🟨 Tactical (plumbed as zeros, activated when game mechanics exist):
-    ch6: interactable terrain overlay (0.0 = no interactable)
-    ch7: system objective signal (0.0 = no objective)
+  🟨 Tactical:
+    ch6: allied sub-faction density (split groups / unit class positions)
+    ch7: system objective signal (intel ping location + intensity)
 
 For maps smaller than 50×50, the active arena is centered in the tensor.
 Padding zones have: density=0, terrain=1(wall), fog=1(explored/visible).
@@ -170,8 +170,17 @@ def vectorize_snapshot(
         channels[1] = lkp_buffer.update(0, channels[1], visible_mask)
         channels[3] = lkp_buffer.update(1, channels[3], visible_mask)
     
-    # ── ch6: Interactable terrain overlay (plumbed, zeros) ─────────
-    # All zeros — activated when destructible wall mechanics exist.
+    # ── ch6: Allied sub-faction density (split group / unit class awareness) ─
+    # Shows where the brain's sub-factions are positioned.
+    # When Stage 5+ SplitToCoord creates sub-groups, their density appears here.
+    # For Stage 7+ heterogeneous units, shows class distribution.
+    # The model learns: "retreat toward bright spots on ch6 for mutual support"
+    # Value: normalized count density of active sub-factions (brain excluded).
+    # When no sub-factions exist, ch6 = 0.0 (backward compatible with Stages 0-4).
+    for sf_id in active_sub_faction_ids:
+        sf_key = str(sf_id)
+        if sf_key in density_maps:
+            _place_density(density_maps[sf_key], 6, accumulate=True)
     
     # ── ch7: System objective signal (plumbed, zeros) ──────────────
     if active_objective_ping is not None:

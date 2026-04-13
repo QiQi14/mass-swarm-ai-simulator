@@ -376,5 +376,97 @@ def generate_terrain_for_stage(stage: int, seed: int | None = None) -> dict | No
         return generate_stage2_terrain(seed=seed)
     elif stage == 3:
         return generate_stage3_terrain(seed=seed)
+    elif stage == 5:
+        return generate_stage5_terrain(seed=seed)
+    elif stage in (6, 7):
+        return generate_flat_terrain()  # Open field for spread / combined arms
     else:
         return generate_complex_terrain(seed=seed)
+
+
+# ── Stage 5: V-Wall Chokepoint ────────────────────────────────────
+
+def generate_stage5_terrain(seed: int | None = None) -> dict:
+    """Stage 5: V-shaped wall chokepoint for forced flanking (1000×1000).
+
+    Layout (50×50 grid, cell_size=20 → 1000×1000 world):
+      - Open left side (brain spawn zone)
+      - V-shaped permanent wall at center, opening toward brain
+      - Open flanks above and below the V arms
+      - Enemy sits at the V's apex (center-right)
+
+    V geometry (in grid coords, 50×50):
+      Left tip: x=20, y=25 (center of map)
+      Upper arm: from (20,25) to (38,10)  — wall thickness 2
+      Lower arm: from (20,25) to (38,40) — wall thickness 2
+
+    The brain MUST flank around the V arms; frontal charge through
+    the narrow opening = AoE cone death zone.
+    """
+    from src.training.curriculum import get_map_config
+    config = get_map_config(5)
+    w, h = config.active_grid_w, config.active_grid_h  # 50×50
+
+    hard = np.full((h, w), TIER0_PASSABLE, dtype=np.uint16)
+    soft = np.full((h, w), TIER0_PASSABLE, dtype=np.uint16)
+
+    rng = np.random.default_rng(seed)
+
+    # V-wall parameters with slight randomization
+    tip_x, tip_y = 20, 25  # Left tip (narrow end toward brain)
+    end_x = 38             # Right end of V arms
+
+    tip_x += int(rng.integers(-1, 2))
+    upper_end_y = 10 + int(rng.integers(-2, 3))
+    lower_end_y = 40 + int(rng.integers(-2, 3))
+
+    # Draw upper arm: line from (tip_x, tip_y) to (end_x, upper_end_y)
+    _draw_thick_line(hard, tip_x, tip_y, end_x, upper_end_y, thickness=2)
+
+    # Draw lower arm: line from (tip_x, tip_y) to (end_x, lower_end_y)
+    _draw_thick_line(hard, tip_x, tip_y, end_x, lower_end_y, thickness=2)
+
+    return {
+        "hard_costs": hard.flatten().tolist(),
+        "soft_costs": soft.flatten().tolist(),
+        "width": w,
+        "height": h,
+        "cell_size": config.cell_size,
+    }
+
+
+def _draw_thick_line(
+    grid: np.ndarray, x0: int, y0: int, x1: int, y1: int, thickness: int = 2
+):
+    """Draw a thick line of permanent walls using Bresenham's algorithm.
+
+    Wall value: TIER2_PERMANENT (65535).
+    """
+    h, w = grid.shape
+    # Bresenham's line algorithm
+    dx = abs(x1 - x0)
+    dy = abs(y1 - y0)
+    sx = 1 if x0 < x1 else -1
+    sy = 1 if y0 < y1 else -1
+    err = dx - dy
+
+    cx, cy = x0, y0
+    while True:
+        # Draw thick point (circle of given radius)
+        for ty in range(-thickness, thickness + 1):
+            for tx in range(-thickness, thickness + 1):
+                if tx * tx + ty * ty <= thickness * thickness:
+                    gx, gy = cx + tx, cy + ty
+                    if 0 <= gx < w and 0 <= gy < h:
+                        grid[gy, gx] = TIER2_PERMANENT
+
+        if cx == x1 and cy == y1:
+            break
+        e2 = 2 * err
+        if e2 > -dy:
+            err -= dy
+            cx += sx
+        if e2 < dx:
+            err += dx
+            cy += sy
+

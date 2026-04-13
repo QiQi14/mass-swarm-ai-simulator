@@ -1,8 +1,8 @@
 {
   "meta": {
     "name": "Tactical Decision-Making Curriculum",
-    "version": "3.1.0",
-    "description": "9-stage curriculum (0-8): 1v1 navigation → target selection → scouting → walls → pheromone → flanking → scout+retreat → combined → randomized. MultiDiscrete([8, 2500]) action space with CNN+MLP feature extractor."
+    "version": "5.0.0",
+    "description": "10-stage curriculum (0-9): navigation → target selection → pheromone → repellent → fog → AoE flanking → AoE spread → combined arms → screening → randomized. MultiDiscrete([8, 2500]) action space with CNN+MLP feature extractor."
   },
   "world": {
     "width": 1000.0,
@@ -83,7 +83,28 @@
         { "stat_index": 2, "modifier_type": "Multiplier", "value": 0.25 }
       ],
       "duration_ticks": 9999
-    }
+    },
+    "skills": [
+      {
+        "index": 0,
+        "name": "SpeedBoost",
+        "modifiers": [
+          { "stat_index": 1, "modifier_type": "Multiplier", "value": 1.5 }
+        ],
+        "duration_ticks": 300,
+        "cooldown_ticks": 600
+      },
+      {
+        "index": 1,
+        "name": "Debuff",
+        "modifiers": [
+          { "stat_index": 0, "modifier_type": "Multiplier", "value": 0.25 },
+          { "stat_index": 2, "modifier_type": "Multiplier", "value": 0.25 }
+        ],
+        "duration_ticks": 9999,
+        "cooldown_ticks": 180
+      }
+    ]
   },
   "actions": [
     { "index": 0, "name": "Hold", "unlock_stage": 0 },
@@ -92,7 +113,7 @@
     { "index": 3, "name": "DropRepellent", "unlock_stage": 3 },
     { "index": 4, "name": "SplitToCoord", "unlock_stage": 5 },
     { "index": 5, "name": "MergeBack", "unlock_stage": 5 },
-    { "index": 6, "name": "Retreat", "unlock_stage": 6 },
+    { "index": 6, "name": "ActivateSkill", "unlock_stage": 6 },
     { "index": 7, "name": "Scout", "unlock_stage": 4 }
   ],
   "training": {
@@ -143,22 +164,27 @@
       },
       {
         "stage": 5,
-        "description": "Flanking: split and pincer from two angles",
+        "description": "Forced Flanking: enemy has AoE cone — split and pincer from two angles",
         "graduation": { "win_rate": 0.80, "min_episodes": 50, "avg_flanking_score_min": 0.3 }
       },
       {
         "stage": 6,
-        "description": "Full Tactics: all 8 actions, combine primitives for complex maneuvers",
+        "description": "Speed Chase: activate speed buff to outrun pursuit and reach reinforcements",
         "graduation": { "win_rate": 0.80, "min_episodes": 50 }
       },
       {
         "stage": 7,
-        "description": "Protected Target: fog + scout + flank vs guarded HVT",
-        "graduation": { "win_rate": 0.75, "min_episodes": 100 }
+        "description": "Combined Arms: learn to use heterogeneous Infantry + Tank army",
+        "graduation": { "win_rate": 0.80, "min_episodes": 50 }
       },
       {
         "stage": 8,
-        "description": "Full Tactical: random scenarios, any tactic",
+        "description": "Screening: enemy has kinetic penetration — Tanks body-block for Infantry",
+        "graduation": { "win_rate": 0.75, "min_episodes": 100 }
+      },
+      {
+        "stage": 9,
+        "description": "Randomized Graduation: random scenarios from all stages",
         "graduation": { "win_rate": 0.80, "min_episodes": 500 }
       }
     ]
@@ -177,34 +203,10 @@
     { "stage": 5, "faction_id": 1, "strategy": { "type": "HoldPosition" }, "eval_interval_ticks": 60 },
     { "stage": 5, "faction_id": 2, "strategy": { "type": "HoldPosition" }, "eval_interval_ticks": 60 },
     { "stage": 6, "faction_id": 1, "strategy": { "type": "Charge", "target_faction": 0 }, "eval_interval_ticks": 60 },
-    { "stage": 6, "faction_id": 2, "strategy": { "type": "Charge", "target_faction": 0 }, "eval_interval_ticks": 60 },
-    {
-      "stage": 7, "faction_id": 1,
-      "strategy": {
-        "type": "Patrol",
-        "waypoints": [
-          { "x": 700.0, "y": 400.0 },
-          { "x": 900.0, "y": 400.0 },
-          { "x": 900.0, "y": 600.0 },
-          { "x": 700.0, "y": 600.0 }
-        ],
-        "waypoint_threshold": 50.0
-      },
-      "eval_interval_ticks": 30
-    },
-    {
-      "stage": 7, "faction_id": 2,
-      "strategy": {
-        "type": "Patrol",
-        "waypoints": [
-          { "x": 700.0, "y": 400.0 },
-          { "x": 900.0, "y": 400.0 },
-          { "x": 900.0, "y": 600.0 },
-          { "x": 700.0, "y": 600.0 }
-        ],
-        "waypoint_threshold": 50.0
-      },
-      "eval_interval_ticks": 30
-    }
+    { "stage": 6, "faction_id": 2, "strategy": { "type": "HoldPosition" }, "eval_interval_ticks": 60 },
+    { "stage": 7, "faction_id": 1, "strategy": { "type": "Charge", "target_faction": 0 }, "eval_interval_ticks": 60 },
+    { "stage": 7, "faction_id": 2, "strategy": { "type": "Charge", "target_faction": 0 }, "eval_interval_ticks": 60 },
+    { "stage": 8, "faction_id": 1, "strategy": { "type": "HoldPosition" }, "eval_interval_ticks": 60 },
+    { "stage": 8, "faction_id": 2, "strategy": { "type": "HoldPosition" }, "eval_interval_ticks": 60 }
   ]
 }

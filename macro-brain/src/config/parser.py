@@ -10,6 +10,7 @@ from typing import Any
 from src.config.definitions import (
     WorldConfig, FactionStats, FactionConfig, StatEffectConfig,
     MitigationConfig, UnitClassConfig,
+    AoeShapeDef, AoeConfigDef, EnergyModelDef, PenetrationConfigDef,
     CombatRuleConfig, CombatConfig, MovementConfigDef, TerrainThresholdsDef,
     StatModifierDef, ActivateBuffDef, AbilitiesDef, RemovalRuleDef,
     ActionDef, RewardWeights, GraduationConfig, DemotionConfig,
@@ -60,7 +61,43 @@ def _parse_profile(raw: dict[str, Any]):
             stat_index=mitigation_raw["stat_index"],
             mode=mitigation_raw["mode"],
         ) if mitigation_raw else None
-        
+
+        # Parse AoE config
+        aoe_raw = raw_rule.get("aoe")
+        aoe = None
+        if aoe_raw:
+            shape_raw = aoe_raw["shape"]
+            shape = AoeShapeDef(
+                type=shape_raw["type"],
+                radius=shape_raw.get("radius"),
+                semi_major=shape_raw.get("semi_major"),
+                semi_minor=shape_raw.get("semi_minor"),
+                vertices=shape_raw.get("vertices"),
+                rotation_mode=shape_raw.get("rotation_mode"),
+            )
+            aoe = AoeConfigDef(shape=shape, falloff=aoe_raw["falloff"])
+
+        # Parse Penetration config
+        pen_raw = raw_rule.get("penetration")
+        penetration = None
+        if pen_raw:
+            em_raw = pen_raw["energy_model"]
+            if isinstance(em_raw, dict) and "Kinetic" in em_raw:
+                energy_model = EnergyModelDef(
+                    type="Kinetic", base_energy=em_raw["Kinetic"]["base_energy"]
+                )
+            else:
+                energy_model = EnergyModelDef(type="Beam")
+            penetration = PenetrationConfigDef(
+                ray_width=pen_raw["ray_width"],
+                energy_model=energy_model,
+                absorption_stat_index=pen_raw["absorption_stat_index"],
+                absorption_ignores_mitigation=pen_raw.get(
+                    "absorption_ignores_mitigation", True
+                ),
+                max_targets=pen_raw.get("max_targets"),
+            )
+
         return CombatRuleConfig(
             source_faction=raw_rule["source_faction"],
             target_faction=raw_rule["target_faction"],
@@ -71,6 +108,8 @@ def _parse_profile(raw: dict[str, Any]):
             range_stat_index=raw_rule.get("range_stat_index"),
             mitigation=mitigation,
             cooldown_ticks=raw_rule.get("cooldown_ticks"),
+            aoe=aoe,
+            penetration=penetration,
         )
 
     meta = ProfileMeta(**raw["meta"])
@@ -97,16 +136,35 @@ def _parse_profile(raw: dict[str, Any]):
     terrain_thresholds = TerrainThresholdsDef(**raw["terrain_thresholds"])
 
     ab_raw = raw["abilities"]
-    buff_raw = ab_raw["activate_buff"]
-    abilities = AbilitiesDef(
-        buff_cooldown_ticks=ab_raw["buff_cooldown_ticks"],
-        movement_speed_stat=ab_raw.get("movement_speed_stat"),
-        combat_damage_stat=ab_raw.get("combat_damage_stat"),
-        activate_buff=ActivateBuffDef(
+    buff_raw = ab_raw.get("activate_buff")
+    activate_buff = None
+    if buff_raw:
+        activate_buff = ActivateBuffDef(
             modifiers=[StatModifierDef(**m) for m in buff_raw["modifiers"]],
             duration_ticks=buff_raw["duration_ticks"]
-        ),
+        )
+    
+    skills = None
+    if "skills" in ab_raw:
+        from src.config.definitions import SkillDef
+        skills = [
+            SkillDef(
+                index=s["index"],
+                name=s["name"],
+                modifiers=[StatModifierDef(**m) for m in s["modifiers"]],
+                duration_ticks=s["duration_ticks"],
+                cooldown_ticks=s["cooldown_ticks"]
+            )
+            for s in ab_raw["skills"]
+        ]
+
+    abilities = AbilitiesDef(
+        buff_cooldown_ticks=ab_raw.get("buff_cooldown_ticks", 0),
+        movement_speed_stat=ab_raw.get("movement_speed_stat"),
+        combat_damage_stat=ab_raw.get("combat_damage_stat"),
+        activate_buff=activate_buff,
         zone_modifier_duration_ticks=ab_raw.get("zone_modifier_duration_ticks", 1500),
+        skills=skills,
     )
 
     removal_rules = [RemovalRuleDef(**r) for r in raw.get("removal_rules", [])]

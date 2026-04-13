@@ -110,6 +110,7 @@ pub fn ws_command_system(
                     let amount = cmd
                         .params
                         .get("amount")
+                        .or_else(|| cmd.params.get("count"))
                         .and_then(|v| v.as_u64())
                         .unwrap_or(1) as u32;
                     let x = cmd.params.get("x").and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
@@ -177,6 +178,8 @@ pub fn ws_command_system(
                             VisionRadius::default(),
                             default_mc,
                             UnitClassId::default(),
+                            crate::components::TacticalState::default(),
+                            crate::components::CombatState::default(),
                         ));
                         next_id.0 += 1;
                         spawned_count += 1;
@@ -341,6 +344,8 @@ pub fn ws_command_system(
                                     VisionRadius::default(),
                                     MovementConfig::default(),
                                     UnitClassId::default(),
+                                    crate::components::TacticalState::default(),
+                                    crate::components::CombatState::default(),
                                 ));
                             }
                         }

@@ -31,7 +31,7 @@ impl Default for SimulationConfig {
             flow_field_cell_size: 20.0,
             flow_field_update_interval: 30,
             initial_faction_count: 2,
-            initial_stat_defaults: vec![(0, 1.0)],
+            initial_stat_defaults: vec![(0, 100.0)],
         }
     }
 }
@@ -115,8 +115,8 @@ mod tests {
         );
         assert_eq!(
             config.initial_stat_defaults,
-            vec![(0, 1.0)],
-            "default stats should be [(0, 1.0)]"
+            vec![(0, 100.0)],
+            "default stats should be [(0, 100.0)]"
         );
     }
 

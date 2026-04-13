@@ -357,7 +357,7 @@ class CurriculumCallback(BaseCallback):
         profile: 'GameProfile' | None = None,
         win_rate_threshold: float = 0.80,
         streak_required: int = 50,
-        max_substage: int = 8,
+        max_substage: int = 9,
         verbose: int = 1,
         checkpoint_dir: str | None = None,
     ):
@@ -398,11 +398,11 @@ class CurriculumCallback(BaseCallback):
 
         # Stage specific win rate thresholds
         target_wr = self.win_rate_threshold
-        if current_stage == 7:
+        if current_stage == 8:
             target_wr = 0.75
             
         req_streak = self.streak_required
-        if current_stage == 8:
+        if current_stage == 9:
             req_streak = 500
 
         # Stage specific additional constraints

@@ -1,0 +1,225 @@
+# Feature 2: Stage-Specific Combat Rule Builder (Task 02)
+
+## Purpose
+
+Create a factory module that constructs stage-specific `InteractionRule` payloads (AoE cones, AoE circles, kinetic penetration) as raw dicts ready for ZMQ transmission. These rules are **additive** — they are merged with the base melee rules from the profile.
+
+---
+
+## Target Files
+
+- `macro-brain/src/training/stage_combat_rules.py` [NEW]
+
+## Dependencies
+
+- **Task 01** (AoE/Penetration dataclasses must exist in `definitions.py`)
+
+## Context Bindings
+
+- `context/engine` (AoE shapes, penetration energy models, InteractionRule contract)
+- `context/training`
+
+---
+
+## Strict Instructions
+
+### Create `macro-brain/src/training/stage_combat_rules.py`
+
+This module provides `get_stage_combat_rules(stage)` and `get_stage_unit_types(stage)`.
+
+```python
+"""Stage-specific combat rule construction for curriculum v5.0.
+
+Stages 0-4: No extra rules (basic melee from profile)
+Stage 5:    AoE ConvexPolygon cone on enemy faction (forced flanking)
+Stage 6:    AoE Circle on enemy faction (forced spread)
+Stage 7:    Kinetic Penetration on enemy turrets (forced screening)
+Stage 8:    Selects from the stage pool (inherits rules from chosen stage)
+"""
+
+from __future__ import annotations
+from typing import Any
+
+
+def get_stage_combat_rules(
+    stage: int,
+    enemy_faction: int = 1,
+    brain_faction: int = 0,
+) -> list[dict[str, Any]]:
+    """Return ADDITIONAL combat rules for the given curriculum stage.
+    
+    These are MERGED with the base melee rules from the profile.
+    Returns an empty list for Stages 0-4 (no extra rules needed).
+    
+    Args:
+        stage: Current curriculum stage (0-8).
+        enemy_faction: Faction ID of the enemy (varies per episode).
+        brain_faction: Faction ID of the brain swarm.
+    """
+    if stage == 5:
+        return _stage5_aoe_cone_rules(enemy_faction, brain_faction)
+    elif stage == 6:
+        return _stage6_aoe_circle_rules(enemy_faction, brain_faction)
+    elif stage == 7:
+        return _stage7_penetration_rules(enemy_faction, brain_faction)
+    return []
+
+
+def get_stage_unit_types(stage: int) -> list[dict[str, Any]] | None:
+    """Return unit type definitions for stages with heterogeneous armies.
+    
+    Returns None for stages using homogeneous units (the default).
+    Only Stage 7+ uses heterogeneous brain composition.
+    """
+    if stage == 7:
+        return _stage7_unit_types()
+    return None
+
+
+# ── Stage 5: AoE Cone (Forced Flanking) ─────────────────────────────
+
+def _stage5_aoe_cone_rules(
+    enemy_fid: int, brain_fid: int
+) -> list[dict[str, Any]]:
+    """Enemy faction gets a 60° forward AoE cone weapon.
+    
+    Combat math (from strategy_brief.md):
+      - Cone: 60° forward, range 80, -15 DPS per source, Linear falloff
+      - Frontal charge: all 50 brain units in cone → 450 DPS splash → brain dies in 4.2s
+      - Flanking (50/50 split, 90°+ angle): only 25 in cone → 225 DPS → brain wins
+    
+    Cone geometry (ConvexPolygon, CCW wound):
+      60° cone pointing along +X (source→target aligned):
+      - Apex at origin (0, 0) — NOT included, pushed slightly forward
+      - Right edge: (80, -46.0) — 80 * tan(30°) ≈ 46.2
+      - Left edge:  (80, 46.0)
+    
+    Triangle vertices (CCW for Rust):
+      [5.0, 0.0], [80.0, 46.0], [80.0, -46.0]
+      (apex pushed to 5.0 so the polygon has area; Rust needs non-degenerate)
+    """
+    return [{
+        "source_faction": enemy_fid,
+        "target_faction": brain_fid,
+        "range": 80.0,
+        "effects": [{"stat_index": 0, "delta_per_second": -15.0}],
+        "aoe": {
+            "shape": {
+                "type": "ConvexPolygon",
+                "vertices": [
+                    [5.0, 0.0],     # Near apex (slightly forward)
+                    [80.0, 46.0],   # Left edge at max range
+                    [80.0, -46.0],  # Right edge at max range
+                ],
+                "rotation_mode": "TargetAligned",
+            },
+            "falloff": "Linear",
+        },
+    }]
+
+
+# ── Stage 6: AoE Circle (Forced Spread) ─────────────────────────────
+
+def _stage6_aoe_circle_rules(
+    enemy_fid: int, brain_fid: int
+) -> list[dict[str, Any]]:
+    """Enemy faction gets AoE Circle splash weapon.
+    
+    Combat math (from strategy_brief.md):
+      - Circle: radius 30, -10 DPS per source, Quadratic falloff
+      - Clumped brain: 40 × 10 × 60 targets = 24,000 effective DPS → instant wipe
+      - Spread brain: 40 × 10 × ~3 targets = 1,200 DPS per group → survivable
+    """
+    return [{
+        "source_faction": enemy_fid,
+        "target_faction": brain_fid,
+        "range": 30.0,
+        "effects": [{"stat_index": 0, "delta_per_second": -10.0}],
+        "aoe": {
+            "shape": {
+                "type": "Circle",
+                "radius": 30.0,
+            },
+            "falloff": "Quadratic",
+        },
+    }]
+
+
+# ── Stage 7: Kinetic Penetration (Forced Screening) ─────────────────
+
+def _stage7_penetration_rules(
+    enemy_fid: int, brain_fid: int
+) -> list[dict[str, Any]]:
+    """Enemy turrets get Kinetic penetration weapon.
+    
+    Combat math (from strategy_brief.md):
+      - Ray: width 3.0, base_energy 200, absorption on stat[4]
+      - Cooldown: 60 ticks (1 shot/sec)
+      - Without tanks: 200 energy ÷ 80 HP = 2.5 infantry killed per shot
+      - With tanks screening: 300 HP × 0.8 absorption = 240 energy → ray exhausted
+    """
+    return [{
+        "source_faction": enemy_fid,
+        "target_faction": brain_fid,
+        "range": 200.0,
+        "effects": [{"stat_index": 0, "delta_per_second": -30.0}],
+        "cooldown_ticks": 60,
+        "penetration": {
+            "ray_width": 3.0,
+            "energy_model": {"Kinetic": {"base_energy": 200.0}},
+            "absorption_stat_index": 4,
+            "absorption_ignores_mitigation": True,
+        },
+    }]
+
+
+def _stage7_unit_types() -> list[dict[str, Any]]:
+    """Heterogeneous brain unit types for Stage 7.
+    
+    Class 0 (Infantry): 80 HP, standard speed, no absorption
+    Class 1 (Tank): 300 HP, slower speed, stat[4]=0.8 absorption
+    """
+    return [
+        {
+            "class_id": 0,
+            "stats": [{"index": 0, "value": 80.0}],
+            "engagement_range": 0.0,
+        },
+        {
+            "class_id": 1,
+            "stats": [
+                {"index": 0, "value": 300.0},
+                {"index": 4, "value": 0.8},
+            ],
+            "engagement_range": 0.0,
+            "movement": {"max_speed": 40.0},
+        },
+    ]
+```
+
+> [!IMPORTANT]
+> **ConvexPolygon winding:** Rust requires CCW (counter-clockwise) wound vertices. The 60° cone triangle has apex at the near end, fanning out toward max range. The `TargetAligned` rotation mode auto-rotates the polygon to face the nearest target.
+
+> [!WARNING]
+> **Stage 8 inheritance:** Stage 8 calls `_spawns_stage8()` which randomly picks a stage and delegates. The combat rules must also be delegated. This means `SwarmEnv` needs to know which sub-stage was picked for Stage 8. This is handled in Task 05.
+
+---
+
+## Verification Strategy
+
+```yaml
+Verification_Strategy:
+  Test_Type: unit
+  Test_Stack: Python / pytest
+  Acceptance_Criteria:
+    - "get_stage_combat_rules(0) returns []"
+    - "get_stage_combat_rules(5) returns 1 rule with aoe.shape.type == 'ConvexPolygon'"
+    - "get_stage_combat_rules(6) returns 1 rule with aoe.shape.type == 'Circle'"
+    - "get_stage_combat_rules(7) returns 1 rule with penetration.energy_model.Kinetic"
+    - "get_stage_unit_types(7) returns 2 unit types (class 0 and 1)"
+    - "get_stage_unit_types(0) returns None"
+    - "All returned dicts are JSON-serializable"
+    - "ConvexPolygon vertices are CCW wound (cross product check)"
+  Suggested_Test_Commands:
+    - "cd macro-brain && .venv/bin/python -m pytest tests/test_stage_combat_rules.py -v"
+```

@@ -9,7 +9,7 @@ import { sendCommand } from '../websocket.js';
 const PRESETS = {
     'swarm_vs_defender': {
         label: 'Swarm vs Defender',
-        description: '2 factions, bidirectional chase, proximity damage, removal at stat[0] ≤ 0',
+        description: '500 vs 100, bidirectional chase, melee combat. Classic test.',
         navigation: [
             { follower_faction: 0, target: { type: 'Faction', faction_id: 1 } },
             { follower_faction: 1, target: { type: 'Faction', faction_id: 0 } },
@@ -22,13 +22,13 @@ const PRESETS = {
             { stat_index: 0, threshold: 0.0, condition: 'LessThanEqual' },
         ],
         spawns: [
-            { faction_id: 0, count: 500, x: 400, y: 500, spread: 150, stats: [{ index: 0, value: 100.0 }] },
-            { faction_id: 1, count: 100, x: 600, y: 500, spread: 100, stats: [{ index: 0, value: 100.0 }] },
+            { faction_id: 0, amount: 500, x: 400, y: 500, spread: 150, stats: [{ index: 0, value: 100.0 }] },
+            { faction_id: 1, amount: 100, x: 600, y: 500, spread: 100, stats: [{ index: 0, value: 100.0 }] },
         ],
     },
     'three_faction_melee': {
         label: '3-Faction Melee',
-        description: '3 factions in a free-for-all triangle',
+        description: '3 factions in a free-for-all triangle. Tests multi-faction flow fields.',
         navigation: [
             { follower_faction: 0, target: { type: 'Faction', faction_id: 1 } },
             { follower_faction: 1, target: { type: 'Faction', faction_id: 2 } },
@@ -43,21 +43,70 @@ const PRESETS = {
             { stat_index: 0, threshold: 0.0, condition: 'LessThanEqual' },
         ],
         spawns: [
-            { faction_id: 0, count: 300, x: 400, y: 400, spread: 100, stats: [{ index: 0, value: 100.0 }] },
-            { faction_id: 1, count: 300, x: 600, y: 400, spread: 100, stats: [{ index: 0, value: 100.0 }] },
-            { faction_id: 2, count: 300, x: 500, y: 600, spread: 100, stats: [{ index: 0, value: 100.0 }] },
+            { faction_id: 0, amount: 300, x: 400, y: 400, spread: 100, stats: [{ index: 0, value: 100.0 }] },
+            { faction_id: 1, amount: 300, x: 600, y: 400, spread: 100, stats: [{ index: 0, value: 100.0 }] },
+            { faction_id: 2, amount: 300, x: 500, y: 600, spread: 100, stats: [{ index: 0, value: 100.0 }] },
+        ],
+    },
+    'ranged_vs_melee': {
+        label: 'Ranged vs Melee',
+        description: 'Long-range snipers (range 80) vs melee chargers (range 15). Tests range asymmetry.',
+        navigation: [
+            { follower_faction: 0, target: { type: 'Faction', faction_id: 1 } },
+            { follower_faction: 1, target: { type: 'Faction', faction_id: 0 } },
+        ],
+        interaction: [
+            // Ranged: low DPS, long range
+            { source_faction: 0, target_faction: 1, range: 80.0, effects: [{ stat_index: 0, delta_per_second: -5.0 }] },
+            // Melee: high DPS, short range
+            { source_faction: 1, target_faction: 0, range: 15.0, effects: [{ stat_index: 0, delta_per_second: -30.0 }] },
+        ],
+        removal: [
+            { stat_index: 0, threshold: 0.0, condition: 'LessThanEqual' },
+        ],
+        spawns: [
+            // Ranged: fewer but shoot far, low HP
+            { faction_id: 0, amount: 150, x: 200, y: 500, spread: 80, stats: [{ index: 0, value: 60.0 }] },
+            // Melee: many tough chargers
+            { faction_id: 1, amount: 300, x: 800, y: 500, spread: 100, stats: [{ index: 0, value: 150.0 }] },
+        ],
+    },
+    'tank_screen': {
+        label: 'Tank Screen',
+        description: 'Tanky frontline (200 HP) shields fragile DPS (50 HP). Tests HP asymmetry + formation.',
+        navigation: [
+            { follower_faction: 0, target: { type: 'Faction', faction_id: 1 } },
+            { follower_faction: 1, target: { type: 'Faction', faction_id: 0 } },
+        ],
+        interaction: [
+            // Faction 0 tanks: low damage
+            { source_faction: 0, target_faction: 1, range: 15.0, effects: [{ stat_index: 0, delta_per_second: -5.0 }] },
+            // Faction 0 DPS (same faction, different spawn group): high damage
+            // Faction 1: medium damage
+            { source_faction: 1, target_faction: 0, range: 15.0, effects: [{ stat_index: 0, delta_per_second: -15.0 }] },
+        ],
+        removal: [
+            { stat_index: 0, threshold: 0.0, condition: 'LessThanEqual' },
+        ],
+        spawns: [
+            // Faction 0 Tanks (front): slow, high HP
+            { faction_id: 0, amount: 100, x: 350, y: 500, spread: 60, stats: [{ index: 0, value: 200.0 }] },
+            // Faction 0 DPS (behind): fast, low HP
+            { faction_id: 0, amount: 200, x: 200, y: 500, spread: 80, stats: [{ index: 0, value: 50.0 }] },
+            // Faction 1 balanced army
+            { faction_id: 1, amount: 300, x: 800, y: 500, spread: 100, stats: [{ index: 0, value: 100.0 }] },
         ],
     },
     'waypoint_navigation': {
-        label: 'Waypoint Navigation',
-        description: '1 faction navigating to a static waypoint — tests pathfinding only',
+        label: 'Waypoint Rally',
+        description: '1 faction navigating to (800,800). Tests flow field pathfinding only.',
         navigation: [
             { follower_faction: 0, target: { type: 'Waypoint', x: 800.0, y: 800.0 } },
         ],
         interaction: [],
         removal: [],
         spawns: [
-            { faction_id: 0, count: 500, x: 200, y: 200, spread: 100, stats: [{ index: 0, value: 100.0 }] },
+            { faction_id: 0, amount: 500, x: 200, y: 200, spread: 100, stats: [{ index: 0, value: 100.0 }] },
         ],
     },
 };

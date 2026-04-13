@@ -1,0 +1,7 @@
+{
+  "artifactType": "ARTIFACT_TYPE_IMPLEMENTATION_PLAN",
+  "summary": "Updated implementation plan with three user design refinements: (1) Multi-skill ActivateSkill using coordinate param as skill_index, (2) Multi-stat ECP formula from Stage 5+, (3) Stage 6 redesigned as speed-buff chase to reinforcement point. Includes full observation channel audit and file-level change specs.",
+  "updatedAt": "2026-04-13T07:17:10.366724Z",
+  "version": "3",
+  "requestFeedback": true
+}

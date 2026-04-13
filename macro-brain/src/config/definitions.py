@@ -58,6 +58,95 @@ class MitigationConfig:
     mode: str  # "PercentReduction" or "FlatReduction"
 
 
+# ── AoE Configuration (mirrors Rust AoeConfig) ─────────────────────
+
+@dataclass(frozen=True)
+class AoeShapeDef:
+    """AoE damage shape. Matches Rust AoeShape enum with serde(tag='type').
+
+    type must be 'Circle', 'Ellipse', or 'ConvexPolygon'.
+    """
+    type: str  # "Circle", "Ellipse", "ConvexPolygon"
+    # Circle fields
+    radius: float | None = None
+    # Ellipse fields
+    semi_major: float | None = None
+    semi_minor: float | None = None
+    # ConvexPolygon fields — list of [dx, dy] offsets, CCW wound
+    vertices: list[list[float]] | None = None
+    # Rotation (for Ellipse/ConvexPolygon)
+    rotation_mode: str | None = None  # "TargetAligned" or {"Fixed": angle}
+
+    def to_dict(self) -> dict:
+        d: dict = {"type": self.type}
+        if self.type == "Circle":
+            d["radius"] = self.radius
+        elif self.type == "Ellipse":
+            d["semi_major"] = self.semi_major
+            d["semi_minor"] = self.semi_minor
+            if self.rotation_mode:
+                d["rotation_mode"] = self.rotation_mode
+        elif self.type == "ConvexPolygon":
+            d["vertices"] = self.vertices
+            if self.rotation_mode:
+                d["rotation_mode"] = self.rotation_mode
+        return d
+
+
+@dataclass(frozen=True)
+class AoeConfigDef:
+    """AoE damage area configuration. Matches Rust AoeConfig struct."""
+    shape: AoeShapeDef
+    falloff: str  # "None", "Linear", "Quadratic"
+
+    def to_dict(self) -> dict:
+        return {
+            "shape": self.shape.to_dict(),
+            "falloff": self.falloff,
+        }
+
+
+# ── Penetration Configuration (mirrors Rust PenetrationConfig) ─────
+
+@dataclass(frozen=True)
+class EnergyModelDef:
+    """Penetration energy model. Matches Rust EnergyModel enum.
+
+    type must be 'Kinetic' or 'Beam'.
+    """
+    type: str  # "Kinetic" or "Beam"
+    base_energy: float | None = None  # Only for Kinetic
+
+    def to_dict(self) -> dict:
+        if self.type == "Kinetic":
+            return {"Kinetic": {"base_energy": self.base_energy}}
+        return "Beam"
+
+
+@dataclass(frozen=True)
+class PenetrationConfigDef:
+    """Penetration (piercing) damage configuration.
+
+    Matches Rust PenetrationConfig struct.
+    """
+    ray_width: float
+    energy_model: EnergyModelDef
+    absorption_stat_index: int
+    absorption_ignores_mitigation: bool = True
+    max_targets: int | None = None
+
+    def to_dict(self) -> dict:
+        d = {
+            "ray_width": self.ray_width,
+            "energy_model": self.energy_model.to_dict(),
+            "absorption_stat_index": self.absorption_stat_index,
+            "absorption_ignores_mitigation": self.absorption_ignores_mitigation,
+        }
+        if self.max_targets is not None:
+            d["max_targets"] = self.max_targets
+        return d
+
+
 @dataclass(frozen=True)
 class CombatRuleConfig:
     source_faction: int
@@ -69,6 +158,8 @@ class CombatRuleConfig:
     range_stat_index: int | None = None
     mitigation: MitigationConfig | None = None
     cooldown_ticks: int | None = None
+    aoe: AoeConfigDef | None = None
+    penetration: PenetrationConfigDef | None = None
 
 
 @dataclass(frozen=True)
@@ -109,12 +200,22 @@ class ActivateBuffDef:
 
 
 @dataclass(frozen=True)
+class SkillDef:
+    index: int
+    name: str
+    modifiers: list[StatModifierDef]
+    duration_ticks: int
+    cooldown_ticks: int
+
+
+@dataclass(frozen=True)
 class AbilitiesDef:
     buff_cooldown_ticks: int
     movement_speed_stat: int | None
     combat_damage_stat: int | None
     activate_buff: ActivateBuffDef
     zone_modifier_duration_ticks: int = 1500
+    skills: list[SkillDef] | None = None
 
 
 @dataclass(frozen=True)

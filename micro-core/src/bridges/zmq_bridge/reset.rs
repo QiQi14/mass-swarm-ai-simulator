@@ -290,6 +290,11 @@ pub(crate) fn reset_environment_system(
     if let Some(idx) = reset.ecp_stat_index {
         configs.density_config.ecp_stat_index = idx;
     }
+    if let Some(ref formula) = reset.ecp_formula {
+        configs.density_config.ecp_formula = Some(formula.stat_indices.clone());
+    } else {
+        configs.density_config.ecp_formula = None;
+    }
 
     if let Some(tt) = &reset.terrain_thresholds {
         terrain.impassable_threshold = tt.impassable_threshold;

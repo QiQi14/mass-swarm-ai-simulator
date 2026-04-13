@@ -1,7 +1,9 @@
 """Tactical Curriculum Stages.
 
-9-stage curriculum (0-8) for training the swarm intelligence.
-Stage 0: 1v1 navigation — learn to use coordinate commands.
+10-stage curriculum (0-9) for training the swarm intelligence.
+Stage 0-4: Foundational (navigation, target selection, pheromone, repellent, fog).
+Stage 5-8: Physics-enforced tactical skills (AoE flanking, spread, combined arms, screening).
+Stage 9:   Randomized graduation capstone.
 """
 
 from __future__ import annotations
@@ -43,10 +45,11 @@ STAGE_MAP_CONFIGS: dict[int, StageMapConfig] = {
     2: StageMapConfig(600, 600, 30, 30, 20.0, fog_enabled=False),  # Pheromone Path
     3: StageMapConfig(600, 600, 30, 30, 20.0, fog_enabled=False),  # Repellent Field
     4: StageMapConfig(800, 800, 40, 40, 20.0, fog_enabled=True),   # Fog Scouting
-    5: StageMapConfig(800, 800, 40, 40, 20.0, fog_enabled=True),   # Flanking
-    6: StageMapConfig(1000, 1000, 50, 50, 20.0, fog_enabled=True), # Full Tactics
-    7: StageMapConfig(1000, 1000, 50, 50, 20.0, fog_enabled=True), # Protected Target
-    8: StageMapConfig(1000, 1000, 50, 50, 20.0, fog_enabled=True), # Randomized
+    5: StageMapConfig(1000, 1000, 50, 50, 20.0, fog_enabled=True), # Forced Flanking
+    6: StageMapConfig(1000, 1000, 50, 50, 20.0, fog_enabled=True), # Spread Formation
+    7: StageMapConfig(1000, 1000, 50, 50, 20.0, fog_enabled=True), # Combined Arms
+    8: StageMapConfig(1000, 1000, 50, 50, 20.0, fog_enabled=True), # Screening
+    9: StageMapConfig(1000, 1000, 50, 50, 20.0, fog_enabled=True), # Randomized
 }
 
 def get_map_config(stage: int) -> StageMapConfig:
@@ -228,66 +231,136 @@ def _spawns_stage4(rng: Generator | None = None, profile: GameProfile | None = N
     return spawns, {"trap_faction": fid_a, "target_faction": fid_a}
 
 def _spawns_stage5(rng: Generator | None = None, profile: GameProfile | None = None) -> tuple[list[dict], dict]:
-    # Stage 5: Flanking (800×800)
-    brain_count = _faction_count(profile, 0, 60)
-    target_fid = 1 if rng is None or rng.random() > 0.5 else 2
-    defender_count = 40
+    """Stage 5: Forced Flanking — AoE Cone Enemy (1000×1000).
+
+    Brain (60 units) spawns at left edge.
+    Enemy (30 × 200 HP) HoldPosition at center with AoE cone weapon.
+    Frontal charge = AoE cone death, flanking = win.
+    """
+    brain_count = 60
+    enemy_count = 30
+    enemy_fid = 1 if rng is None or rng.random() > 0.5 else 2
+
+    brain_y = 500.0 + (rng.uniform(-60, 60) if rng is not None else 0.0)
+    enemy_x = 500.0 + (rng.uniform(-20, 20) if rng is not None else 0.0)
+    enemy_y = 500.0 + (rng.uniform(-20, 20) if rng is not None else 0.0)
+
     spawns = [
-        {"faction_id": 0, "count": brain_count, "x": 100.0, "y": 400.0, "spread": 60.0, "stats": _faction_stats(profile, 0)},
-        {"faction_id": target_fid, "count": defender_count, "x": 400.0, "y": 400.0, "spread": 40.0, "stats": _faction_stats(profile, target_fid)},
+        {"faction_id": 0, "count": brain_count, "x": 100.0, "y": brain_y,
+         "spread": 60.0, "stats": [{"index": 0, "value": 100.0}]},
+        {"faction_id": enemy_fid, "count": enemy_count, "x": enemy_x, "y": enemy_y,
+         "spread": 40.0, "stats": [{"index": 0, "value": 200.0}]},
     ]
-    return spawns, {"trap_faction": target_fid, "target_faction": target_fid}
+    return spawns, {"trap_faction": enemy_fid, "target_faction": enemy_fid}
 
 def _spawns_stage6(rng: Generator | None = None, profile: GameProfile | None = None) -> tuple[list[dict], dict]:
-    # Stage 6: Scout + Full Tactics (1000×1000)
-    brain_count = _faction_count(profile, 0, 50)
-    flip_roles = rng is not None and rng.random() > 0.5
-    trap_fid = 2 if flip_roles else 1
-    target_fid = 1 if flip_roles else 2
-    
-    patrol_count = 40
-    target_count = 15
+    """Stage 6: Speed Chase — Activate skill to outrun and meet allies (1000×1000).
+
+    Brain (50 units) base speed 55, placed at x=100.
+    Enemy (40 units) base speed 60, placed at x=350, charging.
+    Allies (20 units) standard speed, placed at x=800, holding position.
+    """
+    brain_y = 500.0 + (rng.uniform(-20, 20) if rng is not None else 0.0)
+    enemy_y = 500.0 + (rng.uniform(-20, 20) if rng is not None else 0.0)
+    ally_y = 500.0 + (rng.uniform(-20, 20) if rng is not None else 0.0)
+
     spawns = [
-        {"faction_id": 0, "count": brain_count, "x": 500.0, "y": 100.0, "spread": 60.0, "stats": _faction_stats(profile, 0)},
-        {"faction_id": trap_fid, "count": patrol_count, "x": 500.0, "y": 600.0, "spread": 60.0, "stats": [{"index": 0, "value": 200.0}]},
-        {"faction_id": target_fid, "count": target_count, "x": 500.0, "y": 800.0, "spread": 40.0, "stats": [{"index": 0, "value": 60.0}]},
+        {"faction_id": 0, "count": 50, "x": 100.0, "y": brain_y,
+         "spread": 60.0, "stats": [{"index": 0, "value": 100.0}], 
+         "movement": {"max_speed": 55.0}},
+        {"faction_id": 1, "count": 40, "x": 350.0, "y": enemy_y,
+         "spread": 40.0, "stats": [{"index": 0, "value": 100.0}]},
+        {"faction_id": 2, "count": 20, "x": 800.0, "y": ally_y,
+         "spread": 40.0, "stats": [{"index": 0, "value": 100.0}]},
     ]
-    return spawns, {"trap_faction": trap_fid, "target_faction": target_fid}
+    return spawns, {"trap_faction": 1, "target_faction": 1}
 
 def _spawns_stage7(rng: Generator | None = None, profile: GameProfile | None = None) -> tuple[list[dict], dict]:
-    # Stage 7: Protected Target (1000×1000)
-    brain_count = _faction_count(profile, 0, 60)
-    flip_roles = rng is not None and rng.random() > 0.5
-    trap_fid = 2 if flip_roles else 1
-    target_fid = 1 if flip_roles else 2
-    
-    guard_count = 50
-    hvt_count = 10
+    """Stage 7: Combined Arms Intro — Heterogeneous Brain vs Standard Enemy (1000×1000).
+
+    Gentle introduction to heterogeneous units. No special weapons.
+    Brain: 35 Infantry (class 0, 80 HP) + 15 Tanks (class 1, 300 HP, slower).
+    Enemy: 40 × 150 HP, standard melee, gentle Charge.
+    """
+    brain_infantry = 35
+    brain_tanks = 15
+    enemy_count = 40
+    enemy_fid = 1 if rng is None or rng.random() > 0.5 else 2
+
+    brain_y = 500.0 + (rng.uniform(-80, 80) if rng is not None else 0.0)
+    enemy_x = 750.0 + (rng.uniform(-40, 40) if rng is not None else 0.0)
+    enemy_y = 500.0 + (rng.uniform(-40, 40) if rng is not None else 0.0)
+
     spawns = [
-        {"faction_id": 0, "count": brain_count, "x": 100.0, "y": 500.0, "spread": 60.0, "stats": _faction_stats(profile, 0)},
-        {"faction_id": trap_fid, "count": guard_count, "x": 750.0, "y": 500.0, "spread": 80.0, "stats": [{"index": 0, "value": 200.0}]},
-        {"faction_id": target_fid, "count": hvt_count, "x": 800.0, "y": 500.0, "spread": 40.0, "stats": [{"index": 0, "value": 60.0}]},
+        {"faction_id": 0, "count": brain_infantry, "x": 150.0, "y": brain_y,
+         "spread": 60.0, "stats": [{"index": 0, "value": 80.0}],
+         "unit_class_id": 0},
+        {"faction_id": 0, "count": brain_tanks, "x": 100.0, "y": brain_y,
+         "spread": 40.0,
+         "stats": [{"index": 0, "value": 300.0}, {"index": 4, "value": 0.8}],
+         "unit_class_id": 1},
+        {"faction_id": enemy_fid, "count": enemy_count, "x": enemy_x, "y": enemy_y,
+         "spread": 50.0, "stats": [{"index": 0, "value": 150.0}]},
     ]
-    return spawns, {"trap_faction": trap_fid, "target_faction": target_fid}
+    return spawns, {"trap_faction": enemy_fid, "target_faction": enemy_fid}
 
 def _spawns_stage8(rng: Generator | None = None, profile: GameProfile | None = None) -> tuple[list[dict], dict]:
-    # Stage 8: Randomized
-    stage_choices = [1, 2, 5, 6, 7]
+    """Stage 8: Screening — Kinetic Penetration + Heterogeneous Army (1000×1000).
+
+    Brain: 35 Infantry (class 0, 80 HP) + 15 Tanks (class 1, 300 HP, absorption).
+    Enemy turrets: 10 × 200 HP, HoldPosition, Kinetic Penetration weapon.
+    Protected HVT: 10 × 60 HP, HoldPosition behind turrets.
+    Brain must route Tanks in front to absorb kinetic rays.
+    """
+    turret_fid = 1 if rng is None or rng.random() > 0.5 else 2
+    hvt_fid = 2 if turret_fid == 1 else 1
+
+    brain_y = 500.0 + (rng.uniform(-80, 80) if rng is not None else 0.0)
+    turret_x = 650.0 + (rng.uniform(-30, 30) if rng is not None else 0.0)
+    turret_y = 500.0 + (rng.uniform(-40, 40) if rng is not None else 0.0)
+    hvt_x = turret_x + 100.0
+    hvt_y = turret_y
+
+    spawns = [
+        {"faction_id": 0, "count": 35, "x": 150.0, "y": brain_y,
+         "spread": 60.0, "stats": [{"index": 0, "value": 80.0}],
+         "unit_class_id": 0},
+        {"faction_id": 0, "count": 15, "x": 100.0, "y": brain_y,
+         "spread": 40.0,
+         "stats": [{"index": 0, "value": 300.0}, {"index": 4, "value": 0.8}],
+         "unit_class_id": 1},
+        {"faction_id": turret_fid, "count": 10, "x": turret_x, "y": turret_y,
+         "spread": 60.0, "stats": [{"index": 0, "value": 200.0}]},
+        {"faction_id": hvt_fid, "count": 10, "x": hvt_x, "y": hvt_y,
+         "spread": 40.0, "stats": [{"index": 0, "value": 60.0}]},
+    ]
+    return spawns, {"trap_faction": turret_fid, "target_faction": hvt_fid}
+
+# Module-level tracker for Stage 9 sub-stage delegation
+_last_stage9_choice: int = 1
+
+def _spawns_stage9(rng: Generator | None = None, profile: GameProfile | None = None) -> tuple[list[dict], dict]:
+    """Stage 9: Randomized Graduation — picks from Stages 1-8."""
+    global _last_stage9_choice
+    stage_choices = [1, 2, 3, 4, 5, 6, 7, 8]
     if rng is not None:
         idx = rng.integers(0, len(stage_choices))
         choice = stage_choices[idx]
     else:
         import random
         choice = random.choice(stage_choices)
-        
+
+    _last_stage9_choice = choice
     generators = {
-        1: _spawns_stage1,
-        2: _spawns_stage2,
-        5: _spawns_stage5,
-        6: _spawns_stage6,
-        7: _spawns_stage7,
+        1: _spawns_stage1, 2: _spawns_stage2, 3: _spawns_stage3,
+        4: _spawns_stage4, 5: _spawns_stage5, 6: _spawns_stage6,
+        7: _spawns_stage7, 8: _spawns_stage8,
     }
     return generators[choice](rng=rng, profile=profile)
+
+def get_last_stage9_choice() -> int:
+    """Return which sub-stage was picked for the last Stage 9 episode."""
+    return _last_stage9_choice
 
 def get_spawns_for_stage(stage: int, rng: Generator | None = None, profile: GameProfile | None = None) -> tuple[list[dict], dict]:
     """Dispatch to stage-specific spawn generator."""
@@ -301,6 +374,7 @@ def get_spawns_for_stage(stage: int, rng: Generator | None = None, profile: Game
         6: _spawns_stage6,
         7: _spawns_stage7,
         8: _spawns_stage8,
+        9: _spawns_stage9,
     }
     gen = generators.get(stage, _spawns_stage0)
     return gen(rng=rng, profile=profile)
@@ -316,33 +390,21 @@ def _terrain_flat(config: StageMapConfig) -> dict:
     }
 
 def _terrain_two_path(config: StageMapConfig, seed: int) -> dict:
-    """Stage 2: Two-path terrain for pheromone training.
-
-    Layout (30×30 grid, cell_size=20 → 600×600 world):
-      - Top half (y=0-12): open area → fast/short path → TRAP HERE
-      - Wall band at y=13-15: permanent wall with gap at x=2-5
-      - Bottom half (y=16-29): safe detour path with mud slow zone
-
-    Brain spawns left, target spawns bottom-right.
-    Flow field naturally routes through top (shorter) → into trap.
-    Model must pheromone the bottom path to redirect.
-    """
+    """Stage 2: Two-path terrain for pheromone training."""
     w, h = config.active_grid_w, config.active_grid_h
     hard_costs = [100] * (w * h)
     soft_costs = [100] * (w * h)
 
-    # Horizontal wall band at y=13-15, with gap at x=2-5
     wall_y_start = 13
     wall_y_end = 15
     gap_x_start = 2
-    gap_x_end = 5 + (seed % 3)  # slight gap variation
+    gap_x_end = 5 + (seed % 3)
 
     for y in range(wall_y_start, wall_y_end + 1):
         for x in range(w):
             if not (gap_x_start <= x <= gap_x_end):
-                hard_costs[y * w + x] = 65535  # permanent wall (u16::MAX)
+                hard_costs[y * w + x] = 65535
 
-    # Mud zone on bottom path (y=20-22, x=10-20) — soft_cost=40 (slow)
     for y in range(20, min(23, h)):
         for x in range(10, min(21, w)):
             soft_costs[y * w + x] = 40
@@ -356,24 +418,15 @@ def _terrain_two_path(config: StageMapConfig, seed: int) -> dict:
     }
 
 def _terrain_open_with_danger_zones(config: StageMapConfig, seed: int) -> dict:
-    """Stage 3: Open field with high-cost zones around trap positions.
-
-    No permanent walls. High hard_cost (300) zones around trap spawn
-    points create visible "danger areas" in the terrain channel.
-    The flow field will avoid high-cost zones somewhat, but the direct
-    path is still cheapest — model must use repellent to fully block.
-    """
+    """Stage 3: Open field with high-cost zones around trap positions."""
     w, h = config.active_grid_w, config.active_grid_h
     hard_costs = [100] * (w * h)
     soft_costs = [100] * (w * h)
 
-    # Danger zones around trap spawn positions (in grid coords)
-    # Trap positions in world: (250,180), (200,350), (380,280)
-    # Convert to grid: world / cell_size = grid
     danger_centers = [
-        (12, 9),   # (250/20, 180/20) ≈ (12, 9)
-        (10, 17),  # (200/20, 350/20) = (10, 17)
-        (19, 14),  # (380/20, 280/20) = (19, 14)
+        (12, 9),
+        (10, 17),
+        (19, 14),
     ]
     danger_radius = 3
 
@@ -405,7 +458,13 @@ def generate_terrain_for_stage(stage: int, seed: int = 0) -> dict:
         return _terrain_two_path(config, seed)
     elif stage == 3:
         return _terrain_open_with_danger_zones(config, seed)
-    elif stage in (7, 8):
+    elif stage == 5:
+        # V-wall chokepoint — delegated to terrain_generator.py
+        from src.utils.terrain_generator import generate_stage5_terrain
+        return generate_stage5_terrain(seed=seed)
+    elif stage in (6, 7):
+        return _terrain_flat(config)  # Open field for spread / combined arms
+    elif stage in (8, 9):
         return _terrain_procedural(config, seed)
     else:
         return _terrain_flat(config)

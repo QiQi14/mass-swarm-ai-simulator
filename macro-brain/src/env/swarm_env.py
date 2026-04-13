@@ -28,6 +28,7 @@ from src.utils.lkp_buffer import LKPBuffer
 from src.env.actions import multidiscrete_to_directives
 from src.env.bot_controller import BotController
 from src.utils.vectorizer import vectorize_snapshot
+from src.training.stage_combat_rules import get_stage_combat_rules, get_stage_unit_types, get_stage_ecp_formula
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +104,7 @@ class SwarmEnv(gym.Env):
         self._active_ping: tuple[float, float] | None = None
         self._ping_timer = 0
         self._ping_lifespan = 10
+        self._effective_stage: int = 0  # Resolved stage (handles Stage 9 delegation)
         
 
 
@@ -199,8 +201,7 @@ class SwarmEnv(gym.Env):
         self._active_ping = None
         self._ping_timer = 0
 
-        from src.utils.terrain_generator import generate_terrain_for_stage
-        from src.training.curriculum import get_spawns_for_stage, get_map_config
+        from src.training.curriculum import generate_terrain_for_stage, get_spawns_for_stage, get_map_config
         
         # Load stage map config from curriculum
         stage_map_config = get_map_config(self.curriculum_stage)
@@ -260,19 +261,42 @@ class SwarmEnv(gym.Env):
             default=100.0
         )
 
+        # Resolve effective stage for Stage 9 sub-stage delegation
+        effective_stage = self.curriculum_stage
+        if self.curriculum_stage == 9:
+            from src.training.curriculum import get_last_stage9_choice
+            effective_stage = get_last_stage9_choice()
+        self._effective_stage = effective_stage
+
+        # Build merged combat rules: base melee + stage-specific (AoE/penetration)
+        base_combat_rules = self.profile.combat_rules_payload()
+        stage_combat_rules = get_stage_combat_rules(
+            effective_stage,
+            enemy_faction=self._trap_faction,
+            brain_faction=self.brain_faction,
+        )
+        all_combat_rules = base_combat_rules + stage_combat_rules
+
         payload = {
             "type": "reset_environment",
             "terrain": terrain,
             "spawns": spawns,
-            "combat_rules": self.profile.combat_rules_payload(),
+            "combat_rules": all_combat_rules,
             "ability_config": self.profile.ability_config_payload(),
             "movement_config": self.profile.movement_config_payload(),
             "max_density": self.profile.training.max_density,
             "max_entity_ecp": self._max_primary_stat,
+            "ecp_stat_index": self._primary_stat_index,
+            "ecp_formula": get_stage_ecp_formula(effective_stage),
             "terrain_thresholds": self.profile.terrain_thresholds_payload(),
             "removal_rules": self.profile.removal_rules_payload(),
             "navigation_rules": tactical_nav_rules,
         }
+
+        # Add unit type definitions for heterogeneous stages (Stage 7+)
+        unit_types = get_stage_unit_types(effective_stage)
+        if unit_types is not None:
+            payload["unit_types"] = unit_types
 
         # Configure bot controllers for each bot faction
         self._bot_controllers = {}
@@ -338,6 +362,7 @@ class SwarmEnv(gym.Env):
             cell_size=self._cell_size,
             pad_offset_x=self._pad_offset_x,
             pad_offset_y=self._pad_offset_y,
+            skills=getattr(self.profile.abilities, 'skills', None),
             last_nav_directive=self._last_nav_directive,
         )
         if hasattr(self, '_pending_debuff') and self._pending_debuff is not None:
@@ -384,7 +409,7 @@ class SwarmEnv(gym.Env):
         self._check_debuff_condition(snapshot)
 
         ping_reward_delta = 0.0
-        if self.curriculum_stage == 4:
+        if self._effective_stage == 4:
             if self._active_ping is not None:
                 self._ping_timer += 1
                 brain_c = self._get_density_centroid(snapshot, self.brain_faction)
@@ -421,8 +446,8 @@ class SwarmEnv(gym.Env):
             max_hp=self._max_primary_stat,
             summary_stat_index=self._primary_stat_index,
             active_sub_faction_ids=self._active_sub_factions,
-            active_objective_ping=self._active_ping if self.curriculum_stage == 4 else None,
-            ping_intensity=max(0.0, 1.0 - (self._ping_timer / self._ping_lifespan)) if self.curriculum_stage == 4 else 1.0,
+            active_objective_ping=self._active_ping if self._effective_stage == 4 else None,
+            ping_intensity=max(0.0, 1.0 - (self._ping_timer / self._ping_lifespan)) if self._effective_stage == 4 else 1.0,
         )
         
 

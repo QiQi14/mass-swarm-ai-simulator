@@ -74,6 +74,10 @@ class GameProfile:
             }
         if rule.cooldown_ticks is not None:
             payload["cooldown_ticks"] = rule.cooldown_ticks
+        if rule.aoe is not None:
+            payload["aoe"] = rule.aoe.to_dict()
+        if rule.penetration is not None:
+            payload["penetration"] = rule.penetration.to_dict()
         return payload
 
     # ── Derived helpers ─────────────────────────────────────

@@ -344,7 +344,7 @@ export default {
                 }
             });
 
-            const remRules = [{ stat_index: 0, test_value: 0.0, condition: 'LessThanEqual' }];
+            const remRules = [{ stat_index: 0, threshold: 0.0, condition: 'LessThanEqual' }];
 
             sendCommand('set_interaction', { rules: intRules });
             sendCommand('set_navigation', { rules: navRules });
@@ -362,7 +362,7 @@ export default {
 
                     sendCommand('spawn_wave', {
                         faction_id: f.id,
-                        count: f.count,
+                        amount: f.count,
                         x: x,
                         y: y,
                         spread: Math.max(50, selectedMapSize * 0.1),
