@@ -2,7 +2,7 @@
 
 A study project exploring two proof-of-concept ideas: **decoupled tri-node architecture** for mass-entity AI simulation, and **AI-agent-driven development workflows** for orchestrating complex software builds.
 
-> **Status:** Phase 2 of 5 complete — 111 unit tests, simulation running with 10K+ entities, fog of war, terrain pathfinding, and a real-time debug visualizer. [See Roadmap →](ROADMAP.md)
+> **Status:** Phase 3 of 5 complete — 111 unit tests, simulation running with 10K+ entities, fog of war, terrain pathfinding, and a real-time debug visualizer. [See Roadmap →](ROADMAP.md)
 
 ---
 
