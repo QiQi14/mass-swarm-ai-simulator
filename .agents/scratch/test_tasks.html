@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>QA Test for Task 01 and 02</title>
+  <link rel="stylesheet" href="/debug-visualizer/src/styles/variables.css">
+  <link rel="stylesheet" href="/debug-visualizer/src/styles/overlay.css">
+  <style>
+    /* basic mocked variables in case variables.css is not enough */
+    :root {
+      --font-display: sans-serif;
+      --font-mono: monospace;
+      --accent-primary: #06d6a0;
+      --text-secondary: #aaa;
+      --text-primary: #fff;
+    }
+    body { background: #111; color: #fff; margin: 0; padding: 20px; font-family: sans-serif; }
+    .mock-dashboard { margin-bottom: 20px; border: 1px dashed #555; padding: 10px; }
+  </style>
+  <script>
+    const fakeCurriculum = {
+      training: { curriculum: [ { description: 'Target Selection', graduation: { win_rate: 0.8, min_episodes: 50 } } ] },
+      combat: { rules: [ { source_faction: 0, target_faction: 2, range: 25, effects: [{stat_index: 0, delta_per_second: -25}] } ] },
+      actions: [ { name: 'Hold', unlock_stage: 0 }, { name: 'AttackCoord', unlock_stage: 0 } ],
+      factions: [ { id: 0, name: 'Brain', role: 'brain' }, { id: 1, name: 'Trap', role: 'trap' }, { id: 2, name: 'Target', role: 'target', stats: {hp: 100} } ]
+    };
+    const originalFetch = window.fetch;
+    window.fetch = async (url, options) => {
+      if (url.includes('tactical_curriculum.json')) {
+        return { ok: true, json: async () => fakeCurriculum };
+      }
+      return originalFetch(url, options);
+    };
+  </script>
+</head>
+<body>
+  <div class="mock-dashboard">
+    Dashboard Mock (Stage: <span id="dash-stage">Stage 0</span>)
+    <button onclick="document.getElementById('dash-stage').textContent='Stage 1: Blah'">Change to Stage 1 (Simulate)</button>
+  </div>
+
+  <div id="panel-body" style="width: 300px; height: 150px; border: 1px solid #333; position: relative;"></div>
+
+  <script type="module">
+    import stageInfo, { loadCurriculum } from '/debug-visualizer/src/panels/training/stage-info.js';
+    
+    async function init() {
+      await loadCurriculum();
+      const body = document.getElementById('panel-body');
+      stageInfo.render(body);
+
+      // loop to simulate requestAnimationFrame
+      setInterval(() => {
+        stageInfo.update();
+      }, 100);
+    }
+    init();
+  </script>
+
+  <!-- Some dummy overlay cards to test CSS classes -->
+  <div class="overlay-group--left">
+    <div class="overlay-card">
+      <div class="overlay-card__header">Left Card 1</div>
+      <div class="overlay-card__body">Content</div>
+    </div>
+  </div>
+  
+  <div class="overlay-group--right">
+    <div class="overlay-card">
+      <div class="overlay-card__header">Right Card 1</div>
+      <div class="overlay-card__body">Content</div>
+    </div>
+  </div>
+
+</body>
+</html>

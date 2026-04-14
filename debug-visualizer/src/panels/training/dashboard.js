@@ -34,10 +34,18 @@ async function pollTrainingStatus() {
             ui.streak.className = data.grad_streak >= 0 ? "streak-badge win" : "streak-badge loss";
         }
 
-        // Mock recent reward for sparkline randomly
-        rewardHistory.push((Math.random() - 0.2) * 5); // mostly positive
+        // Use real reward data from training status if available
+        if (data.avg_reward !== undefined) {
+            rewardHistory.push(parseFloat(data.avg_reward));
+        } else if (data.recent_reward !== undefined) {
+            rewardHistory.push(parseFloat(data.recent_reward));
+        }
+        // Cap history length
         if (rewardHistory.length > 50) rewardHistory.shift();
-        drawSparkline(ui.sparkCanvas, rewardHistory, { strokeColor: '#06d6a0', fillColor: 'rgba(6, 214, 160, 0.15)', showZeroLine: true });
+        
+        if (rewardHistory.length > 0) {
+            drawSparkline(ui.sparkCanvas, rewardHistory, { strokeColor: '#06d6a0', fillColor: 'rgba(6, 214, 160, 0.15)', showZeroLine: true, showLabels: true });
+        }
 
     } catch (e) {
         consecutiveFailures++;
@@ -59,10 +67,10 @@ export default {
                     <div class="streak-badge win" id="dash-streak" style="padding: 2px 8px; border-radius: var(--radius-full); font-size: var(--font-size-xs); font-weight: 600;">0</div>
                 </div>
 
-                <div class="metric-hero" id="dash-ep" style="margin-bottom: var(--space-lg); text-align: center; font-size: var(--font-size-hero); color: var(--text-primary); font-family: var(--font-mono);">
+                <div class="metric-hero" id="dash-ep" style="margin-bottom: var(--space-md); text-align: center; font-size: var(--font-size-hero); color: var(--text-primary); font-family: var(--font-mono);">
                     0
                 </div>
-                <div style="text-align: center; font-size: var(--font-size-xs); color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: var(--space-xl);">
+                <div style="text-align: center; font-size: var(--font-size-xs); color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: var(--space-md);">
                     Episodes
                 </div>
 
@@ -77,9 +85,9 @@ export default {
                     </div>
                 </div>
 
-                <div style="margin-top: var(--space-xl);">
+                <div style="margin-top: var(--space-lg);">
                     <div style="font-size: var(--font-size-xs); color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: var(--space-xs);">Reward History</div>
-                    <canvas id="canvas-reward-spark" class="reward-chart" width="300" height="60" style="width: 100%; height: 60px; display: block; border: 1px solid var(--border-subtle); background: var(--bg-surface-raised);"></canvas>
+                    <canvas id="canvas-reward-spark" class="reward-chart" width="300" height="100" style="width: 100%; height: 100px; display: block; border: 1px solid var(--border-subtle); background: var(--bg-surface-raised);"></canvas>
                 </div>
             </div>
         `;

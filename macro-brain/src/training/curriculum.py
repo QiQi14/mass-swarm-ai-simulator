@@ -379,6 +379,91 @@ def get_spawns_for_stage(stage: int, rng: Generator | None = None, profile: Game
     gen = generators.get(stage, _spawns_stage0)
     return gen(rng=rng, profile=profile)
 
+
+def get_stage_snapshot(stage: int, profile: GameProfile | None = None) -> dict:
+    """Generate a stage snapshot with actual per-faction spawn stats for UI display.
+
+    Called at training start and each stage graduation. The snapshot captures
+    the real HP/count values used by the spawn generators (which override the
+    base profile defaults), so the debug visualizer can render correct stats.
+
+    Returns:
+        A JSON-serializable dict with stage metadata, map config, and per-faction
+        spawn groups including actual HP values.
+    """
+    map_config = get_map_config(stage)
+    # Use rng=None to get deterministic defaults (positions don't matter for UI)
+    spawns, metadata = get_spawns_for_stage(stage, rng=None, profile=profile)
+
+    # Build per-faction info from spawn data
+    factions: dict[int, dict] = {}
+    for spawn in spawns:
+        fid = spawn["faction_id"]
+        hp = 100.0
+        for s in spawn.get("stats", []):
+            if s["index"] == 0:
+                hp = s["value"]
+
+        if fid not in factions:
+            factions[fid] = {
+                "faction_id": fid,
+                "groups": [],
+                "total_count": 0,
+                "max_hp": 0.0,
+            }
+
+        group_info: dict = {
+            "count": spawn["count"],
+            "hp": hp,
+        }
+        if spawn.get("unit_class_id") is not None:
+            group_info["unit_class_id"] = spawn["unit_class_id"]
+
+        factions[fid]["groups"].append(group_info)
+        factions[fid]["total_count"] += spawn["count"]
+        factions[fid]["max_hp"] = max(factions[fid]["max_hp"], hp)
+
+    # Add faction names and roles from profile
+    if profile is not None:
+        for f in profile.factions:
+            if f.id in factions:
+                factions[f.id]["name"] = f.name
+                factions[f.id]["role"] = f.role
+
+    # Determine roles (trap/target) from metadata
+    trap_fid = metadata.get("trap_faction")
+    target_fid = metadata.get("target_faction")
+
+    # Get stage description from profile
+    stage_desc = ""
+    if profile is not None:
+        stage_config = profile.get_stage_config(stage)
+        if stage_config is not None:
+            stage_desc = stage_config.description
+
+    # Get unlocked actions
+    unlocked_actions: list[str] = []
+    if profile is not None:
+        for a in profile.actions_unlocked_at(stage):
+            unlocked_actions.append(a.name)
+
+    return {
+        "stage": stage,
+        "description": stage_desc,
+        "map": {
+            "world_width": map_config.world_width,
+            "world_height": map_config.world_height,
+            "grid_w": map_config.active_grid_w,
+            "grid_h": map_config.active_grid_h,
+            "fog_enabled": map_config.fog_enabled,
+        },
+        "factions": factions,
+        "trap_faction": trap_fid,
+        "target_faction": target_fid,
+        "unlocked_actions": unlocked_actions,
+    }
+
+
 def _terrain_flat(config: StageMapConfig) -> dict:
     w, h = config.active_grid_w, config.active_grid_h
     return {

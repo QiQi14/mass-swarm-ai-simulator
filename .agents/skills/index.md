@@ -5,10 +5,15 @@
 
 ## Available Skills
 
-### rust-code-standards
-- **Path:** `.agents/skills/rust-code-standards/SKILL.md`
-- **Keywords:** rust, test, unit-test, comment, doc, documentation, cargo-test
-- **When to bind:** ANY Rust task in `micro-core/`. Covers commenting conventions, unit test patterns (AAA, Bevy ECS testing, float comparisons), and test naming.
+### `skills/frontend-ux-ui`
+**Create distinctive, production-grade frontend interfaces with high design quality. Use this skill when the user asks to build web components, pages, or applications. Generates creative, polished code that avoids generic AI aesthetics.**
+
+
+
+### `skills/rust-code-standards`
+**Rust commenting conventions and unit testing patterns for the Micro-Core. Load this skill for ANY Rust task.**
+
+Keywords: `rust`, `test`, `unit-test`, `comment`, `doc`, `documentation`, `cargo-test`, `verify`
 
 ---
 

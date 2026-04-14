@@ -28,6 +28,10 @@ class RunConfig:
     def profile_snapshot_path(self) -> Path:
         return self.base_dir / "profile_snapshot.json"
 
+    @property
+    def stage_snapshot_path(self) -> Path:
+        return self.base_dir / "stage_snapshot.json"
+
 
 def create_run(
     profile_path: str,

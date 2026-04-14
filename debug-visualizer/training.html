@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SwarmControl — Training</title>
+    <meta name="description" content="Training dashboard for the Mass-Swarm AI Simulator">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body class="training-page">
+    <!-- Fullscreen Canvas -->
+    <main class="canvas-area" id="canvas-area" style="width:100vw;height:100vh;">
+        <canvas id="canvas-bg"></canvas>
+        <canvas id="canvas-entities"></canvas>
+        <div class="canvas-hint" id="canvas-hint">
+            Pan: drag · Zoom: scroll · Double-click: reset view
+        </div>
+    </main>
+
+    <!-- Overlay Root -->
+    <div id="overlay-root" class="overlay--expanded">
+        <!-- Top Bar -->
+        <div class="overlay-top-bar" id="overlay-top-bar">
+            <!-- Built by training-main.js -->
+        </div>
+
+        <!-- Desktop Overlay Card Groups -->
+        <div class="overlay-layout-wrapper" id="overlay-bottom-wrapper">
+            <div class="overlay-left-cluster">
+                <div class="overlay-bottom-row" id="overlay-bottom-row">
+                    <!-- Dashboard, ML Brain, Channel Toggles, Map Toggles -->
+                </div>
+            </div>
+            <div class="overlay-right-cluster">
+                <div id="overlay-right-top"></div> <!-- Inspector -->
+                <div id="overlay-right-bottom"></div> <!-- Telemetry, Perf -->
+            </div>
+        </div>
+
+        <!-- Minimized Strip -->
+        <div class="overlay-mini-strip" id="overlay-mini-strip"></div>
+    </div>
+
+    <!-- Layers Dropdown (desktop) -->
+    <div class="layers-dropdown" id="layers-dropdown"></div>
+
+    <!-- Mobile Training Sheet -->
+    <div class="training-sheet" id="training-sheet">
+        <div class="training-sheet__handle"><div class="handle-pill"></div></div>
+        <div class="training-sheet__peek" id="training-sheet-peek"></div>
+        <div class="training-sheet__body" id="training-sheet-body"></div>
+    </div>
+
+    <script type="module" src="/src/training-main.js"></script>
+</body>
+</html>

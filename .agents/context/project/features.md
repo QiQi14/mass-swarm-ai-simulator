@@ -241,10 +241,39 @@ Eliminated all hardcoded `stat[0]`/HP references from the ECP density pipeline, 
 ---
 
 ### Boids 2.0: Tactical Steering Behaviors
-**Completed:** 2026-04-13 | **Archive:** N/A (in progress)
+**Completed:** 2026-04-13 | **Archive:** `.agents/history/` (part of Heterogeneous Swarm cycle)
 
 Upgraded movement system from 2-vector (flow + separation) to 3-vector contextual blending (flow + separation + tactical). Added `TacticalState` and `CombatState` ECS components, `UnitTypeRegistry` resource for per-class behavior definitions, and a 10 Hz entity-sharded `tactical_sensor_system` with subsumption architecture (highest-weight wins, no vector cancellation). Implemented **Kite** (flee from enemy within trigger_radius) and **PeelForAlly** (rush to distressed ally of target class). Movement system dynamically suppresses `W_flow → 0` when engagement_range is met (ranged units hold position). `interaction_system` stamps `CombatState.last_damaged_tick` for ally protection detection. All new protocol fields use `serde(default)` for full backward compatibility. Entity snapshot now includes real `unit_class_id`.
 
 **Key files:** `micro-core/src/systems/tactical_sensor.rs`, `micro-core/src/systems/movement.rs`, `micro-core/src/components/tactical.rs`, `micro-core/src/config/unit_registry.rs`, `micro-core/src/systems/interaction.rs`, `micro-core/src/bridges/zmq_bridge/snapshot.rs`
 **Depends on:** Heterogeneous Swarm Mechanics, Context-Agnostic ECP Audit
 
+---
+
+### Redesign Tactical Curriculum (v5.0)
+**Completed:** 2026-04-13 | **Archive:** `.agents/history/20260413_140000_redesign_tactical_curriculum/`
+
+Complete curriculum overhaul from 8 to 9 stages. Diagnosed zero-channel observation bug (terrain payload mismatch + missing `ecp_stat_index`). Redesigned Stages 5–8 to exploit AoE, penetration, heterogeneous units, and Boids 2.0 steering. Added `ActivateSkill` action replacing Retreat. Multi-stat ECP formula support (`ecp_formula` in DensityConfig). Physics-enforced learning: AoE cones punish clumping (Stage 5), AoE circles punish formation (Stage 6), kinetic penetration requires tank screening (Stage 7).
+
+**Key files:** `macro-brain/profiles/tactical_curriculum.json`, `macro-brain/src/training/curriculum.py`, `macro-brain/src/env/actions.py`, `macro-brain/src/env/spaces.py`, `micro-core/src/config/buff.rs`
+**Depends on:** Boids 2.0, Heterogeneous Swarm Mechanics, AoE/Penetration systems
+
+---
+
+### Tactical Speed Chase Refactor
+**Completed:** 2026-04-13 | **Archive:** `.agents/history/20260413_142129_tactical_speed_chase_refactor/`
+
+Implemented the V-05 tactical training refactor: replaced `Retreat` with `ActivateSkill` multi-skill system (`SkillDef` model, skill index mapping), added multi-stat ECP formula support to Rust `DensityConfig` and Python pipeline, redesigned Stage 6 as horizontal Speed Chase layout (Brain speed 55 < Enemy speed 60, must use SpeedBoost skill to survive). Plumbed `ecp_formula` through ZMQ reset payload.
+
+**Key files:** `macro-brain/src/config/definitions.py`, `macro-brain/src/env/actions.py`, `macro-brain/src/env/spaces.py`, `micro-core/src/config/buff.rs`, `micro-core/src/bridges/zmq_bridge/snapshot.rs`
+**Depends on:** Redesign Tactical Curriculum
+
+---
+
+### Training Dashboard UI Redesign
+**Completed:** 2026-04-14 | **Archive:** `.agents/history/20260414_152049_training_page_fullscreen_map_overlay_dashboard_redesign/`
+
+Redesigned the Tactical Training interface into a dual-mode Vite application. Built a high-fidelity glassmorphic overlay for `training.html` using independent DOM structure from `index.html`. Features responsive transparent layout wrappers, real-time metrics with dynamic sparklines tracking `avg_reward`, specific layered visibility toggles, and an integrated Stage Info modal syncing directly from the Python tactical curriculum `profile_snapshot.json`.
+
+**Key files:** `debug-visualizer/training.html`, `debug-visualizer/src/training-main.js`, `debug-visualizer/src/styles/overlay.css`, `debug-visualizer/src/panels/training/dashboard.js`, `debug-visualizer/src/panels/training/stage-info.js`
+**Depends on:** Debug Visualizer UI Refactor (Dual-Mode Application)

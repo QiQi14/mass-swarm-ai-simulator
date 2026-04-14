@@ -61,4 +61,26 @@ export function drawSparkline(canvas, values, opts = {}) {
     ctx.stroke();
     ctx.setLineDash([]);
   }
+
+  // Labels
+  if (opts.showLabels) {
+    ctx.font = '10px "IBM Plex Mono", monospace';
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+    ctx.textAlign = 'right';
+    
+    // Max
+    ctx.textBaseline = 'top';
+    ctx.fillText(maxVal.toFixed(1), width - padding - 4, padding + 4);
+    
+    // Min
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(minVal.toFixed(1), width - padding - 4, height - padding - 4);
+    
+    // Zero
+    if (minVal < 0 && maxVal > 0) {
+      const zeroY = padding + drawH - ((0 - minVal) / range) * drawH;
+      ctx.textBaseline = 'middle';
+      ctx.fillText('0', width - padding - 4, zeroY);
+    }
+  }
 }

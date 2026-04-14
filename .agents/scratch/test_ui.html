@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>QA Test for Task 01 and 02</title>
+    <link rel="stylesheet" href="../../debug-visualizer/src/styles/variables.css">
+    <link rel="stylesheet" href="../../debug-visualizer/src/styles/overlay.css">
+    <style>
+        body { background: #111; font-family: sans-serif; color: white; margin: 0; padding: 20px; }
+        /* Mocking variables.css somewhat in case it doesn't load fully without layout */
+        :root {
+            --font-display: 'Arial', sans-serif;
+            --font-mono: 'Courier New', monospace;
+            --font-size-xs: 10px;
+            --font-size-sm: 12px;
+            --accent-primary: #06d6a0;
+            --accent-primary-dim: rgba(6, 214, 160, 0.3);
+            --text-primary: #ffffff;
+            --text-secondary: rgba(255,255,255,0.6);
+            --radius-full: 9999px;
+            --transition-base: 0.2s ease;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Mock DOM element for stage-info to read from -->
+    <div id="dash-stage">Stage 2</div>
+
+    <div style="margin-top: 50px;">
+        <h2>Stage Info Panel Container</h2>
+        <div id="stage-info-container" class="overlay-card" style="width: 300px; padding: 16px;">
+        </div>
+    </div>
+
+    <!-- Additional buttons to test update functionality -->
+    <button id="change-stage-btn" style="margin-top: 20px;">Change Stage to 3</button>
+
+    <script type="module">
+        import stageInfoPanel, { loadCurriculum } from '../../debug-visualizer/src/panels/training/stage-info.js';
+
+        // Initialize Panel
+        const container = document.getElementById('stage-info-container');
+        
+        async function run() {
+            await loadCurriculum();
+            stageInfoPanel.render(container);
+
+            document.getElementById('change-stage-btn').addEventListener('click', () => {
+                document.getElementById('dash-stage').textContent = 'Stage 3';
+                stageInfoPanel.update(); // Trigger the toast!
+            });
+        }
+        
+        run();
+    </script>
+</body>
+</html>

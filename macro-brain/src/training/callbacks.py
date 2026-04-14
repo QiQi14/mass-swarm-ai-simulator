@@ -284,7 +284,9 @@ class EpisodeLogCallback(BaseCallback):
                         "stage": stage,
                         "episode": self.episode_count,
                         "win_rate": f"{win_rate:.3f}",
-                        "grad_streak": self._consecutive_above_threshold
+                        "grad_streak": self._consecutive_above_threshold,
+                        "avg_reward": avg_reward,
+                        "recent_reward": self.episode_reward
                     }, f)
             except Exception:
                 pass
@@ -360,6 +362,7 @@ class CurriculumCallback(BaseCallback):
         max_substage: int = 9,
         verbose: int = 1,
         checkpoint_dir: str | None = None,
+        run_dir: str | None = None,
     ):
         super().__init__(verbose)
         self.episode_logger = episode_logger
@@ -368,6 +371,7 @@ class CurriculumCallback(BaseCallback):
         self.streak_required = streak_required
         self.max_substage = max_substage
         self.checkpoint_dir = checkpoint_dir
+        self.run_dir = run_dir
         self._last_checked_episode = 0
         self._consecutive_above = 0
 
@@ -476,6 +480,18 @@ class CurriculumCallback(BaseCallback):
         # Advance the env's curriculum stage
         if env is not None:
             env.curriculum_stage = next_stage
+
+        # Write updated stage snapshot for debug visualizer
+        if self.run_dir is not None:
+            try:
+                import json
+                from src.training.curriculum import get_stage_snapshot
+                snapshot = get_stage_snapshot(next_stage, profile=self.profile)
+                snapshot_path = os.path.join(self.run_dir, "stage_snapshot.json")
+                with open(snapshot_path, "w") as f:
+                    json.dump(snapshot, f, indent=2)
+            except Exception:
+                pass
 
         # Rotate to a new per-stage episode log file
         if self.episode_logger is not None:

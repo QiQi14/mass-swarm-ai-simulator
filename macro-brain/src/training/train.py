@@ -67,7 +67,14 @@ def main():
         runs_dir=args.runs_dir,
     )
 
-    # 3. Print banner
+    # 3. Write initial stage snapshot for debug visualizer
+    import json
+    from src.training.curriculum import get_stage_snapshot
+    snapshot = get_stage_snapshot(args.start_stage, profile=profile)
+    with open(run.stage_snapshot_path, "w") as f:
+        json.dump(snapshot, f, indent=2)
+
+    # 4. Print banner
     print(f"{'='*60}")
     print(f"🚀 Training Run: {run.run_id}")
     print(f"   Profile:     {profile.meta.name} v{profile.meta.version}")
@@ -128,6 +135,7 @@ def main():
             profile=profile,
             verbose=1,
             checkpoint_dir=str(run.checkpoint_dir),
+            run_dir=str(run.base_dir),
         ),
     ]
 

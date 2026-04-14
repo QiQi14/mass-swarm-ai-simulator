@@ -27,6 +27,23 @@ export const ADAPTER_CONFIG = {
 };
 
 /**
+ * Update faction stats from stage_snapshot.json data.
+ * Called when the training stage changes so the inspector HP bars
+ * reflect the actual per-stage HP values instead of profile defaults.
+ */
+export function updateFactionStats(stageSnapshot) {
+    if (!stageSnapshot?.factions) return;
+    for (const [fidStr, fdata] of Object.entries(stageSnapshot.factions)) {
+        const fid = parseInt(fidStr, 10);
+        if (!ADAPTER_CONFIG.factions[fid]) {
+            ADAPTER_CONFIG.factions[fid] = { name: fdata.name || `Faction ${fid}`, color: getFactionColor(fid), stats: {} };
+        }
+        ADAPTER_CONFIG.factions[fid].stats.hp = fdata.max_hp || 100;
+        if (fdata.name) ADAPTER_CONFIG.factions[fid].name = fdata.name;
+    }
+}
+
+/**
  * Get a consistent color for any faction ID.
  * Known factions use ADAPTER_CONFIG, dynamic ones get generated hues.
  */
