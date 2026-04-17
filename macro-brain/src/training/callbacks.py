@@ -227,8 +227,9 @@ class EpisodeLogCallback(BaseCallback):
             self._lure_successes.append(1 if lure_ok else 0)
             self._flanking_scores.append(fln_score)
 
-            # Compute rolling metrics
-            win_rate = sum(self._results) / len(self._results) if self._results else 0
+            # Compute rolling metrics (use last 200 to match curriculum graduation criteria)
+            recent_results = list(self._results)[-200:]
+            win_rate = sum(recent_results) / len(recent_results) if recent_results else 0
             win_survivors = [s for s in self._survivors if s > 0]
             avg_survivors = sum(win_survivors) / len(win_survivors) if win_survivors else 0
             avg_ep_len = sum(self._episode_lengths) / len(self._episode_lengths)

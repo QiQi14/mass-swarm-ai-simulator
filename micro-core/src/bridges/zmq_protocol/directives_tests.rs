@@ -101,7 +101,7 @@ fn test_macro_directive_set_zone_modifier_roundtrip() {
 
 #[test]
 fn test_macro_directive_split_faction_roundtrip() {
-    let directive = MacroDirective::SplitFaction {
+    let directive = MacroDirective::SplitFaction { class_filter: None,
         source_faction: 1,
         new_sub_faction: 2,
         percentage: 0.5,

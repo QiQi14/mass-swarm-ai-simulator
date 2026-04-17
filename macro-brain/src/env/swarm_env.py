@@ -22,7 +22,10 @@ import gymnasium as gym
 from src.config.game_profile import GameProfile, load_profile
 from src.env.spaces import (
     make_observation_space, make_action_space, MAX_GRID_WIDTH, MAX_GRID_HEIGHT,
-    MAX_GRID_CELLS, SPATIAL_ACTIONS, ACTION_NAMES, make_coordinate_mask
+    MAX_GRID_CELLS, SPATIAL_ACTIONS, ACTION_NAMES, make_coordinate_mask,
+    NUM_ACTIONS, MODIFIER_DIM, ACTION_HOLD, ACTION_ATTACK_COORD, 
+    ACTION_ZONE_MODIFIER, ACTION_SPLIT_TO_COORD, ACTION_MERGE_BACK, 
+    ACTION_SET_PLAYSTYLE, ACTION_RETREAT, ACTION_ACTIVATE_SKILL, MODIFIER_MASKS
 )
 from src.utils.lkp_buffer import LKPBuffer
 from src.env.actions import multidiscrete_to_directives
@@ -75,7 +78,7 @@ class SwarmEnv(gym.Env):
         self.starting_entities = float(self.profile.brain_faction.default_count)
 
         # ── ZMQ config ──────────────────────────────────────────
-        self.bind_address = config.get("bind_address", "tcp://*:5555")
+        self.bind_address = config.get("bind_address", "tcp://*:5556")
         self.zmq_timeout_ms = config.get("zmq_timeout_ms", 10000)
         self.curriculum_stage = config.get("curriculum_stage", 1)
 
@@ -86,6 +89,7 @@ class SwarmEnv(gym.Env):
         )
 
         self._active_sub_factions: list[int] = []
+        self._enemy_factions: list[int] = []
         self._last_snapshot: dict | None = None
         self._step_count: int = 0
         self._last_nav_directive: dict | None = None
@@ -162,28 +166,35 @@ class SwarmEnv(gym.Env):
             return None
 
     def action_masks(self) -> np.ndarray:
-        # Action type mask
-        act_mask = np.ones(8, dtype=bool)
-        
-        if not self._active_sub_factions:
-            act_mask[5] = False  # MergeBack
-        if len(self._active_sub_factions) >= 2:
-            act_mask[4] = False  # SplitToCoord
-            act_mask[7] = False  # Scout
-        
-        # Stage-based action unlocking
-        stage_config = self._get_stage_action_unlock()
-        for i in range(8):
-            if not stage_config[i]:
-                act_mask[i] = False
-        
-        # Coordinate mask (only active arena cells)
+        action_mask = np.zeros(NUM_ACTIONS, dtype=bool)
         coord_mask = make_coordinate_mask(
             self._active_grid_w, self._active_grid_h,
             MAX_GRID_WIDTH, MAX_GRID_HEIGHT,
         )
-        
-        return np.concatenate([act_mask, coord_mask])
+        modifier_mask = np.zeros(MODIFIER_DIM, dtype=bool)
+
+        # Action dim masking (existing logic + new actions)
+        action_mask[ACTION_HOLD] = True
+        action_mask[ACTION_ATTACK_COORD] = True
+        if self.curriculum_stage >= 2:
+            action_mask[ACTION_ZONE_MODIFIER] = True
+        if self.curriculum_stage >= 5:
+            action_mask[ACTION_SPLIT_TO_COORD] = len(self._active_sub_factions) < 2
+            action_mask[ACTION_MERGE_BACK] = len(self._active_sub_factions) > 0
+            action_mask[ACTION_SET_PLAYSTYLE] = len(self._active_sub_factions) > 0
+        if self.curriculum_stage >= 6:
+            action_mask[ACTION_RETREAT] = True
+        if self.curriculum_stage >= 7:
+            action_mask[ACTION_ACTIVATE_SKILL] = True
+
+        # Modifier dim: union of all valid modifiers for enabled actions
+        for act_idx in range(NUM_ACTIONS):
+            if action_mask[act_idx]:
+                for m, allowed in enumerate(MODIFIER_MASKS[act_idx]):
+                    if allowed:
+                        modifier_mask[m] = True
+
+        return np.concatenate([action_mask, coord_mask, modifier_mask])
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
@@ -224,6 +235,7 @@ class SwarmEnv(gym.Env):
         
         self._trap_faction = role_meta.get("trap_faction", 1)
         self._target_faction = role_meta.get("target_faction", 2)
+        self._enemy_factions = list(role_meta.get("enemy_factions", self.enemy_faction_ids))
 
         # Track which enemy factions are ACTUALLY spawned this episode
         # Prevents phantom threat_priority_bonus from unspawned factions
@@ -274,6 +286,7 @@ class SwarmEnv(gym.Env):
             effective_stage,
             enemy_faction=self._trap_faction,
             brain_faction=self.brain_faction,
+            target_faction=self._target_faction,
         )
         all_combat_rules = base_combat_rules + stage_combat_rules
 
@@ -359,6 +372,7 @@ class SwarmEnv(gym.Env):
             action,
             brain_faction=self.brain_faction,
             active_sub_factions=self._active_sub_factions,
+            enemy_factions=self._enemy_factions,
             cell_size=self._cell_size,
             pad_offset_x=self._pad_offset_x,
             pad_offset_y=self._pad_offset_y,
@@ -406,7 +420,11 @@ class SwarmEnv(gym.Env):
             }
 
         # ── Check debuff condition ──────────────────────────────
-        self._check_debuff_condition(snapshot)
+        debuff_just_triggered = False
+        if not self._debuff_applied:
+            self._check_debuff_condition(snapshot)
+            if self._debuff_applied:
+                debuff_just_triggered = True
 
         ping_reward_delta = 0.0
         if self._effective_stage == 4:
@@ -471,7 +489,7 @@ class SwarmEnv(gym.Env):
                 from src.env.rewards import compute_flanking_score
                 flanking_score = compute_flanking_score(brain_c, sub_c, nearest)
 
-        reward = self._compute_reward(snapshot, prev_snapshot, obs, flanking_score)
+        reward = self._compute_reward(snapshot, prev_snapshot, obs, flanking_score, debuff_just_triggered)
         
         reward += ping_reward_delta
 
@@ -522,7 +540,15 @@ class SwarmEnv(gym.Env):
 
         The new rule captures the real objective: "kill the small group
         first, then the big group collapses."
+
+        Stage 2 SKIP: Pheromone Fortress uses ranger/tank combat math
+        asymmetry instead of debuff mechanics. Kill-order is enforced
+        by DPS crossfire, not artificial buffs.
         """
+        # Stage 2: No debuff — ranger/tank asymmetry IS the mechanic
+        if self.curriculum_stage == 2:
+            return
+
         # Track trap engagement for logging (not for debuff gating)
         avg_stats = snapshot.get("summary", {}).get("faction_avg_stats", {})
         trap_key = str(self._trap_faction)
@@ -653,7 +679,7 @@ class SwarmEnv(gym.Env):
 
 
 
-    def _compute_reward(self, snapshot: dict, prev_snapshot: dict | None, obs: dict, flanking_score: float) -> float:
+    def _compute_reward(self, snapshot: dict, prev_snapshot: dict | None, obs: dict, flanking_score: float, debuff_just_triggered: bool) -> float:
         from src.env.rewards import compute_shaped_reward, threat_priority_bonus
         
         # Only evaluate threat priority when 2+ enemy factions are spawned.
@@ -678,6 +704,7 @@ class SwarmEnv(gym.Env):
             flanking_score=flanking_score,
             lure_success=False,
             threat_priority_hit=threat_hit,
+            debuff_hit=debuff_just_triggered,
         )
 
     def close(self):

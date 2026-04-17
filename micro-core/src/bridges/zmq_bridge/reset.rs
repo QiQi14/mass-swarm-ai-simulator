@@ -78,6 +78,7 @@ pub(crate) struct ResetConfigs<'w> {
     density_config: ResMut<'w, crate::config::DensityConfig>,
     cooldowns: ResMut<'w, crate::config::CooldownTracker>,
     unit_registry: ResMut<'w, crate::config::UnitTypeRegistry>,
+    tactical_overrides: ResMut<'w, crate::config::FactionTacticalOverrides>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -96,6 +97,7 @@ pub(crate) fn reset_environment_system(
     mut configs: ResetConfigs,
     mut rules: ResetRules,
     training_mode: Res<crate::config::TrainingMode>,
+    mut terrain_changed: ResMut<crate::config::TerrainChanged>,
 ) {
     let Some(reset) = pending.request.take() else {
         return;
@@ -119,12 +121,15 @@ pub(crate) fn reset_environment_system(
             destructible_min: 60000,
             impassable_threshold: 65535,
         };
+        // Signal ws_sync to broadcast terrain to the debug visualizer
+        terrain_changed.0 = true;
     }
 
     // 3. Reset game state
     tick.tick = 0;
     zones.zones.clear();
     configs.cooldowns.cooldowns.clear();
+    configs.tactical_overrides.overrides.clear();
     *faction_buffs = Default::default();
     aggro.masks.clear();
     sub_factions.factions.clear();

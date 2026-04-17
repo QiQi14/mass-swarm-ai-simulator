@@ -146,16 +146,19 @@ impl SpatialHashGrid {
 /// Embeds `FactionId` into the grid payload to eliminate ECS lookups
 /// during proximity-based faction checks.
 pub fn update_spatial_grid_system(
+    #[cfg(feature = "debug-telemetry")]
     telemetry: Option<ResMut<crate::plugins::telemetry::PerfTelemetry>>,
     mut grid: ResMut<SpatialHashGrid>,
     query: Query<(Entity, &Position, &crate::components::FactionId)>,
 ) {
+    #[cfg(feature = "debug-telemetry")]
     let start = telemetry.as_ref().map(|_| std::time::Instant::now());
     let entities: Vec<(Entity, Vec2, u32)> = query
         .iter()
         .map(|(e, p, f)| (e, Vec2::new(p.x, p.y), f.0))
         .collect();
     grid.rebuild(&entities);
+    #[cfg(feature = "debug-telemetry")]
     if let (Some(mut t), Some(s)) = (telemetry, start) {
         t.spatial_us = s.elapsed().as_micros() as u32;
     }

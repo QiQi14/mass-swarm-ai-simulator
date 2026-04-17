@@ -1,0 +1,251 @@
+{
+  "feature": "Unnamed Feature",
+  "global_status": "ALL_COMPLETE",
+  "total_tasks": 22,
+  "created_at": "2026-04-16T09:19:56+00:00",
+  "updated_at": "2026-04-16T16:19:53+00:00",
+  "tasks": [
+    {
+      "task_id": "task_B1_rust_directives",
+      "status": "COMPLETE",
+      "phase": "",
+      "source_file": "tasks_pending/task_B1_rust_directives.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-16T09:47:28+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-16T10:36:18+00:00"
+    },
+    {
+      "task_id": "task_B2_rust_sensor_vectorizer",
+      "status": "COMPLETE",
+      "phase": "",
+      "source_file": "tasks_pending/task_B2_rust_sensor_vectorizer.md",
+      "fail_reason": null,
+      "started_at": "2026-04-16T09:49:44+00:00",
+      "completed_at": "2026-04-16T09:49:44+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-16T10:36:18+00:00"
+    },
+    {
+      "task_id": "task_B3_python_action_space",
+      "status": "COMPLETE",
+      "phase": "",
+      "source_file": "tasks_pending/task_B3_python_action_space.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-16T10:41:20+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-16T11:20:07+00:00"
+    },
+    {
+      "task_id": "task_B4_python_env_integration",
+      "status": "COMPLETE",
+      "phase": "",
+      "source_file": "tasks_pending/task_B4_python_env_integration.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-16T14:15:24+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-16T14:20:47+00:00"
+    },
+    {
+      "task_id": "task_B5_curriculum_tests",
+      "status": "COMPLETE",
+      "phase": "",
+      "source_file": "tasks_pending/task_B5_curriculum_tests.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-16T14:26:25+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-16T14:46:54+00:00"
+    },
+    {
+      "task_id": "task_P01_drawflow_css",
+      "status": "COMPLETE",
+      "phase": "",
+      "source_file": "tasks_pending/task_P01_drawflow_css.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-16T09:55:33+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-16T10:36:18+00:00"
+    },
+    {
+      "task_id": "task_P02_faction_nodes",
+      "status": "COMPLETE",
+      "phase": "",
+      "source_file": "tasks_pending/task_P02_faction_nodes.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-16T11:13:04+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-16T11:20:17+00:00"
+    },
+    {
+      "task_id": "task_P03_unit_nodes",
+      "status": "COMPLETE",
+      "phase": "",
+      "source_file": "tasks_pending/task_P03_unit_nodes.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-16T10:45:28+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-16T11:20:17+00:00"
+    },
+    {
+      "task_id": "task_P04_graph_compiler",
+      "status": "COMPLETE",
+      "phase": "",
+      "source_file": "tasks_pending/task_P04_graph_compiler.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-16T14:40:53+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-16T15:38:41+00:00"
+    },
+    {
+      "task_id": "task_P05_preset_gallery",
+      "status": "COMPLETE",
+      "phase": "",
+      "source_file": "tasks_pending/task_P05_preset_gallery.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-16T09:59:02+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-16T10:31:24+00:00"
+    },
+    {
+      "task_id": "task_P06_layout_migration",
+      "status": "COMPLETE",
+      "phase": "",
+      "source_file": "tasks_pending/task_P06_layout_migration.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-16T11:12:59+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-16T11:20:17+00:00"
+    },
+    {
+      "task_id": "task_P07_integration_wiring",
+      "status": "COMPLETE",
+      "phase": "",
+      "source_file": "tasks_pending/task_P07_integration_wiring.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-16T14:33:54+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-16T15:38:41+00:00"
+    },
+    {
+      "task_id": "task_P08_combat_relationship",
+      "status": "COMPLETE",
+      "phase": "",
+      "source_file": "tasks_pending/task_P08_combat_relationship.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-16T15:46:06+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-16T16:00:55+00:00"
+    },
+    {
+      "task_id": "task_P09_nav_waypoint",
+      "status": "COMPLETE",
+      "phase": "",
+      "source_file": "tasks_pending/task_P09_nav_waypoint.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-16T15:46:36+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-16T16:00:55+00:00"
+    },
+    {
+      "task_id": "task_P10_terrain_sim_controls",
+      "status": "COMPLETE",
+      "phase": "",
+      "source_file": "tasks_pending/task_P10_terrain_sim_controls.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-16T15:55:52+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-16T16:00:55+00:00"
+    },
+    {
+      "task_id": "task_P11_general_brain_node",
+      "status": "COMPLETE",
+      "phase": "",
+      "source_file": "tasks_pending/task_P11_general_brain_node.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-16T16:09:09+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-16T16:11:26+00:00"
+    },
+    {
+      "task_id": "task_P12_selection_system",
+      "status": "COMPLETE",
+      "phase": "",
+      "source_file": "tasks_pending/task_P12_selection_system.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-16T15:55:08+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-16T16:00:55+00:00"
+    },
+    {
+      "task_id": "task_P13_squad_manager",
+      "status": "COMPLETE",
+      "phase": "",
+      "source_file": "tasks_pending/task_P13_squad_manager.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-16T16:08:27+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-16T16:11:26+00:00"
+    },
+    {
+      "task_id": "task_P14_order_system",
+      "status": "COMPLETE",
+      "phase": "",
+      "source_file": "tasks_pending/task_P14_order_system.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-16T16:13:24+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-16T16:19:52+00:00"
+    },
+    {
+      "task_id": "task_P15_tactical_overlay",
+      "status": "COMPLETE",
+      "phase": "",
+      "source_file": "tasks_pending/task_P15_tactical_overlay.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-16T16:13:30+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-16T16:19:52+00:00"
+    },
+    {
+      "task_id": "task_P16_squad_panel",
+      "status": "COMPLETE",
+      "phase": "",
+      "source_file": "tasks_pending/task_P16_squad_panel.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-16T16:17:42+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-16T16:19:53+00:00"
+    },
+    {
+      "task_id": "task_R01_rust_ws_enhancements",
+      "status": "COMPLETE",
+      "phase": "",
+      "source_file": "tasks_pending/task_R01_rust_ws_enhancements.md",
+      "fail_reason": null,
+      "started_at": null,
+      "completed_at": "2026-04-16T09:56:22+00:00",
+      "failed_at": null,
+      "verified_at": "2026-04-16T10:36:18+00:00"
+    }
+  ]
+}

@@ -87,6 +87,8 @@ pub struct StateSnapshot {
     pub terrain_cell_size: f32,
     #[serde(default)]
     pub density_maps: std::collections::HashMap<u32, Vec<f32>>,
+    #[serde(default)]
+    pub class_density_maps: std::collections::HashMap<u32, Vec<f32>>,
     /// Effective Combat Power density maps (HP * Damage Mult)
     #[serde(default)]
     pub ecp_density_maps: std::collections::HashMap<u32, Vec<f32>>,
@@ -139,6 +141,7 @@ mod tests {
             terrain_grid_h: 1,
             terrain_cell_size: 20.0,
             density_maps: std::collections::HashMap::new(),
+            class_density_maps: std::collections::HashMap::new(),
             ecp_density_maps: std::collections::HashMap::new(),
             intervention_active: false,
             active_zones: vec![ZoneModifierSnapshot {
@@ -186,6 +189,7 @@ mod tests {
             terrain_grid_h: 0,
             terrain_cell_size: 0.0,
             density_maps: std::collections::HashMap::new(),
+            class_density_maps: std::collections::HashMap::new(),
             ecp_density_maps: std::collections::HashMap::new(),
             intervention_active: false,
             active_zones: vec![],

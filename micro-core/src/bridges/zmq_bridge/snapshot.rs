@@ -16,7 +16,7 @@ use crate::config::{
     ActiveSubFactions, ActiveZoneModifiers, AggroMaskRegistry, DensityConfig, InterventionTracker,
     SimulationConfig, TickCounter, FactionBuffs, BuffConfig,
 };
-use crate::systems::state_vectorizer::{DEFAULT_MAX_DENSITY, build_density_maps, build_ecp_density_maps};
+use crate::systems::state_vectorizer::{DEFAULT_MAX_DENSITY, build_density_maps, build_ecp_density_maps, build_class_density_maps};
 use crate::terrain::TerrainGrid;
 use crate::visibility::FactionVisibility;
 
@@ -62,6 +62,7 @@ pub(super) fn build_state_snapshot(
 
     // Collect ALL entity positions for density map computation (unfiltered)
     let mut all_entity_positions: Vec<(f32, f32, u32)> = Vec::new();
+    let mut all_entity_classes: Vec<(f32, f32, u32, u32)> = Vec::new();
     let mut all_entity_ecp: Vec<(f32, f32, u32, f32, f32)> = Vec::new();
 
     let vis_grid = visibility.visible.get(&brain_faction);
@@ -81,6 +82,7 @@ pub(super) fn build_state_snapshot(
         // Density maps use ALL entities (not fog-filtered) so the brain
         // has complete spatial awareness of its own forces
         all_entity_positions.push((pos.x, pos.y, faction.0));
+        all_entity_classes.push((pos.x, pos.y, faction.0, unit_class.0));
         
         // Read primary stat for ECP from configurable index (V-01 fix)
         // Feature 2: Multi-stat formula for ECP
@@ -148,6 +150,15 @@ pub(super) fn build_state_snapshot(
         DEFAULT_MAX_DENSITY,
     );
 
+    let class_density_maps = build_class_density_maps(
+        &all_entity_classes,
+        terrain.width,
+        terrain.height,
+        terrain.cell_size,
+        DEFAULT_MAX_DENSITY,
+        brain_faction,
+    );
+
     let ecp_density_maps = build_ecp_density_maps(
         &all_entity_ecp,
         terrain.width,
@@ -199,6 +210,7 @@ pub(super) fn build_state_snapshot(
         terrain_grid_h: terrain.height,
         terrain_cell_size: terrain.cell_size,
         density_maps,
+        class_density_maps,
         ecp_density_maps,
         intervention_active: intervention.active,
         active_zones,

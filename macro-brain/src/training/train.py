@@ -94,12 +94,44 @@ def main():
 
     if args.load_checkpoint:
         print(f"Loading model checkpoint from {args.load_checkpoint}...")
-        model = MaskablePPO.load(
-            args.load_checkpoint,
-            env=vec_env,
-            custom_objects={"policy_kwargs": policy_kwargs, "tensorboard_log": str(run.tensorboard_dir)},
-        )
-        model.tensorboard_log = str(run.tensorboard_dir)
+        try:
+            model = MaskablePPO.load(
+                args.load_checkpoint,
+                env=vec_env,
+                custom_objects={"policy_kwargs": policy_kwargs, "tensorboard_log": str(run.tensorboard_dir)},
+            )
+            model.tensorboard_log = str(run.tensorboard_dir)
+            print(f"   ✅ Checkpoint loaded successfully.")
+        except ValueError as e:
+            if "Action spaces do not match" in str(e):
+                print(f"\n{'='*60}")
+                print(f"⚠️  ACTION SPACE MISMATCH — Cannot resume from checkpoint.")
+                print(f"   Checkpoint: {args.load_checkpoint}")
+                print(f"   Error: {e}")
+                print(f"")
+                print(f"   The checkpoint was saved with a different action space")
+                print(f"   than what the current code defines. This usually means")
+                print(f"   the action vocabulary has structurally changed.")
+                print(f"")
+                print(f"   → Starting FRESH model from scratch instead.")
+                print(f"{'='*60}\n")
+                model = MaskablePPO(
+                    "MultiInputPolicy",
+                    vec_env,
+                    verbose=1,
+                    tensorboard_log=str(run.tensorboard_dir),
+                    policy_kwargs=policy_kwargs,
+                    learning_rate=3e-4,
+                    n_steps=2048,
+                    batch_size=64,
+                    n_epochs=10,
+                    gamma=0.99,
+                    gae_lambda=0.95,
+                    clip_range=0.2,
+                    ent_coef=0.01,
+                )
+            else:
+                raise  # Re-raise non-action-space errors
     else:
         model = MaskablePPO(
             "MultiInputPolicy",

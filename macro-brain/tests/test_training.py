@@ -34,7 +34,7 @@ def mock_zmq_context():
 def test_swarm_env_action_masks(mock_zmq_context):
     env = SwarmEnv(config={"curriculum_stage": 1})
     masks = env.action_masks()
-    assert masks.shape == (2508,)
+    assert masks.shape == (2512,)
     assert all(masks[0:2])
     assert not any(masks[2:8])
 

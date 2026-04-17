@@ -1,13 +1,22 @@
+import * as S from '../../state.js';
+import { icon } from '../../components/icons.js';
+
 export let ui = null;
 
 export function updateMlBrainPanel(mlBrain) {
     if (!ui || !mlBrain) return;
 
-    ui.python.textContent = mlBrain.python_connected ? '🟢 Connected' : '🔴 Disconnected';
-    ui.python.style.color = mlBrain.python_connected ? 'var(--status-connected)' : 'var(--status-disconnected)';
+    const connected = mlBrain.python_connected;
+    ui.python.innerHTML = connected
+        ? `<span class="status-dot-inline status-dot-inline--ok"></span> Connected`
+        : `<span class="status-dot-inline status-dot-inline--err"></span> Disconnected`;
+    ui.python.style.color = connected ? 'var(--status-connected)' : 'var(--status-disconnected)';
 
-    ui.intervention.textContent = mlBrain.intervention_active ? '⚠️ Active' : '✅ Normal';
-    ui.intervention.style.color = mlBrain.intervention_active ? 'var(--accent-warning)' : 'var(--status-connected)';
+    const intervening = mlBrain.intervention_active;
+    ui.intervention.innerHTML = intervening
+        ? `<span class="status-dot-inline status-dot-inline--warn"></span> Active`
+        : `<span class="status-dot-inline status-dot-inline--ok"></span> Normal`;
+    ui.intervention.style.color = intervening ? 'var(--accent-warning)' : 'var(--status-connected)';
 
     if (mlBrain.last_directive) {
         try {
@@ -17,15 +26,15 @@ export function updateMlBrainPanel(mlBrain) {
             }
 
             let summary = d.directive || 'Unknown';
-            if (d.directive === 'Hold') summary = '⏸ Hold (Brake)';
-            else if (d.directive === 'Idle') summary = '💤 Idle';
-            else if (d.directive === 'SplitFaction') summary = `✂️ Split ${Math.round(d.percentage * 100)}% → sub ${d.new_sub_faction}`;
-            else if (d.directive === 'SetZoneModifier') summary = `${d.cost_modifier < 0 ? '🧲 Attract' : '🚫 Repel'} at (${Math.round(d.x)}, ${Math.round(d.y)})`;
+            if (d.directive === 'Hold') summary = 'Hold (Brake)';
+            else if (d.directive === 'Idle') summary = 'Idle';
+            else if (d.directive === 'SplitFaction') summary = `Split ${Math.round(d.percentage * 100)}% → sub ${d.new_sub_faction}`;
+            else if (d.directive === 'SetZoneModifier') summary = `${d.cost_modifier < 0 ? 'Attract' : 'Repel'} at (${Math.round(d.x)}, ${Math.round(d.y)})`;
             else if (d.directive === 'UpdateNavigation') {
                 const targetLabel = d.target?.faction_id !== undefined ? `Faction ${d.target.faction_id}` : d.target?.type || '?';
-                summary = `⚔️ Attack → ${targetLabel}`;
-            } else if (d.directive === 'ActivateBuff') summary = '🎯 Debuff Applied!';
-            else if (d.directive === 'Retreat') summary = `🏃 Retreat → (${Math.round(d.retreat_x)}, ${Math.round(d.retreat_y)})`;
+                summary = `Attack → ${targetLabel}`;
+            } else if (d.directive === 'ActivateBuff') summary = 'Debuff Applied';
+            else if (d.directive === 'Retreat') summary = `Retreat → (${Math.round(d.retreat_x)}, ${Math.round(d.retreat_y)})`;
 
             ui.directive.textContent = summary;
         } catch {
@@ -34,12 +43,10 @@ export function updateMlBrainPanel(mlBrain) {
     }
 }
 
-import * as S from '../../state.js';
-
 export default {
     id: 'ml-brain',
     title: 'ML Brain Status',
-    icon: '🧠',
+    icon: icon('brain'),
     modes: ['training'],
     defaultExpanded: true,
     render(body) {
@@ -47,11 +54,13 @@ export default {
             <div class="stat-grid">
                 <div class="stat-card">
                     <div class="stat-label">Python Link</div>
-                    <div class="stat-value mono" id="ml-python-status" style="font-size: var(--font-size-sm);">🟡 Waiting</div>
+                    <div class="stat-value mono" id="ml-python-status" style="font-size: var(--font-size-sm); display:flex; align-items:center; gap:5px;">
+                        <span class="status-dot-inline status-dot-inline--wait"></span> Waiting
+                    </div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-label">Intervention</div>
-                    <div class="stat-value mono" id="ml-intervention" style="font-size: var(--font-size-sm);">—</div>
+                    <div class="stat-value mono" id="ml-intervention" style="font-size: var(--font-size-sm); display:flex; align-items:center; gap:5px;">—</div>
                 </div>
                 <div class="stat-card" style="grid-column: span 2; min-height: 52px; overflow: hidden;">
                     <div class="stat-label">Last Directive</div>

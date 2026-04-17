@@ -1,6 +1,8 @@
 """Stage-specific combat rule construction for curriculum v5.0.
 
-Stages 0-4: No extra rules (basic melee from profile)
+Stages 0-1: No extra rules (basic melee from profile)
+Stage 2:    Extended-range rule on target/ranger faction (forced pheromone routing)
+Stage 3-4:  No extra rules
 Stage 5:    AoE ConvexPolygon cone on enemy faction (forced flanking)
 Stage 6:    AoE Circle on enemy faction (forced spread)
 Stage 7:    No extra rules (combined arms intro — standard melee only)
@@ -16,6 +18,7 @@ def get_stage_combat_rules(
     stage: int,
     enemy_faction: int = 1,
     brain_faction: int = 0,
+    target_faction: int | None = None,
 ) -> list[dict[str, Any]]:
     """Return ADDITIONAL combat rules for the given curriculum stage.
 
@@ -24,10 +27,18 @@ def get_stage_combat_rules(
 
     Args:
         stage: Current curriculum stage (0-9).
-        enemy_faction: Faction ID of the enemy (varies per episode).
+        enemy_faction: Faction ID of the enemy trap (varies per episode).
         brain_faction: Faction ID of the brain swarm.
+        target_faction: Faction ID of the target group (Stage 2 rangers).
+            Only needed for stages where the ranged unit is the target,
+            not the trap.
     """
-    if stage == 5:
+    if stage == 2:
+        return _stage2_ranger_rules(
+            target_faction if target_faction is not None else enemy_faction,
+            brain_faction,
+        )
+    elif stage == 5:
         return _stage5_aoe_cone_rules(enemy_faction, brain_faction)
     elif stage == 6:
         return []  # Speed Chase: standard melee, reinforcements
@@ -47,6 +58,33 @@ def get_stage_unit_types(stage: int) -> list[dict[str, Any]] | None:
     if stage >= 7:
         return _heterogeneous_unit_types()
     return None
+
+
+# ── Stage 2: Extended-Range Rangers (Forced Pheromone) ───────────────
+
+def _stage2_ranger_rules(
+    ranger_fid: int, brain_fid: int
+) -> list[dict[str, Any]]:
+    """Rangers (target faction) get extended-range combat rule.
+
+    Combat math:
+      - Range 150 (world units), -12 DPS per source entity
+      - Rangers sit inside fortress with HoldPosition
+      - Any brain unit within 150 units takes chip damage
+      - Combined with tanks' melee (-25/s), fighting tanks first
+        means taking -37/s combined → brain overwhelmed
+      - Killing rangers first via pheromone mud path removes the
+        crossfire → tanks alone at -25/s is manageable
+
+    NOTE: The base profile melee rules (range 25, -25/s) still apply
+    to the ranger faction. This rule ADDS long-range fire support.
+    """
+    return [{
+        "source_faction": ranger_fid,
+        "target_faction": brain_fid,
+        "range": 150.0,
+        "effects": [{"stat_index": 0, "delta_per_second": -12.0}],
+    }]
 
 
 # ── Stage 5: AoE Cone (Forced Flanking) ─────────────────────────────

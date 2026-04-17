@@ -34,6 +34,15 @@ export function bumpNextFactionId() { return nextFactionId++; }
 export const terrainLocal = new Uint16Array(GRID_W * GRID_H * 2);
 for (let i = 0; i < terrainLocal.length; i++) terrainLocal[i] = 100;
 
+// Dynamic terrain grid dimensions from terrain_sync broadcast.
+// Defaults to GRID_W/GRID_H; overwritten when terrain_sync arrives.
+export let terrainGridW = GRID_W;
+export function setTerrainGridW(v) { terrainGridW = v; }
+export let terrainGridH = GRID_H;
+export function setTerrainGridH(v) { terrainGridH = v; }
+export let terrainCellSize = 20;
+export function setTerrainCellSize(v) { terrainCellSize = v; }
+
 export let fogVisible = null;
 export function setFogVisible(v) { fogVisible = v; }
 
@@ -161,3 +170,38 @@ export function setShowArenaBounds(v) { showArenaBounds = v; }
 export let arenaBounds = { x: 0, y: 0, width: 400, height: 400 };
 export function setArenaBounds(bounds) { arenaBounds = { ...arenaBounds, ...bounds }; }
 
+// ── Selection State ──
+export let selectionMode = false;
+export function setSelectionMode(v) { selectionMode = v; }
+
+// Current selection: set of entity IDs
+export let selectedEntities = new Set();
+export function setSelectedEntities(v) { selectedEntities = v; }
+export function clearSelection() { selectedEntities = new Set(); }
+
+// Box-select in progress
+export let selectionBoxStart = null;  // { wx, wy } world coords
+export function setSelectionBoxStart(v) { selectionBoxStart = v; }
+export let selectionBoxEnd = null;    // { wx, wy } world coords
+export function setSelectionBoxEnd(v) { selectionBoxEnd = v; }
+export let isBoxSelecting = false;
+export function setIsBoxSelecting(v) { isBoxSelecting = v; }
+
+// Selected squad (active after squad created from selection)
+export let activeSquadId = null;  // sub-faction ID
+export function setActiveSquadId(v) { activeSquadId = v; }
+
+// ── Squad Registry ──
+// Map<squadId (sub-faction ID), SquadInfo>
+export const squads = new Map();
+
+/**
+ * @typedef {Object} SquadInfo
+ * @property {number} id - Sub-faction ID
+ * @property {number} parentFactionId - Original faction before split
+ * @property {string} name - User-visible name (e.g., "Alpha Squad")
+ * @property {string} color - CSS color string (derived from parent + offset)
+ * @property {{ x: number, y: number } | null} currentTarget - Active navigation target
+ * @property {string} currentOrder - 'idle' | 'move' | 'attack' | 'hold' | 'retreat'
+ * @property {number} createdTick - Tick when squad was created
+ */

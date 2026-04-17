@@ -26,12 +26,14 @@ use bevy::prelude::*;
 /// Stats are NOT clamped. Health at -150.0 provides "Overkill Gradient"
 /// signal to the Python Macro-Brain for learning efficient unit allocation.
 pub fn removal_system(
+    #[cfg(feature = "debug-telemetry")]
     telemetry: Option<ResMut<crate::plugins::telemetry::PerfTelemetry>>,
     rules: Res<RemovalRuleSet>,
     query: Query<(Entity, &EntityId, &StatBlock)>,
     mut commands: Commands,
     mut events: ResMut<RemovalEvents>,
 ) {
+    #[cfg(feature = "debug-telemetry")]
     let start = telemetry.as_ref().map(|_| std::time::Instant::now());
     // Clear previous tick's removal events
     events.removed_ids.clear();
@@ -57,6 +59,7 @@ pub fn removal_system(
             }
         }
     }
+    #[cfg(feature = "debug-telemetry")]
     if let (Some(mut t), Some(s)) = (telemetry, start) {
         t.removal_us = s.elapsed().as_micros() as u32;
     }

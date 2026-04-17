@@ -50,6 +50,7 @@ use crate::spatial::SpatialHashGrid;
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::type_complexity)]
 pub fn movement_system(
+    #[cfg(feature = "debug-telemetry")]
     telemetry: Option<ResMut<crate::plugins::telemetry::PerfTelemetry>>,
     grid: Res<SpatialHashGrid>,
     registry: Res<FlowFieldRegistry>,
@@ -73,7 +74,8 @@ pub fn movement_system(
     >,
     tick_res: Res<crate::config::TickCounter>,
 ) {
-    let tick = tick_res.tick;
+    let _tick = tick_res.tick;
+    #[cfg(feature = "debug-telemetry")]
     let start = telemetry.as_ref().map(|_| std::time::Instant::now());
     let dt = 1.0 / 60.0;
 
@@ -100,10 +102,27 @@ pub fn movement_system(
                             }
                         }
                         crate::bridges::zmq_protocol::NavigationTarget::Waypoint { x, y } => {
-                            let waypoint = Vec2::new(*x, *y);
-                            let diff = waypoint - current_pos;
-                            if diff.length_squared() > 1.0 {
-                                macro_dir = diff.normalize();
+                            // Sample the pre-computed waypoint flow field.
+                            // Key convention: follower_faction + 100_000
+                            // (see flow_field_update.rs — waypoint FF computation)
+                            let waypoint_key = faction.0 + 100_000;
+                            if let Some(field) = registry.fields.get(&waypoint_key) {
+                                let sampled = field.sample(current_pos);
+                                if sampled != Vec2::ZERO {
+                                    macro_dir = sampled;
+                                } else {
+                                    // Flow field cell has no direction — fallback
+                                    let diff = Vec2::new(*x, *y) - current_pos;
+                                    if diff.length_squared() > 1.0 {
+                                        macro_dir = diff.normalize();
+                                    }
+                                }
+                            } else {
+                                // Flow field not yet computed (first tick) — fallback
+                                let diff = Vec2::new(*x, *y) - current_pos;
+                                if diff.length_squared() > 1.0 {
+                                    macro_dir = diff.normalize();
+                                }
                             }
                         }
                     }
@@ -216,6 +235,7 @@ pub fn movement_system(
             pos.x = next_x.clamp(0.0, config.world_width);
             pos.y = next_y.clamp(0.0, config.world_height);
         });
+    #[cfg(feature = "debug-telemetry")]
     if let (Some(mut t), Some(s)) = (telemetry, start) {
         t.movement_us = s.elapsed().as_micros() as u32;
     }
@@ -591,6 +611,121 @@ mod tests {
             (speed - 50.0).abs() < 1.0,
             "Entity in mud should have speed capped to 50, got {}",
             speed
+        );
+    }
+
+    #[test]
+    fn test_waypoint_nav_uses_flow_field() {
+        // Arrange: Waypoint at (200, 50) — direct vector would go RIGHT.
+        // Flow field at key 100_000 points DOWN (Vec2::Y).
+        // Entity should follow flow field, NOT the direct vector.
+        let mut app = build_test_app();
+
+        let mut nav = app
+            .world_mut()
+            .get_resource_mut::<NavigationRuleSet>()
+            .unwrap();
+        nav.rules.push(crate::rules::NavigationRule {
+            follower_faction: 0,
+            target: crate::bridges::zmq_protocol::NavigationTarget::Waypoint {
+                x: 200.0,
+                y: 50.0,
+            },
+        });
+
+        // Register flow field at waypoint key (faction 0 + 100_000)
+        // Direction = Vec2::Y (pointing DOWN, not toward waypoint)
+        let mut reg = app
+            .world_mut()
+            .get_resource_mut::<FlowFieldRegistry>()
+            .unwrap();
+        let mut field = FlowField::new(50, 50, 20.0);
+        for d in field.directions.iter_mut() {
+            *d = Vec2::Y; // Flow field says "go down"
+        }
+        reg.fields.insert(100_000, field); // key = faction 0 + 100_000
+
+        let entity = app
+            .world_mut()
+            .spawn((
+                crate::components::EntityId { id: 1 },
+                Position { x: 50.0, y: 50.0 },
+                Velocity { dx: 0.0, dy: 0.0 },
+                FactionId(0),
+                MovementConfig {
+                    max_speed: 60.0,
+                    steering_factor: 5.0,
+                    separation_radius: 6.0,
+                    separation_weight: 1.5,
+                    flow_weight: 1.0,
+                },
+                crate::components::TacticalState::default(),
+            ))
+            .id();
+
+        // Act
+        app.update();
+
+        // Assert — entity should move DOWN (flow field) not RIGHT (direct vector)
+        let vel = app.world().get::<Velocity>(entity).unwrap();
+        assert!(
+            vel.dy > 0.0,
+            "Entity should follow flow field direction (down), got dy={}",
+            vel.dy
+        );
+        assert!(
+            vel.dx.abs() < 0.1,
+            "Entity should NOT move toward waypoint (right), got dx={}",
+            vel.dx
+        );
+    }
+
+    #[test]
+    fn test_waypoint_nav_fallback_when_no_flow_field() {
+        // Arrange: Waypoint nav but NO flow field registered.
+        // Entity should fallback to direct vector toward waypoint.
+        let mut app = build_test_app();
+
+        let mut nav = app
+            .world_mut()
+            .get_resource_mut::<NavigationRuleSet>()
+            .unwrap();
+        nav.rules.push(crate::rules::NavigationRule {
+            follower_faction: 0,
+            target: crate::bridges::zmq_protocol::NavigationTarget::Waypoint {
+                x: 200.0,
+                y: 50.0,
+            },
+        });
+        // NO flow field registered at key 100_000
+
+        let entity = app
+            .world_mut()
+            .spawn((
+                crate::components::EntityId { id: 1 },
+                Position { x: 50.0, y: 50.0 },
+                Velocity { dx: 0.0, dy: 0.0 },
+                FactionId(0),
+                MovementConfig {
+                    max_speed: 60.0,
+                    steering_factor: 5.0,
+                    separation_radius: 6.0,
+                    separation_weight: 1.5,
+                    flow_weight: 1.0,
+                },
+                crate::components::TacticalState::default(),
+            ))
+            .id();
+
+        // Act
+        app.update();
+
+        // Assert — should fallback to direct vector toward waypoint (RIGHT)
+        let vel = app.world().get::<Velocity>(entity).unwrap();
+        assert!(
+            vel.dx > 0.0,
+            "Fallback: entity should move toward waypoint (right), got dx={}",
+            vel.dx
         );
     }
 }

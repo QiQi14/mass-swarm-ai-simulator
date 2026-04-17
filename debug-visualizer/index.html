@@ -3,49 +3,44 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SwarmControl — Debug Visualizer</title>
-    <meta name="description" content="Real-time debug visualizer for the Mass-Swarm AI Simulator">
+    <title>SwarmControl — Playground</title>
+    <meta name="description" content="Visual node-based playground for the Mass-Swarm AI Simulator">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-    <!-- Geist preferred via @fontsource in CSS; DM Sans + IBM Plex Mono as HTML fallback -->
 </head>
-<body>
-    <div class="app-container" id="app">
-        <!-- Canvas Area -->
-        <main class="canvas-area" id="canvas-area">
-            <canvas id="canvas-bg"></canvas>
-            <canvas id="canvas-entities"></canvas>
-            <div class="connection-badge" id="connection-badge">
-                <div class="status-dot" id="status-dot"></div>
-                <span id="status-text">Connecting…</span>
-            </div>
-            <div class="canvas-hint" id="canvas-hint">
-                Pan: drag · Zoom: scroll · Double-click: reset view
-            </div>
-        </main>
+<body class="playground-page">
+    <!-- Fullscreen Canvas -->
+    <main class="canvas-area" id="canvas-area" style="width:100vw;height:100vh;">
+        <canvas id="canvas-bg"></canvas>
+        <canvas id="canvas-entities"></canvas>
+        <div class="canvas-hint" id="canvas-hint">
+            Pan: drag · Zoom: scroll · Double-click: reset view
+        </div>
+    </main>
 
-        <!-- Sidebar -->
-        <aside class="sidebar" id="sidebar">
-            <div class="bottom-sheet-handle" id="bottom-sheet-handle">
-                <div class="handle-pill"></div>
-            </div>
-            
-            <header class="sidebar-header">
-                <div>
-                    <h1>Swarm<span class="accent">Control</span></h1>
-                    <span class="version-badge">v0.2.0</span>
-                </div>
-            </header>
-            <nav class="tab-bar" id="tab-bar">
-                <!-- Tabs injected by tabs.js -->
-            </nav>
-            <div class="panel-scroll" id="panel-scroll">
-                <!-- Panels injected by panel registry -->
-            </div>
-        </aside>
+    <!-- Drawflow Node Editor Overlay -->
+    <div id="drawflow-container" class="drawflow-container"></div>
+
+    <!-- Overlay Root -->
+    <div id="playground-overlay-root" class="overlay--expanded">
+        <!-- Top Bar -->
+        <div class="overlay-top-bar" id="overlay-top-bar"></div>
+
+        <!-- Bottom Toolbar -->
+        <div class="playground-bottom-toolbar" id="playground-bottom-toolbar"></div>
+
+        <!-- Right Side Cards -->
+        <div class="overlay-right-cluster" id="playground-right-cluster"></div>
+
+        <!-- Minimized Strip -->
+        <div class="overlay-mini-strip" id="overlay-mini-strip"></div>
     </div>
 
-    <script type="module" src="/src/main.js"></script>
+    <!-- Preset Gallery (injected by JS) -->
+
+
+
+    <script type="module" src="/src/playground-main.js"></script>
 </body>
 </html>

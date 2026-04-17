@@ -48,8 +48,12 @@ export function drawBackground() {
 }
 
 function drawTerrain(ctx) {
-    for (let y = 0; y < GRID_H; y++) {
-        for (let x = 0; x < GRID_W; x++) {
+    const gw = S.terrainGridW;
+    const gh = S.terrainGridH;
+    const cellSize = S.terrainCellSize;
+
+    for (let y = 0; y < gh; y++) {
+        for (let x = 0; x < gw; x++) {
             const idx = (y * GRID_W + x) * 2;
             const hard = S.terrainLocal[idx];
             const soft = S.terrainLocal[idx + 1];
@@ -57,14 +61,25 @@ function drawTerrain(ctx) {
             if (hard === 100 && soft === 100) continue;
 
             let color = null;
-            if (hard === 65535) color = BRUSH_MAP.wall.color;
-            else if (hard === 200) color = BRUSH_MAP.mud.color;
-            else if (hard === 125) color = BRUSH_MAP.pushable.color;
+            if (hard === 65535) {
+                color = BRUSH_MAP.wall.color;           // Permanent wall
+            } else if (hard === 200) {
+                color = BRUSH_MAP.mud.color;             // Hard-cost mud (legacy)
+            } else if (hard === 300) {
+                color = 'rgba(255, 60, 60, 0.35)';      // Danger zone (Stage 3)
+            } else if (hard === 125) {
+                color = BRUSH_MAP.pushable.color;        // Pushable wall
+            } else if (soft < 100 && hard <= 100) {
+                // Soft-cost only (mud corridor) — Fortress Stage 2
+                // Opacity scales with slowdown severity
+                const severity = 1.0 - (soft / 100);
+                color = `rgba(139, 105, 20, ${0.2 + severity * 0.5})`;
+            }
 
             if (color) {
                 ctx.fillStyle = color;
-                const [cx, cy] = worldToCanvas(x * TERRAIN_CELL_SIZE, y * TERRAIN_CELL_SIZE);
-                const [cx2, cy2] = worldToCanvas((x + 1) * TERRAIN_CELL_SIZE, (y + 1) * TERRAIN_CELL_SIZE);
+                const [cx, cy] = worldToCanvas(x * cellSize, y * cellSize);
+                const [cx2, cy2] = worldToCanvas((x + 1) * cellSize, (y + 1) * cellSize);
                 ctx.fillRect(cx, cy, cx2 - cx + 1, cy2 - cy + 1);
             }
         }

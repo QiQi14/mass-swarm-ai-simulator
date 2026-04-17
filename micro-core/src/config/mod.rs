@@ -8,9 +8,11 @@ mod cooldown;
 mod simulation;
 mod zones;
 pub mod unit_registry;
+pub mod tactical_overrides;
 
 pub use buff::*;
 pub use cooldown::*;
 pub use simulation::*;
 pub use zones::*;
 pub use unit_registry::*;
+pub use tactical_overrides::*;

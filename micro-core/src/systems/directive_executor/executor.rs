@@ -9,10 +9,10 @@
 //! 3. QUICKSELECT: SplitFaction uses select_nth_unstable_by (O(N), f32-safe)
 
 use crate::bridges::zmq_protocol::{MacroDirective, NavigationTarget};
-use crate::components::{FactionId, Position};
+use crate::components::{FactionId, Position, UnitClassId};
 use crate::config::{
     ActiveBuffGroup, ActiveModifier, ActiveSubFactions, ActiveZoneModifiers, AggroMaskRegistry,
-    FactionBuffs, ZoneModifier,
+    FactionBuffs, ZoneModifier, FactionTacticalOverrides, unit_registry::TacticalBehavior,
 };
 use crate::rules::{NavigationRule, NavigationRuleSet};
 use bevy::prelude::*;
@@ -41,7 +41,8 @@ pub fn directive_executor_system(
     mut zones: ResMut<ActiveZoneModifiers>,
     mut aggro: ResMut<AggroMaskRegistry>,
     mut sub_factions: ResMut<ActiveSubFactions>,
-    mut faction_query: Query<(Entity, &Position, &mut FactionId)>,
+    mut tactical_overrides: ResMut<FactionTacticalOverrides>,
+    mut faction_query: Query<(Entity, &Position, &mut FactionId, &UnitClassId)>,
     buff_config: Res<crate::config::BuffConfig>,
 ) {
     let directives: Vec<MacroDirective> = std::mem::take(&mut latest.directives);
@@ -153,13 +154,17 @@ pub fn directive_executor_system(
                 new_sub_faction,
                 percentage,
                 epicenter,
+                class_filter,
             } => {
                 let epi_vec = Vec2::new(epicenter[0], epicenter[1]);
     
                 let mut candidates: Vec<(Entity, f32)> = faction_query
                     .iter()
-                    .filter(|(_, _, f)| f.0 == source_faction)
-                    .map(|(entity, pos, _)| {
+                    .filter(|(_, _, f, class_id)| {
+                        f.0 == source_faction
+                            && class_filter.map_or(true, |cf| class_id.0 == cf)
+                    })
+                    .map(|(entity, pos, _, _)| {
                         let dist_sq = Vec2::new(pos.x, pos.y).distance_squared(epi_vec);
                         (entity, dist_sq)
                     })
@@ -177,7 +182,7 @@ pub fn directive_executor_system(
                 }
     
                 for candidate in candidates.iter().take(split_count) {
-                    if let Ok((_, _, mut faction)) = faction_query.get_mut(candidate.0) {
+                    if let Ok((_, _, mut faction, _)) = faction_query.get_mut(candidate.0) {
                         faction.0 = new_sub_faction;
                     }
                 }
@@ -213,7 +218,7 @@ pub fn directive_executor_system(
                 source_faction,
                 target_faction,
             } => {
-                for (_, _, mut faction) in faction_query.iter_mut() {
+                for (_, _, mut faction, _) in faction_query.iter_mut() {
                     if faction.0 == source_faction {
                         faction.0 = target_faction;
                     }
@@ -225,6 +230,7 @@ pub fn directive_executor_system(
                     .retain(|r| r.follower_faction != source_faction);
                 zones.zones.retain(|z| z.target_faction != source_faction);
                 buffs.buffs.remove(&source_faction);
+                tactical_overrides.overrides.remove(&source_faction);
                 aggro
                     .masks
                     .retain(|&(s, t), _| s != source_faction && t != source_faction);
@@ -244,6 +250,37 @@ pub fn directive_executor_system(
                 aggro
                     .masks
                     .insert((target_faction, source_faction), allow_combat);
+            }
+
+            MacroDirective::SetTacticalOverride { faction, behavior } => {
+                match behavior {
+                    Some(payload) => {
+                        let behavior = match payload {
+                            crate::bridges::zmq_protocol::TacticalBehaviorPayload::Kite {
+                                trigger_radius,
+                                weight,
+                            } => TacticalBehavior::Kite {
+                                trigger_radius,
+                                weight,
+                            },
+                            crate::bridges::zmq_protocol::TacticalBehaviorPayload::PeelForAlly {
+                                target_class,
+                                search_radius,
+                                require_recent_damage,
+                                weight,
+                            } => TacticalBehavior::PeelForAlly {
+                                target_class,
+                                search_radius,
+                                require_recent_damage,
+                                weight,
+                            },
+                        };
+                        tactical_overrides.overrides.insert(faction, vec![behavior]);
+                    }
+                    None => {
+                        tactical_overrides.overrides.remove(&faction);
+                    }
+                }
             }
         }
     }

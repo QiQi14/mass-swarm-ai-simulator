@@ -5,12 +5,17 @@ import { canvasToWorld, drawBackground, getScaleFactor, getCanvasEntities } from
 import { addPaintCell } from './paint.js';
 import { handleSpawnClick } from './spawn.js';
 import { handleZoneClick } from './zones.js';
-import { handleSplitClick, handleSelectClick } from './split.js';
+import { handleSplitClick } from './split.js';
+import { boxSelect, factionClickSelect } from './selection.js';
+import { orderMove, orderAttack, orderHold, orderRetreat } from '../squads/order-system.js';
+import { disbandSquad } from '../squads/squad-manager.js';
+import { showToast } from '../components/toast.js';
 
 let dragStartX = 0;
 let dragStartY = 0;
 let viewStartDragX = 0;
 let viewStartDragY = 0;
+let isRetreatMode = false;
 
 export function clearModes() {
     const canvasEntities = getCanvasEntities();
@@ -47,6 +52,12 @@ export function clearModes() {
     const canvasBg = document.getElementById('canvas-bg');
     if (canvasBg) canvasBg.classList.remove('paint-mode');
     if (canvasEntities) canvasEntities.classList.remove('paint-mode');
+
+    S.setSelectionMode(false);
+    const selectBtn = document.getElementById('select-mode-btn');
+    if (selectBtn) selectBtn.classList.remove('active');
+    S.setIsBoxSelecting(false);
+    S.clearSelection();
 }
 
 export function initControls() {
@@ -64,6 +75,13 @@ export function initControls() {
             addPaintCell(wx, wy);
             return;
         }
+        if (S.selectionMode) {
+            S.setIsBoxSelecting(true);
+            S.setSelectionBoxStart({ wx, wy });
+            S.setSelectionBoxEnd({ wx, wy });
+            return;
+        }
+
         S.setIsDragging(true);
         S.setHasDragged(false);
         dragStartX = e.clientX;
@@ -80,6 +98,10 @@ export function initControls() {
             S.setMouseWorldY(wy);
             if (S.paintMode && S.isPainting) {
                 addPaintCell(wx, wy);
+                return;
+            }
+            if (S.selectionMode && S.isBoxSelecting) {
+                S.setSelectionBoxEnd({ wx, wy });
                 return;
             }
         } else {
@@ -111,18 +133,39 @@ export function initControls() {
             return;
         }
 
+        if (S.selectionMode && S.isBoxSelecting) {
+            S.setIsBoxSelecting(false);
+            const start = S.selectionBoxStart;
+            const end = S.selectionBoxEnd;
+            if (start && end) {
+                const dx = Math.abs(end.wx - start.wx);
+                const dy = Math.abs(end.wy - start.wy);
+                if (dx < 5 && dy < 5) {
+                    const res = factionClickSelect(end.wx, end.wy);
+                    if (res) S.setSelectedEntities(res.entities);
+                    else S.clearSelection();
+                } else {
+                    const entities = boxSelect(start.wx, start.wy, end.wx, end.wy);
+                    S.setSelectedEntities(entities);
+                }
+            }
+            return;
+        }
+
         if (S.isDragging && !S.hasDragged && e.target === canvasEntities) {
             const rect = canvasEntities.getBoundingClientRect();
             const [wx, wy] = canvasToWorld(e.clientX - rect.left, e.clientY - rect.top);
 
-            if (S.spawnMode) {
+            if (isRetreatMode && S.activeSquadId) {
+                orderRetreat(S.activeSquadId, wx, wy);
+            } else if (S.spawnMode) {
                 handleSpawnClick(wx, wy);
             } else if (S.zoneMode) {
                 handleZoneClick(wx, wy);
             } else if (S.splitMode) {
                 handleSplitClick(wx, wy);
             } else {
-                handleSelectClick(wx, wy);
+                // fallthrough
             }
         }
         S.setIsDragging(false);
@@ -230,5 +273,54 @@ export function initControls() {
         S.setViewY(WORLD_HEIGHT / 2);
         S.setViewScale(1.0);
         drawBackground();
+    });
+
+    canvasEntities.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        if (!S.activeSquadId) return;
+
+        const rect = canvasEntities.getBoundingClientRect();
+        const [wx, wy] = canvasToWorld(e.clientX - rect.left, e.clientY - rect.top);
+
+        // Check if right-clicked on an enemy entity
+        let nearestEnemy = null;
+        let nearestDist = Infinity;
+        for (const [id, ent] of S.entities) {
+            if (ent.faction_id === S.activeSquadId) continue;  // skip own squad
+            const squad = S.squads ? S.squads.get(S.activeSquadId) : null;
+            if (squad && ent.faction_id === squad.parentFactionId) continue;  // skip allies
+            const d = (ent.x - wx) ** 2 + (ent.y - wy) ** 2;
+            if (d < nearestDist) { nearestDist = d; nearestEnemy = ent; }
+        }
+
+        if (nearestEnemy && nearestDist < 2500) {  // 50px radius
+            // Attack-move toward enemy faction
+            orderAttack(S.activeSquadId, nearestEnemy.faction_id);
+            showToast(`Attacking faction ${nearestEnemy.faction_id}`, 'success');
+        } else {
+            // Move to waypoint
+            orderMove(S.activeSquadId, wx, wy);
+        }
+    });
+
+    window.addEventListener("keydown", (e) => {
+        if (!S.activeSquadId) return;
+
+        if (e.key.toLowerCase() === 'r') {
+            isRetreatMode = true;
+        } else if (e.key.toLowerCase() === 'h') {
+            orderHold(S.activeSquadId);
+        } else if (e.key === 'Delete' || e.key === 'Backspace') {
+            disbandSquad(S.activeSquadId);
+        } else if (e.key === 'Escape') {
+            S.setActiveSquadId(null);
+            S.clearSelection();
+        }
+    });
+
+    window.addEventListener("keyup", (e) => {
+        if (e.key.toLowerCase() === 'r') {
+            isRetreatMode = false;
+        }
     });
 }

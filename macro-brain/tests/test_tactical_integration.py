@@ -178,11 +178,11 @@ def test_action_masking_stage4(mock_env):
     assert act_mask[0] is np.True_   # Hold
     assert act_mask[1] is np.True_   # AttackCoord
     assert act_mask[2] is np.True_   # DropPheromone (stage 2)
-    assert act_mask[3] is np.True_   # DropRepellent (stage 3)
-    assert act_mask[4] is np.False_  # SplitToCoord (locked until stage 5)
-    assert act_mask[5] is np.False_  # MergeBack (locked + no subs)
+    assert act_mask[3] is np.False_  # SplitToCoord (locked until stage 5)
+    assert act_mask[4] is np.False_  # MergeBack (locked + no subs)
+    assert act_mask[5] is np.False_  # SetPlaystyle (locked until stage 5)
     assert act_mask[6] is np.False_  # Retreat (locked until stage 6)
-    assert act_mask[7] is np.True_   # Scout (stage 4)
+    assert act_mask[7] is np.False_  # Skill (locked until stage 7)
 
 
 def test_action_masking_stage6(mock_env):
@@ -195,12 +195,12 @@ def test_action_masking_stage6(mock_env):
     # All stage-unlocked at stage 6
     assert act_mask[0] is np.True_  # Hold
     assert act_mask[1] is np.True_  # AttackCoord
-    assert act_mask[2] is np.True_  # DropPheromone
-    assert act_mask[3] is np.True_  # DropRepellent
-    assert act_mask[4] is np.True_  # SplitToCoord
-    assert act_mask[5] is np.True_  # MergeBack (has sub)
-    assert act_mask[6] is np.True_  # Retreat
-    assert act_mask[7] is np.True_  # Scout
+    assert act_mask[2] is np.True_  # DropPheromone/Zone
+    assert act_mask[3] is np.True_  # SplitToCoord
+    assert act_mask[4] is np.True_  # MergeBack
+    assert act_mask[5] is np.True_  # SetPlaystyle
+    assert act_mask[6] is np.False_ # Skill (locked until stage 7)
+    assert act_mask[7] is np.True_  # Retreat
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -243,7 +243,7 @@ def test_coordinate_masking_matches_stage_env(mock_env):
         mock_env._active_grid_h = config.active_grid_h
 
         mask = mock_env.action_masks()
-        coord_mask = mask[8:]
+        coord_mask = mask[8:2508]
         expected = config.active_grid_w * config.active_grid_h
         assert coord_mask.sum() == expected, (
             f"Stage {stage}: expected {expected} active coords, got {coord_mask.sum()}"
@@ -551,12 +551,12 @@ def test_action_sinking():
 def test_merge_back_sinking():
     """MergeBack(5) with any coordinate produces same MergeFaction directive."""
     dir_a, _ = multidiscrete_to_directives(
-        np.array([5, 0]),
+        np.array([4, 0, 0]),
         brain_faction=0,
         active_sub_factions=[100],
     )
     dir_b, _ = multidiscrete_to_directives(
-        np.array([5, 2499]),
+        np.array([4, 2499, 0]),
         brain_faction=0,
         active_sub_factions=[100],
     )
@@ -592,9 +592,9 @@ def test_attack_coord_produces_waypoint():
 
 
 def test_split_to_coord_produces_two_directives():
-    """SplitToCoord(4) produces SplitFaction + UpdateNavigation."""
+    """SplitToCoord(3) produces SplitFaction + UpdateNavigation."""
     directives, _ = multidiscrete_to_directives(
-        np.array([4, 0]),
+        np.array([3, 0, 0]),
         brain_faction=0,
         active_sub_factions=[],
     )
@@ -604,20 +604,16 @@ def test_split_to_coord_produces_two_directives():
     assert directives[1]["directive"] == "UpdateNavigation"
 
 
-def test_scout_produces_split_and_nav():
-    """Scout(7) produces SplitFaction + UpdateNavigation (no aggro masks)."""
+def test_retreat_produces_retreat_directive():
+    """Retreat(7) produces Retreat directive."""
     directives, _ = multidiscrete_to_directives(
-        np.array([7, 0]),
+        np.array([7, 0, 0]),
         brain_faction=0,
         active_sub_factions=[],
     )
 
-    # SplitFaction + UpdateNav = 2 (no aggro masks — atomic primitive)
-    assert len(directives) == 2
-    assert directives[0]["directive"] == "SplitFaction"
-    assert directives[0]["percentage"] == pytest.approx(0.10)
-    assert directives[1]["directive"] == "UpdateNavigation"
-    assert directives[1]["target"]["type"] == "Waypoint"
+    assert len(directives) == 1
+    assert directives[0]["directive"] == "Retreat"
 
 
 # ══════════════════════════════════════════════════════════════════════

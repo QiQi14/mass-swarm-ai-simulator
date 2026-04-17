@@ -35,6 +35,7 @@ use bevy::prelude::*;
 /// wall tiles (`u16::MAX`) are immune to cost modifiers.
 #[allow(clippy::too_many_arguments)]
 pub fn flow_field_update_system(
+    #[cfg(feature = "debug-telemetry")]
     telemetry: Option<ResMut<crate::plugins::telemetry::PerfTelemetry>>,
     tick: Res<TickCounter>,
     config: Res<SimulationConfig>,
@@ -45,9 +46,11 @@ pub fn flow_field_update_system(
     query: Query<(&Position, &FactionId)>,
     mut registry: ResMut<FlowFieldRegistry>,
 ) {
+    #[cfg(feature = "debug-telemetry")]
     let start = telemetry.as_ref().map(|_| std::time::Instant::now());
     // Skip tick 0 and only run at configured interval
     if tick.tick == 0 || !tick.tick.is_multiple_of(config.flow_field_update_interval) {
+        #[cfg(feature = "debug-telemetry")]
         if let (Some(mut t), _) = (telemetry, start) {
             t.flow_field_us = 0; // set to 0 when skipped
         }
@@ -163,6 +166,7 @@ pub fn flow_field_update_system(
     // Clean up fields for rules no longer present
     registry.fields.retain(|k, _| produced_keys.contains(k));
 
+    #[cfg(feature = "debug-telemetry")]
     if let (Some(mut t), Some(s)) = (telemetry, start) {
         t.flow_field_us = s.elapsed().as_micros() as u32;
     }

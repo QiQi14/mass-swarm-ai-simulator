@@ -227,6 +227,7 @@ def compute_shaped_reward(
     flanking_score: float = 0.0,
     lure_success: bool = False,
     threat_priority_hit: bool = False,
+    debuff_hit: bool = False,
 ) -> float:
     """Exploit-proof zero-sum reward function.
 
@@ -322,6 +323,10 @@ def compute_shaped_reward(
     # ── 8. LURE SUCCESS (Stage 6+) ──────────────────────────
     if stage >= 6 and lure_success:
         reward += reward_weights.lure_success_bonus
+        
+    # ── 9. DEBUFF TRIGGER (Stage 1+) ───────────────────────
+    if debuff_hit:
+        reward += getattr(reward_weights, 'debuff_bonus', 2.0)
 
     return float(reward)
 

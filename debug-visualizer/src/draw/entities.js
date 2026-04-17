@@ -2,6 +2,7 @@ import { ADAPTER_CONFIG, ENTITY_RADIUS, VELOCITY_VECTOR_SCALE, GRID_W, GRID_H, T
 import * as S from '../state.js';
 import { getCtx, getCanvasEntities, getScaleFactor, worldToCanvas } from './terrain.js';
 import { drawHealthBars, drawDeathAnimations } from './effects.js';
+import { drawTacticalOverlay } from './tactical-overlay.js';
 
 export { getFactionColor };
 
@@ -156,6 +157,7 @@ export function drawEntities() {
 
     drawHealthBars(ctx, cullLeft, cullRight, cullTop, cullBottom);
     drawDeathAnimations(ctx);
+    drawTacticalOverlay(ctx, cullLeft, cullRight, cullTop, cullBottom);
 
     // Selected entity highlight
     if (S.selectedEntityId !== null) {
@@ -256,17 +258,24 @@ function drawDensityChannel(ctx, scale, densityData, factionId, hue) {
     const cells = densityData[factionId];
     if (!cells || cells.length < GRID_W * GRID_H) return;
 
+    let maxVal = 0;
+    for (let i = 0; i < cells.length; i++) {
+        if (cells[i] > maxVal) maxVal = cells[i];
+    }
+    if (maxVal < 0.001) return;
+
     for (let y = 0; y < GRID_H; y++) {
         for (let x = 0; x < GRID_W; x++) {
             const value = cells[y * GRID_W + x];
             if (value < 0.001) continue;
 
+            const norm = value / maxVal;
             const worldX = x * TERRAIN_CELL_SIZE;
             const worldY = y * TERRAIN_CELL_SIZE;
             const [screenX, screenY] = worldToCanvas(worldX, worldY);
             const screenSize = TERRAIN_CELL_SIZE * scale;
 
-            const alpha = Math.min(Math.sqrt(value) * 0.7, 0.7);
+            const alpha = Math.min(Math.sqrt(norm) * 0.7, 0.7);
             ctx.fillStyle = `hsla(${hue}, 80%, 55%, ${alpha})`;
             ctx.fillRect(screenX, screenY, screenSize + 1, screenSize + 1);
         }
@@ -278,36 +287,51 @@ function drawDensityChannel(ctx, scale, densityData, factionId, hue) {
  * Walls = solid, mud/pushable = semi-transparent.
  */
 function drawTerrainCostOverlay(ctx, scale) {
-    for (let y = 0; y < GRID_H; y++) {
-        for (let x = 0; x < GRID_W; x++) {
+    const gw = S.terrainGridW;
+    const gh = S.terrainGridH;
+    const cellSize = S.terrainCellSize;
+
+    for (let y = 0; y < gh; y++) {
+        for (let x = 0; x < gw; x++) {
             const idx = (y * GRID_W + x) * 2;
             const hard = S.terrainLocal[idx];
+            const soft = S.terrainLocal[idx + 1];
 
-            // Skip passable terrain (cost 100 = normal)
-            if (hard === 100) continue;
+            // Skip fully passable terrain (cost 100/100 = normal)
+            if (hard === 100 && soft === 100) continue;
 
             let alpha, hue;
             if (hard === 65535) {
                 // Wall — impassable
                 alpha = 0.6;
                 hue = 0; // red
+            } else if (hard === 300) {
+                // Danger zone — Stage 3
+                alpha = 0.35;
+                hue = 0; // red (lighter)
             } else if (hard === 200) {
-                // Mud — high cost
+                // Hard-cost mud (legacy)
                 alpha = 0.35;
                 hue = 40; // amber
             } else if (hard === 125) {
                 // Pushable — moderate cost
                 alpha = 0.25;
                 hue = 30; // orange
+            } else if (soft < 100 && hard <= 100) {
+                // Soft-cost mud corridor (Fortress Stage 2)
+                // Intensity scales with slowdown severity
+                const severity = 1.0 - (soft / 100);
+                alpha = 0.15 + severity * 0.35;
+                hue = 40; // amber
             } else {
                 alpha = 0.15;
                 hue = 60; // yellow for unknown
             }
 
-            const worldX = x * TERRAIN_CELL_SIZE;
-            const worldY = y * TERRAIN_CELL_SIZE;
+            const worldX = x * cellSize;
+            const worldY = y * cellSize;
             const [screenX, screenY] = worldToCanvas(worldX, worldY);
-            const screenSize = TERRAIN_CELL_SIZE * scale;
+            const screenSize = cellSize * scale;
 
             ctx.fillStyle = `hsla(${hue}, 80%, 55%, ${alpha})`;
             ctx.fillRect(screenX, screenY, screenSize + 1, screenSize + 1);

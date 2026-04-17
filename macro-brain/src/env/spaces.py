@@ -19,22 +19,36 @@ if TYPE_CHECKING:
 # 8-action vocabulary for tactical curriculum
 ACTION_HOLD = 0
 ACTION_ATTACK_COORD = 1
-ACTION_DROP_PHEROMONE = 2
-ACTION_DROP_REPELLENT = 3
-ACTION_SPLIT_TO_COORD = 4
-ACTION_MERGE_BACK = 5
+ACTION_ZONE_MODIFIER = 2      # merged Pheromone + Repellent
+ACTION_SPLIT_TO_COORD = 3
+ACTION_MERGE_BACK = 4
+ACTION_SET_PLAYSTYLE = 5      # NEW
 ACTION_ACTIVATE_SKILL = 6
-ACTION_SCOUT = 7
+ACTION_RETREAT = 7
+
+NUM_ACTIONS = 8
+MODIFIER_DIM = 4              # modifier values 0-3
 
 ACTION_NAMES = [
-    "Hold", "AttackCoord", "DropPheromone", "DropRepellent",
-    "SplitToCoord", "MergeBack", "ActivateSkill", "Scout",
+    "Hold", "AttackCoord", "ZoneModifier", "SplitToCoord",
+    "MergeBack", "SetPlaystyle", "ActivateSkill", "Retreat"
 ]
 
 # Which actions use spatial coordinates (component 1)
 SPATIAL_ACTIONS = {
-    ACTION_ATTACK_COORD, ACTION_DROP_PHEROMONE, ACTION_DROP_REPELLENT,
-    ACTION_SPLIT_TO_COORD, ACTION_SCOUT,
+    ACTION_ATTACK_COORD, ACTION_ZONE_MODIFIER, ACTION_SPLIT_TO_COORD, 
+    ACTION_RETREAT, ACTION_ACTIVATE_SKILL,
+}
+
+MODIFIER_MASKS = {
+    ACTION_HOLD: [True, False, False, False],          # only mod=0
+    ACTION_ATTACK_COORD: [True, False, False, False],  # only mod=0
+    ACTION_ZONE_MODIFIER: [True, True, False, False],  # 0=attract, 1=repel
+    ACTION_SPLIT_TO_COORD: [True, True, True, True],   # 0=all, 1/2/3=class
+    ACTION_MERGE_BACK: [True, False, False, False],
+    ACTION_SET_PLAYSTYLE: [True, True, True, True],    # 0=aggro, 1=passive, 2=kite, 3=clear
+    ACTION_ACTIVATE_SKILL: [True, True, True, True],   # skill index 0-3
+    ACTION_RETREAT: [True, False, False, False],
 }
 
 # Grid constants — observation always 50×50 regardless of map size
@@ -73,14 +87,15 @@ def make_observation_space(
     return spaces.Dict(obs)
 
 
-def make_action_space(num_actions: int = 8, max_grid_cells: int = 2500) -> spaces.MultiDiscrete:
-    """Create MultiDiscrete action space: [action_type, flat_spatial_coord].
+def make_action_space(num_actions: int = 8, max_grid_cells: int = 2500, modifier_dim: int = 4) -> spaces.MultiDiscrete:
+    """Create MultiDiscrete action space: [action_type, flat_spatial_coord, modifier].
     
     Component 0: Action type (8 discrete actions)
     Component 1: Flattened grid coordinate (50×50 = 2500 cells)
         Decode: grid_x = val % 50, grid_y = val // 50
+    Component 2: Modifier value (e.g. class filter, polarity)
     """
-    return spaces.MultiDiscrete([num_actions, max_grid_cells])
+    return spaces.MultiDiscrete([num_actions, max_grid_cells, modifier_dim])
 
 
 def make_action_names() -> dict[int, str]:

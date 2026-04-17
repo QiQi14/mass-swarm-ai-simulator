@@ -1,7 +1,7 @@
 # Mass-Swarm AI Simulator
 
 A study project exploring two proof-of-concept ideas: **decoupled tri-node architecture** for mass-entity AI simulation, and **AI-agent-driven development workflows** for orchestrating complex software builds.
-> **Status:** Phase 3.5 of 5 complete — 249 Rust + 214 Python tests, RL training pipeline operational with 9-stage curriculum, Boids 2.0 tactical steering with heterogeneous unit classes. [See Roadmap →](ROADMAP.md)
+> **Status:** Phase 4.0 of 5 complete — 257 Rust + 219 Python tests, RL training pipeline operational with 9-stage curriculum, Action Space v3 (`MultiDiscrete([8, 2500, 4])`), node-based playground editor with squad control. [See Roadmap →](ROADMAP.md)
 
 ---
 
@@ -97,7 +97,7 @@ The project uses a **4-role DAG-based planning workflow** where:
 
 Each phase produced a full archival trail: strategy briefs, implementation plans, task briefs, changelogs, QA certification reports, and knowledge captures. This isn't just source code — it's a reproducible record of how a complex system was designed, decided upon, and built.
 
-**Accumulated:** 22 archived planning cycles, 34 knowledge files, 13 algorithm case studies.
+**Accumulated:** 23 archived planning cycles, 34 knowledge files, 13 algorithm case studies.
 
 ---
 
@@ -109,7 +109,7 @@ The Micro-Core runs at a **fixed 60 TPS** and must process 10,000+ entity update
 
 Rust's ownership model eliminates data races at compile time, which is non-negotiable for a simulation that uses parallel iteration (`par_iter_mut()`) across CPU cores. Bevy's ECS architecture provides zero-cost archetype storage and cache-friendly iteration over entity components.
 
-**Achieved:** 249 unit tests, sub-millisecond per-tick processing, 60 TPS sustained with heterogeneous unit classes and 3-mode damage delivery (1v1, AoE, Penetration).
+**Achieved:** 257 unit tests, sub-millisecond per-tick processing, 60 TPS sustained with heterogeneous unit classes and 3-mode damage delivery (1v1, AoE, Penetration).
 
 ### Why Three Separate Processes?
 
@@ -165,12 +165,12 @@ Instead, we use **progressive complexity expansion** — each curriculum stage a
 ```
 Stage 0 — Learn to move          (2 actions, flat map, 1 target)
 Stage 1 — Learn target priority  (2 actions, trap vs target)
-Stage 2 — Learn pathfinding      (+Pheromone, walled map)
-Stage 3 — Learn zone control     (+Repellent, danger zones)
+Stage 2 — Learn pathfinding      (+ZoneModifier attract, walled map)
+Stage 3 — Learn zone control     (+ZoneModifier repel, danger zones)
 Stage 4 — Learn scouting         (+Scout, fog of war, 2 sequential targets)
-Stage 5 — Learn flanking         (+Split/Merge, V-chokepoint forcing pincer)
-Stage 6 — Learn retreat          (+Retreat, full 8-action lure & ambush)
-Stage 7 — Learn defense          (all actions, protected HVT scenario)
+Stage 5 — Learn flanking         (+Split/Merge/Playstyle, class-aware sub-factions)
+Stage 6 — Learn retreat          (+Retreat, tactical withdrawal)
+Stage 7 — Learn defense          (+ActivateSkill, kite playstyle, protected HVT)
 Stage 8 — Generalization         (randomized params across all mechanics)
 ```
 
@@ -183,8 +183,8 @@ Graduate: >80% win rate over 200 episodes × 50 consecutive wins.
 The system operates across three decoupled processes that communicate purely over IPC, with strict separation of concerns.
 
 1. **The Micro-Core (Rust):** The absolute source of truth. Runs ECS systems: Spatial Hash Grid, Flow Field Pathfinding, 3-vector Boids 2.0 movement (flow + separation + tactical), 10 Hz entity-sharded tactical sensor (Kite/PeelForAlly via subsumption), 3-mode damage delivery (1v1/AoE/Penetration), fog of war, and terrain. When run with `./dev.sh --watch`, it operates for debug visualization. During training, it is booted with `cargo run -- --training` which relies on atomic `ResetEnvironment` payloads from Python via ZMQ.
-2. **The Macro-Brain (Python):** The RL strategic director. Connects via ZeroMQ REQ/REP. Upon reset, Python sends procedural terrain, spawn locations, interaction rules, and unit type definitions. Every 30 ticks (~2 Hz), it receives an 8-channel 50×50 observation tensor + 12-dim summary and returns an action via an 8-command vocabulary.
-3. **The Debug Visualizer (JS):** Dual-mode web app (Training / Playground). Connects via WebSocket. Parses delta-updates and renders to HTML5 Canvas. Training mode shows RL metrics; Playground mode provides spawn tools, terrain painting, and scenario design.
+2. **The Macro-Brain (Python):** The RL strategic director. Connects via ZeroMQ REQ/REP. Upon reset, Python sends procedural terrain, spawn locations, interaction rules, and unit type definitions. Every 30 ticks (~2 Hz), it receives an 8-channel 50×50 observation tensor (including per-class density maps) + 12-dim summary and returns a 3D action via `MultiDiscrete([8, 2500, 4])` — action type × spatial coordinate × modifier.
+3. **The Debug Visualizer (JS):** Dual-mode web app (Training / Playground). Connects via WebSocket. Training mode shows RL metrics; Playground mode provides a **node-based scenario editor** (Drawflow) with Faction/Unit/Combat/Navigation/Death nodes, a **graph compiler** that converts the visual graph to WS commands, and a **tactical squad control system** with box-select, right-click orders, squad panels, and canvas-drawn order arrows.
 
 Because these are fully split, they do not block each other. By running `dev.sh --watch` in one terminal and Python training in another, you can watch RL training live through the visualizer without injecting rendering delays into PyTorch steps.
 
@@ -194,11 +194,11 @@ Because these are fully split, they do not block each other. By running `dev.sh 
 
 ```
 mass-swarm-ai-simulator/
-├── micro-core/                    # Rust simulation (Bevy 0.18 ECS, 249 tests)
+├── micro-core/                    # Rust simulation (Bevy 0.18 ECS, 257 tests)
 │   └── src/
 │       ├── components/            # Position, Velocity, FactionId, StatBlock,
 │       │                          # UnitClassId, TacticalState, CombatState
-│       ├── config/                # SimulationConfig, UnitTypeRegistry, BuffConfig
+│       ├── config/                # SimulationConfig, UnitTypeRegistry, FactionTacticalOverrides
 │       ├── spatial/               # O(1) Hash Grid (faction-embedded payload)
 │       ├── pathfinding/           # Chamfer Dijkstra Flow Fields
 │       ├── terrain.rs             # Integer-cost terrain grid
@@ -206,24 +206,37 @@ mass-swarm-ai-simulator/
 │       ├── rules/                 # Config-driven interaction, navigation, removal
 │       ├── systems/
 │       │   ├── movement.rs        # Boids 2.0: 3-vector blend + engagement hold
-│       │   ├── tactical_sensor.rs # 10 Hz sharded subsumption (Kite, PeelForAlly)
+│       │   ├── tactical_sensor.rs # 10 Hz sharded subsumption (Kite, PeelForAlly) + override lookup
+│       │   ├── directive_executor/# 8-action executor (SplitFaction class_filter, SetTacticalOverride)
 │       │   ├── interaction.rs     # 1v1 pairwise + CombatState stamping
 │       │   ├── aoe_interaction.rs # AoE splash (Circle, Ellipse, ConvexPolygon)
 │       │   ├── penetration.rs     # Ray penetration (Kinetic/Beam energy model)
+│       │   ├── state_vectorizer.rs# 50×50 density + ECP + per-class density maps
+│       │   ├── ws_command.rs      # WS command handler (spawn_wave, set_interaction)
 │       │   └── ...                # flow_field, spawning, removal, visibility
 │       └── bridges/               # WebSocket server, ZMQ bridge + protocol
-├── debug-visualizer/              # Browser-based real-time visualizer (Vite + ES Modules)
+├── debug-visualizer/              # Browser-based real-time visualizer (Vite + Drawflow)
 │   └── src/
 │       ├── main.js                # App entry, mode router (#training / #playground)
-│       ├── panels/                # Training (Dashboard, Obs, Rewards) + Playground
-│       ├── draw/                  # Canvas rendering (entities, terrain, fog, overlays)
+│       ├── playground-main.js     # Floating overlay layout + node editor integration
+│       ├── node-editor/           # Drawflow visual scenario builder
+│       │   ├── nodes/             # Faction, Unit, Combat, Nav, Death, General (brain)
+│       │   ├── compiler.js        # Graph → WS commands
+│       │   ├── preset-gallery.js  # Scenario splash
+│       │   └── brain-runner.js    # ONNX.js inference loop
+│       ├── squads/                # RTS-style squad control
+│       │   ├── squad-manager.js   # Create/disband via SplitFaction/MergeFaction
+│       │   └── order-system.js    # Move/attack/hold/retreat
+│       ├── controls/              # Selection (box-select) + right-click orders
+│       ├── panels/                # Training Dashboard + Playground overlays
+│       ├── draw/                  # Canvas rendering (entities, terrain, fog, tactical overlay)
 │       └── styles/                # "Tactical Command Center" design system
-├── macro-brain/                   # Python RL training (SB3 MaskablePPO, 214 tests)
+├── macro-brain/                   # Python RL training (SB3 MaskablePPO, 219 tests)
 │   └── src/
-│       ├── env/                   # SwarmEnv (Gymnasium), actions, rewards, bot AI
+│       ├── env/                   # SwarmEnv (Gymnasium), actions (3D), rewards, bot AI
 │       ├── models/                # TacticalExtractor (CNN+MLP feature extractor)
 │       ├── training/              # 9-stage curriculum, callbacks, train.py
-│       └── utils/                 # State vectorizer, LKP fog buffer
+│       └── utils/                 # State vectorizer (8ch + per-class), LKP fog buffer
 ├── docs/
 │   ├── architecture.md            # Architecture deep-dive
 │   └── study/                     # 13 algorithm case studies & research notes
@@ -234,7 +247,7 @@ mass-swarm-ai-simulator/
 │   │   ├── project/               # Features ledger, conventions, tech stack
 │   │   └── training/              # Stages, bots, environment, overview
 │   ├── knowledge/                 # 34 persistent knowledge files (gotchas, conventions)
-│   ├── history/                   # 22 archived planning cycles with full audit trails
+│   ├── history/                   # 23 archived planning cycles with full audit trails
 │   ├── rules/                     # Execution boundaries, QA protocol, shared state
 │   └── skills/                    # Domain-specific capabilities (Rust code standards)
 ├── mathematics_reference.md       # Full mathematical specification (all formulas)
@@ -271,7 +284,7 @@ cd mass-swarm-ai-simulator
 # Playground mode: http://127.0.0.1:5173/#playground
 ```
 
-The visualizer connects automatically. Use **Playground mode** (`#playground`) for spawn tools, terrain painting, and scenario design. Use **Training mode** (`#training`) to monitor ML training metrics, win rate, and reward history.
+The visualizer connects automatically. Use **Playground mode** (`#playground`) for the node-based scenario editor, squad control, and terrain painting. Use **Training mode** (`#training`) to monitor ML training metrics, win rate, and reward history.
 
 ## Tech Stack
 

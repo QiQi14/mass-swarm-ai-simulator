@@ -17,8 +17,8 @@ if TYPE_CHECKING:
 
 # 8-action vocabulary for tactical curriculum
 ACTION_NAMES = [
-    "Hold", "AttackCoord", "DropPheromone", "DropRepellent",
-    "SplitToCoord", "MergeBack", "Retreat", "Scout",
+    "Hold", "AttackCoord", "ZoneModifier", "SplitToCoord",
+    "MergeBack", "SetPlaystyle", "ActivateSkill", "Retreat"
 ]
 
 @dataclass
@@ -151,22 +151,61 @@ def _spawns_stage1(rng: Generator | None = None, profile: GameProfile | None = N
     return spawns, {"trap_faction": trap_fid, "target_faction": target_fid}
 
 def _spawns_stage2(rng: Generator | None = None, profile: GameProfile | None = None) -> tuple[list[dict], dict]:
-    """Stage 2: Pheromone Path (600×600).
+    """Stage 2: Pheromone Fortress (600×600).
 
-    Two-path terrain. Fast (top) path blocked by trap fleet (40×200HP).
-    Model must drop pheromone on the safe (bottom) path to attract swarm
-    around the trap and reach the target.
+    Ranger Fortress layout — kill-order puzzle enforced by combat math.
+
+    Rangers (target): 20×60HP inside walled fortress, HoldPosition.
+      Extended-range combat rule (range 150, -12 DPS) added via
+      stage_combat_rules.py — they deal ranged fire support.
+
+    Tanks (trap): 20×200HP blocking Path A (clean, shortest entry).
+      Standard melee (range 25, -25 DPS), HoldPosition.
+
+    Brain must use DropPheromone on Path B (mud, soft_cost=40) to route
+    the swarm through the safe but slow entry, kill squishy rangers
+    first, then pivot to fight tanks alone.
+
+    Wrong order (fight tanks first): -25/s melee + -12/s ranged = overwhelmed.
+    Correct order (kill rangers via mud): rangers die fast → tanks alone = win
+    with ×1.2 HP margin.
     """
     brain_count = _faction_count(profile, 0, 50)
 
     flip = rng is not None and rng.random() > 0.5
-    trap_fid = 2 if flip else 1
-    target_fid = 1 if flip else 2
+    trap_fid = 2 if flip else 1      # Tanks (melee blockers)
+    target_fid = 1 if flip else 2    # Rangers (squishy ranged)
+
+    # Fortress center — rangers spawn inside
+    fortress_cx = 420.0
+    fortress_cy = 300.0
+    ranger_y_jitter = rng.uniform(-30, 30) if rng is not None else 0.0
+
+    # Randomize which opening is Path A (clean+tanks) vs Path B (mud+safe)
+    # top_is_clean=True  → Path A at top, Path B at bottom
+    # top_is_clean=False → Path A at bottom, Path B at top
+    top_is_clean = rng is None or rng.random() > 0.5
+
+    # Tank position: at the clean (Path A) opening
+    # Fortress spans roughly Y: 200-400, centered at 300
+    # Top opening ~Y=200, bottom opening ~Y=400
+    if top_is_clean:
+        tank_x = fortress_cx - 40.0  # Just outside fortress entrance
+        tank_y = 180.0               # Top opening
+    else:
+        tank_x = fortress_cx - 40.0
+        tank_y = 420.0               # Bottom opening
+
+    # Brain spawns on left edge with Y jitter
+    brain_y = 300.0 + (rng.uniform(-100, 100) if rng is not None else 0.0)
 
     spawns = [
-        {"faction_id": 0, "count": brain_count, "x": 80.0, "y": 200.0, "spread": 50.0, "stats": _faction_stats(profile, 0)},
-        {"faction_id": trap_fid, "count": 40, "x": 350.0, "y": 160.0, "spread": 40.0, "stats": [{"index": 0, "value": 200.0}]},
-        {"faction_id": target_fid, "count": 20, "x": 520.0, "y": 460.0, "spread": 40.0, "stats": [{"index": 0, "value": 60.0}]},
+        {"faction_id": 0, "count": brain_count, "x": 80.0, "y": brain_y,
+         "spread": 50.0, "stats": _faction_stats(profile, 0)},
+        {"faction_id": trap_fid, "count": 20, "x": tank_x, "y": tank_y,
+         "spread": 35.0, "stats": [{"index": 0, "value": 200.0}]},
+        {"faction_id": target_fid, "count": 20, "x": fortress_cx, "y": fortress_cy + ranger_y_jitter,
+         "spread": 30.0, "stats": [{"index": 0, "value": 60.0}]},
     ]
     return spawns, {"trap_faction": trap_fid, "target_faction": target_fid}
 
@@ -447,6 +486,9 @@ def get_stage_snapshot(stage: int, profile: GameProfile | None = None) -> dict:
         for a in profile.actions_unlocked_at(stage):
             unlocked_actions.append(a.name)
 
+    # Generate representative terrain for this stage (seed=0 for deterministic preview)
+    terrain_data = generate_terrain_for_stage(stage, seed=0)
+
     return {
         "stage": stage,
         "description": stage_desc,
@@ -456,6 +498,13 @@ def get_stage_snapshot(stage: int, profile: GameProfile | None = None) -> dict:
             "grid_w": map_config.active_grid_w,
             "grid_h": map_config.active_grid_h,
             "fog_enabled": map_config.fog_enabled,
+        },
+        "terrain": {
+            "width": terrain_data["width"],
+            "height": terrain_data["height"],
+            "cell_size": terrain_data["cell_size"],
+            "hard_costs": terrain_data["hard_costs"],
+            "soft_costs": terrain_data["soft_costs"],
         },
         "factions": factions,
         "trap_faction": trap_fid,
@@ -474,25 +523,80 @@ def _terrain_flat(config: StageMapConfig) -> dict:
         "cell_size": config.cell_size,
     }
 
-def _terrain_two_path(config: StageMapConfig, seed: int) -> dict:
-    """Stage 2: Two-path terrain for pheromone training."""
+def _terrain_fortress(config: StageMapConfig, seed: int) -> dict:
+    """Stage 2: Fortress terrain for pheromone training.
+
+    Builds a rectangular walled enclosure (fortress) around the target
+    area with exactly 2 openings:
+      - Path A (clean, hard_cost=100): Shortest entry — tanks block it
+      - Path B (mud, soft_cost=40): Longer entry — safe but slow
+
+    The seed controls which opening (top/bottom of fortress) is A vs B.
+    Grid is 30×30 (600×600 world, cell_size=20).
+
+    Fortress occupies grid cells roughly:
+      X: 16-26 (world X: 320-520)
+      Y: 9-21  (world Y: 180-420)
+
+    Two openings on the LEFT wall (X=16):
+      Top opening:  Y=10-11 (world Y: 200-220)
+      Bottom opening: Y=19-20 (world Y: 380-400)
+    """
     w, h = config.active_grid_w, config.active_grid_h
     hard_costs = [100] * (w * h)
     soft_costs = [100] * (w * h)
 
-    wall_y_start = 13
-    wall_y_end = 15
-    gap_x_start = 2
-    gap_x_end = 5 + (seed % 3)
+    # Fortress wall bounds (grid coordinates)
+    fort_x_min = 16
+    fort_x_max = 26
+    fort_y_min = 9
+    fort_y_max = 21
 
-    for y in range(wall_y_start, wall_y_end + 1):
-        for x in range(w):
-            if not (gap_x_start <= x <= gap_x_end):
-                hard_costs[y * w + x] = 65535
+    # Opening positions on the LEFT wall (x=fort_x_min)
+    top_opening_y = (10, 11)     # 2 cells tall
+    bottom_opening_y = (19, 20)  # 2 cells tall
 
-    for y in range(20, min(23, h)):
-        for x in range(10, min(21, w)):
-            soft_costs[y * w + x] = 40
+    # Build fortress walls — all 4 sides
+    for y in range(fort_y_min, fort_y_max + 1):
+        for x in range(fort_x_min, fort_x_max + 1):
+            is_edge = (
+                x == fort_x_min or x == fort_x_max or
+                y == fort_y_min or y == fort_y_max
+            )
+            if is_edge:
+                # Check if this cell is an opening
+                is_opening = False
+                if x == fort_x_min:
+                    if top_opening_y[0] <= y <= top_opening_y[1]:
+                        is_opening = True
+                    if bottom_opening_y[0] <= y <= bottom_opening_y[1]:
+                        is_opening = True
+
+                if not is_opening:
+                    hard_costs[y * w + x] = 65535  # Permanent wall
+
+    # Determine which opening is clean (Path A) vs mud (Path B)
+    # seed controls randomization — same seed = same layout for reproducibility
+    top_is_clean = (seed % 2) == 0
+
+    # Path B (mud): lay mud OUTSIDE the fortress near the safe opening
+    # Mud corridor extends from the opening leftward across ~6 cells
+    if top_is_clean:
+        # Bottom opening is mud (Path B)
+        mud_opening_y = bottom_opening_y
+    else:
+        # Top opening is mud (Path B)
+        mud_opening_y = top_opening_y
+
+    # Mud corridor: extends from opening (x=fort_x_min) leftward
+    mud_x_start = fort_x_min - 6
+    mud_x_end = fort_x_min  # inclusive — mud right up to the opening
+    mud_y_start = mud_opening_y[0] - 1
+    mud_y_end = mud_opening_y[1] + 1
+
+    for y in range(max(0, mud_y_start), min(h, mud_y_end + 1)):
+        for x in range(max(0, mud_x_start), min(w, mud_x_end + 1)):
+            soft_costs[y * w + x] = 40  # Mud: 40% speed
 
     return {
         "hard_costs": hard_costs,
@@ -521,7 +625,7 @@ def _terrain_open_with_danger_zones(config: StageMapConfig, seed: int) -> dict:
                 gx, gy = cx + dx, cy + dy
                 if 0 <= gx < w and 0 <= gy < h:
                     if dx * dx + dy * dy <= danger_radius * danger_radius:
-                        hard_costs[gy * w + gx] = 300
+                        hard_costs[gy * w + gx] = 400
 
     return {
         "hard_costs": hard_costs,
@@ -540,7 +644,7 @@ def generate_terrain_for_stage(stage: int, seed: int = 0) -> dict:
     config = STAGE_MAP_CONFIGS.get(stage, STAGE_MAP_CONFIGS[0])
 
     if stage == 2:
-        return _terrain_two_path(config, seed)
+        return _terrain_fortress(config, seed)
     elif stage == 3:
         return _terrain_open_with_danger_zones(config, seed)
     elif stage == 5:

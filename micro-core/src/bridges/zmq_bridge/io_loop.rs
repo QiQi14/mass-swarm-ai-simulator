@@ -31,11 +31,11 @@ pub(super) async fn zmq_io_loop(
 
     let mut socket = ReqSocket::new();
     socket
-        .connect("tcp://127.0.0.1:5555")
+        .connect("tcp://127.0.0.1:5556")
         .await
-        .expect("Failed to connect ZMQ REQ socket to tcp://127.0.0.1:5555");
+        .expect("Failed to connect ZMQ REQ socket to tcp://127.0.0.1:5556");
 
-    println!("[ZMQ Bridge] Connected to tcp://127.0.0.1:5555");
+    println!("[ZMQ Bridge] Connected to tcp://127.0.0.1:5556");
 
     let zmq_timeout = Duration::from_secs(timeout_secs);
 
@@ -56,7 +56,7 @@ pub(super) async fn zmq_io_loop(
                     timeout_secs
                 );
                 socket = ReqSocket::new();
-                let _ = socket.connect("tcp://127.0.0.1:5555").await;
+                let _ = socket.connect("tcp://127.0.0.1:5556").await;
                 let _ = action_tx.send(FALLBACK_ACTION.to_string());
                 continue;
             }
@@ -82,7 +82,7 @@ pub(super) async fn zmq_io_loop(
                     timeout_secs
                 );
                 socket = ReqSocket::new();
-                let _ = socket.connect("tcp://127.0.0.1:5555").await;
+                let _ = socket.connect("tcp://127.0.0.1:5556").await;
                 let _ = action_tx.send(FALLBACK_ACTION.to_string());
             }
         }

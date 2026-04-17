@@ -37,17 +37,17 @@ def mock_env():
         return env
 
 def test_action_masks_length_and_merge_block(mock_env):
-    # Length should be 8 + 2500 = 2508
+    # Length should be 8 + 2500 + 4 = 2512
     mask = mock_env.action_masks()
-    assert len(mask) == 2508
-    # No sub_factions, so MergeBack (5) blocked
-    assert mask[5] == False
+    assert len(mask) == 2512
+    # No sub_factions, so MergeBack (4) blocked
+    assert mask[4] == False
     
 def test_action_masks_split_scout_blocked(mock_env):
+    mock_env.curriculum_stage = 5
     mock_env._active_sub_factions = [101, 102]
     mask = mock_env.action_masks()
-    assert mask[4] == False # SplitToCoord
-    assert mask[7] == False # Scout
+    assert mask[3] == False # SplitToCoord
     
 def test_action_masks_stage_locked(mock_env):
     mock_env.curriculum_stage = 1
@@ -57,7 +57,7 @@ def test_action_masks_stage_locked(mock_env):
     assert mask[2] == False # DropPheromone
     
     # Coordinate mask active cells
-    active_cells = sum(mask[8:])
+    active_cells = sum(mask[8:2508])
     assert active_cells == mock_env._active_grid_w * mock_env._active_grid_h
 
 def test_step_accepts_multidiscrete_without_crash(mock_env):

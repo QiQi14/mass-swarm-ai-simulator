@@ -82,6 +82,11 @@ impl Default for TrainingMode {
     }
 }
 
+/// Flag set to `true` after `ResetEnvironment` writes new terrain data.
+/// `ws_sync_system` reads this to broadcast terrain once, then clears it.
+#[derive(Resource, Debug, Clone, Default)]
+pub struct TerrainChanged(pub bool);
+
 #[cfg(test)]
 mod tests {
     use super::*;

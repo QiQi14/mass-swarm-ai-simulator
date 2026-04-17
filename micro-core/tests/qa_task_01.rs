@@ -59,6 +59,7 @@ fn qa_test_directive_executor_system_uses_buff_config() {
     app.insert_resource(ActiveZoneModifiers::default());
     app.insert_resource(micro_core::config::AggroMaskRegistry::default());
     app.insert_resource(micro_core::config::ActiveSubFactions::default());
+    app.insert_resource(micro_core::config::FactionTacticalOverrides::default());
     
     // Inject a CUSTOM BuffConfig duration to verify it's wired properly, NOT 120!
     app.insert_resource(BuffConfig {

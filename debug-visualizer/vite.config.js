@@ -6,7 +6,7 @@ export default defineConfig({
   publicDir: 'public',
   server: {
     port: 5173,
-    open: '/training.html',
+    open: '/',
     // Note: /logs is served from public/logs symlink → ../../macro-brain/runs
     // Do NOT proxy /logs to the Rust WS server — it has no HTTP endpoint.
   },

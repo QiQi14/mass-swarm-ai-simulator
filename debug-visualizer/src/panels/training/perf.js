@@ -1,4 +1,5 @@
 import { PERF_SYSTEMS } from '../../config.js';
+import { icon } from '../../components/icons.js';
 
 let container = null;
 
@@ -30,7 +31,7 @@ export function updatePerfBars(telemetry) {
 export default {
     id: 'perf',
     title: 'System Performance',
-    icon: '⚡',
+    icon: icon('zap'),
     modes: ['training'],
     defaultExpanded: false,
     render(body) {

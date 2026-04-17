@@ -1,5 +1,6 @@
 import * as S from '../../state.js';
 import { getFactionColor, getFactionName, ADAPTER_CONFIG } from '../../config.js';
+import { icon } from '../../components/icons.js';
 
 let ui = null;
 let lastSelectedId = null;
@@ -42,8 +43,8 @@ export function updateInspectorPanel() {
         let deltaIcon = '';
         if (prevStats && prevStats[i] !== undefined) {
             const diff = val - prevStats[i];
-            if (diff > 0.01) deltaIcon = '<span class="stat-delta up">▲</span>';
-            else if (diff < -0.01) deltaIcon = '<span class="stat-delta down">▼</span>';
+            if (diff > 0.01) deltaIcon = '<span class="stat-delta up">+</span>';
+            else if (diff < -0.01) deltaIcon = '<span class="stat-delta down">−</span>';
         }
 
         // Meter: normalize assuming max ~100 for stat 0, otherwise use raw value bar
@@ -99,7 +100,7 @@ export function updateInspectorPanel() {
 export default {
     id: 'inspector',
     title: 'Entity Inspector',
-    icon: '🔍',
+    icon: icon('eye'),
     modes: ['training', 'playground'],
     defaultExpanded: false,
     render(body) {

@@ -20,7 +20,7 @@ use micro_core::components::NextEntityId;
 use micro_core::config::{
     ActiveSubFactions, ActiveZoneModifiers, AggroMaskRegistry, BuffConfig, CooldownTracker,
     DensityConfig, FactionBuffs, InterventionTracker, SimPaused, SimSpeed, SimStepRemaining,
-    SimulationConfig, TickCounter, TrainingMode,
+    SimulationConfig, TerrainChanged, TickCounter, TrainingMode,
 };
 use micro_core::pathfinding::FlowFieldRegistry;
 use micro_core::rules::{
@@ -141,8 +141,11 @@ fn main() {
         .init_resource::<AggroMaskRegistry>()
         .init_resource::<ActiveSubFactions>()
         .init_resource::<LatestDirective>()
+        .init_resource::<micro_core::config::FactionTacticalOverrides>()
         // Boids 2.0 — Unit type registry for heterogeneous swarm behaviors
         .init_resource::<micro_core::config::UnitTypeRegistry>()
+        // Terrain change flag — triggers ws_sync terrain broadcast after reset
+        .init_resource::<TerrainChanged>()
         .insert_resource(micro_core::systems::ws_sync::BroadcastSender(tx))
         .insert_resource(WsCommandReceiver(std::sync::Mutex::new(ws_cmd_rx)));
 

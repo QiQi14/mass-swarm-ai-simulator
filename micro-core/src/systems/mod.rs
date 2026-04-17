@@ -23,9 +23,13 @@ pub mod removal;
 pub mod spawning;
 pub mod state_vectorizer;
 pub mod visibility;
-pub mod ws_command;
-pub mod ws_sync;
 pub mod tactical_sensor;
+
+// Native-only: WebSocket command receiver and state broadcast (use tokio channels)
+#[cfg(feature = "native")]
+pub mod ws_command;
+#[cfg(feature = "native")]
+pub mod ws_sync;
 
 use crate::config::TickCounter;
 use bevy::prelude::*;
@@ -40,8 +44,10 @@ pub use movement::movement_system;
 pub use removal::removal_system;
 pub use spawning::initial_spawn_system;
 pub use visibility::visibility_update_system;
-pub use ws_sync::{BroadcastSender, ws_sync_system};
 pub use tactical_sensor::tactical_sensor_system;
+
+#[cfg(feature = "native")]
+pub use ws_sync::{BroadcastSender, ws_sync_system};
 
 /// Increments the global tick counter each frame.
 ///

@@ -43,6 +43,7 @@ use bevy::prelude::*;
 /// - ~0.5ms for 10K entities with default config
 #[allow(clippy::too_many_arguments)]
 pub fn interaction_system(
+    #[cfg(feature = "debug-telemetry")]
     telemetry: Option<ResMut<crate::plugins::telemetry::PerfTelemetry>>,
     grid: Res<SpatialHashGrid>,
     rules: Res<InteractionRuleSet>,
@@ -61,11 +62,13 @@ pub fn interaction_system(
     // Disjoint from q_ro and q_rw (CombatState ∩ {Position, StatBlock} = ∅).
     mut q_combat: Query<&mut crate::components::CombatState>,
 ) {
+    #[cfg(feature = "debug-telemetry")]
     let start = telemetry.as_ref().map(|_| std::time::Instant::now());
     
     cooldowns.tick();
 
     if rules.rules.is_empty() {
+        #[cfg(feature = "debug-telemetry")]
         if let (Some(mut t), Some(s)) = (telemetry, start) {
             t.interaction_us = s.elapsed().as_micros() as u32;
         }
@@ -206,6 +209,7 @@ pub fn interaction_system(
             }
         }
     }
+    #[cfg(feature = "debug-telemetry")]
     if let (Some(mut t), Some(s)) = (telemetry, start) {
         t.interaction_us = s.elapsed().as_micros() as u32;
     }

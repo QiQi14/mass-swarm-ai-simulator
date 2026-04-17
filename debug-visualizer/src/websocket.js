@@ -1,6 +1,6 @@
 // ─── WebSocket Client ───────────────────────────────────────────────
 
-import { WS_URL, RECONNECT_INTERVAL_MS, ADAPTER_CONFIG } from './config.js';
+import { WS_URL, RECONNECT_INTERVAL_MS, ADAPTER_CONFIG, GRID_W, GRID_H } from './config.js';
 import * as S from './state.js';
 import { updatePerfBars } from './panels/training/perf.js';
 import { updateAggroGrid, updateLegend, initFactionToggles } from './panels/shared/legend.js';
@@ -122,6 +122,35 @@ function handleSyncDelta(msg) {
 
     if (msg.density_heatmap !== undefined) S.setDensityHeatmap(msg.density_heatmap);
     if (msg.ecp_density_maps !== undefined) S.setEcpDensityMaps(msg.ecp_density_maps);
+
+    // Terrain data broadcast — sent once per environment reset
+    if (msg.terrain_sync) {
+        const t = msg.terrain_sync;
+        const srcW = t.width;
+        const srcH = t.height;
+
+        // Store actual grid dimensions for drawTerrain
+        S.setTerrainGridW(srcW);
+        S.setTerrainGridH(srcH);
+        if (t.cell_size) S.setTerrainCellSize(t.cell_size);
+
+        // Clear existing terrain to default (100/100)
+        for (let i = 0; i < S.terrainLocal.length; i++) S.terrainLocal[i] = 100;
+
+        // Write broadcast data into terrainLocal using GRID_W stride
+        // terrainLocal layout: interleaved [hard, soft] at (y * GRID_W + x) * 2
+        const maxY = Math.min(srcH, GRID_H);
+        const maxX = Math.min(srcW, GRID_W);
+        for (let y = 0; y < maxY; y++) {
+            for (let x = 0; x < maxX; x++) {
+                const srcIdx = y * srcW + x;
+                const dstIdx = (y * GRID_W + x) * 2;
+                S.terrainLocal[dstIdx] = t.hard_costs[srcIdx];
+                S.terrainLocal[dstIdx + 1] = t.soft_costs ? t.soft_costs[srcIdx] : 100;
+            }
+        }
+        drawBackground(); // Force terrain redraw (walls + mud)
+    }
 }
 
 function handleFlowFieldSync(msg) {

@@ -9,6 +9,10 @@
     "preview": "vite preview"
   },
   "devDependencies": {
+    "drawflow": "^0.0.60",
     "vite": "^6.0.0"
+  },
+  "dependencies": {
+    "onnxruntime-web": "^1.17.0"
   }
 }

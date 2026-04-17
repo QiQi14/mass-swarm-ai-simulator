@@ -8,7 +8,9 @@
 //! - **Contract:** Phase 1, Micro-Phase 2 WebSocket Message Schema
 
 #[cfg(feature = "debug-telemetry")]
-use crate::bridges::ws_protocol::{AggroMaskSync, MlBrainSync, VisibilitySync, ZoneModifierSync};
+use crate::bridges::ws_protocol::{
+    AggroMaskSync, MlBrainSync, TerrainSync, VisibilitySync, ZoneModifierSync,
+};
 use crate::bridges::ws_protocol::{EntityState, WsMessage};
 use crate::components::{EntityId, FactionId, Position, StatBlock, Velocity};
 use crate::config::TickCounter;
@@ -48,6 +50,8 @@ pub struct WsSyncTelemetry<'w> {
     pub latest_directive: Option<Res<'w, crate::systems::directive_executor::LatestDirective>>,
     pub combat_buffs: Option<Res<'w, crate::config::FactionBuffs>>,
     pub buff_config: Option<Res<'w, crate::config::BuffConfig>>,
+    pub terrain: Res<'w, crate::terrain::TerrainGrid>,
+    pub terrain_changed: ResMut<'w, crate::config::TerrainChanged>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -60,7 +64,7 @@ pub fn ws_sync_system(
     tick: Res<TickCounter>,
     sender: Res<BroadcastSender>,
     mut removal_events: ResMut<RemovalEvents>,
-    #[cfg(feature = "debug-telemetry")] telem: WsSyncTelemetry<'_>,
+    #[cfg(feature = "debug-telemetry")] mut telem: WsSyncTelemetry<'_>,
 ) {
     #[cfg(feature = "debug-telemetry")]
     let start = telem.telemetry.as_ref().map(|_| std::time::Instant::now());
@@ -254,6 +258,19 @@ pub fn ws_sync_system(
         } else {
             None
         },
+        #[cfg(feature = "debug-telemetry")]
+        terrain_sync: if telem.terrain_changed.0 {
+            telem.terrain_changed.0 = false;
+            Some(TerrainSync {
+                width: telem.terrain.width,
+                height: telem.terrain.height,
+                cell_size: telem.terrain.cell_size,
+                hard_costs: telem.terrain.hard_costs.clone(),
+                soft_costs: telem.terrain.soft_costs.clone(),
+            })
+        } else {
+            None
+        },
     };
 
     if let Ok(json_str) = serde_json::to_string(&msg) {
@@ -290,6 +307,10 @@ mod tests {
         app.insert_resource(FactionVisibility::new(5, 5, 20.0));
         #[cfg(feature = "debug-telemetry")]
         app.init_resource::<crate::plugins::telemetry::PerfTelemetry>();
+        #[cfg(feature = "debug-telemetry")]
+        app.insert_resource(crate::terrain::TerrainGrid::new(5, 5, 20.0));
+        #[cfg(feature = "debug-telemetry")]
+        app.init_resource::<crate::config::TerrainChanged>();
 
         app.add_systems(Update, ws_sync_system);
 

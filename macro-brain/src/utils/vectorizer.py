@@ -170,32 +170,17 @@ def vectorize_snapshot(
         channels[1] = lkp_buffer.update(0, channels[1], visible_mask)
         channels[3] = lkp_buffer.update(1, channels[3], visible_mask)
     
-    # ── ch6: Allied sub-faction density (split group / unit class awareness) ─
-    # Shows where the brain's sub-factions are positioned.
-    # When Stage 5+ SplitToCoord creates sub-groups, their density appears here.
-    # For Stage 7+ heterogeneous units, shows class distribution.
-    # The model learns: "retreat toward bright spots on ch6 for mutual support"
-    # Value: normalized count density of active sub-factions (brain excluded).
-    # When no sub-factions exist, ch6 = 0.0 (backward compatible with Stages 0-4).
-    for sf_id in active_sub_faction_ids:
-        sf_key = str(sf_id)
-        if sf_key in density_maps:
-            _place_density(density_maps[sf_key], 6, accumulate=True)
-    
-    # ── ch7: System objective signal (plumbed, zeros) ──────────────
-    if active_objective_ping is not None:
-        px, py = active_objective_ping
-        grid_x = int(px / cell_size) + pad_x
-        grid_y = int(py / cell_size) + pad_y
+    # ── ch6: Friendly class_0 density ──────────────────────────────
+    class_density_maps = snapshot.get("class_density_maps", {})
+    if "0" in class_density_maps:
+        _place_density(class_density_maps["0"], 6, accumulate=False)
         
-        for dy in range(-2, 3):
-            for dx in range(-2, 3):
-                gx, gy = grid_x + dx, grid_y + dy
-                if 0 <= gx < MAX_GRID and 0 <= gy < MAX_GRID:
-                    dist = (dx**2 + dy**2)**0.5
-                    val = max(0.0, ping_intensity - dist / 3.0)
-                    channels[7][gy, gx] = max(channels[7][gy, gx], val)
+    # ── ch7: Friendly class_1 density ──────────────────────────────
+    if "1" in class_density_maps:
+        _place_density(class_density_maps["1"], 7, accumulate=False)
     
+
+            
     # ── Summary (12 dims) ──────────────────────────────────────────
     summary_data = snapshot.get("summary", {})
     faction_counts = summary_data.get("faction_counts", {})

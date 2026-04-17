@@ -1,6 +1,7 @@
 import * as S from '../../state.js';
 import { drawSparkline } from '../../components/sparkline.js';
 import { getFactionColor, getFactionName } from '../../config.js';
+import { icon } from '../../components/icons.js';
 
 let lastTickTime = performance.now();
 const tpsSamples = [];
@@ -92,7 +93,7 @@ function updateFactionRows(factionCounts) {
 export default {
     id: 'telemetry',
     title: 'Telemetry',
-    icon: '📡',
+    icon: icon('radio'),
     modes: ['training', 'playground'],
     defaultExpanded: true,
     render(body) {

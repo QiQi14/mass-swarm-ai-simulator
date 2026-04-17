@@ -1,6 +1,8 @@
 //! # Micro-Core Library Root
 //!
 //! Re-exports modules for the cdylib and rlib targets.
+//! The `wasm` feature enables the browser-callable WASM API.
+//! The `native` feature enables WebSocket/ZMQ bridges (default).
 //!
 //! ## Ownership
 //! - **Task:** task_01_project_scaffold
@@ -24,3 +26,6 @@ pub mod spatial;
 pub mod systems;
 pub mod terrain;
 pub mod visibility;
+
+#[cfg(feature = "wasm")]
+pub mod wasm_api;

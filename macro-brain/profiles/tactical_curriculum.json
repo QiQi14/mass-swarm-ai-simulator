@@ -2,7 +2,7 @@
   "meta": {
     "name": "Tactical Decision-Making Curriculum",
     "version": "5.0.0",
-    "description": "10-stage curriculum (0-9): navigation → target selection → pheromone → repellent → fog → AoE flanking → AoE spread → combined arms → screening → randomized. MultiDiscrete([8, 2500]) action space with CNN+MLP feature extractor."
+    "description": "10-stage curriculum (0-9): navigation → target selection → pheromone → repellent → fog → AoE flanking → AoE spread → combined arms → screening → randomized. MultiDiscrete([8, 2500, 4]) action space with CNN+MLP feature extractor."
   },
   "world": {
     "width": 1000.0,
@@ -109,12 +109,12 @@
   "actions": [
     { "index": 0, "name": "Hold", "unlock_stage": 0 },
     { "index": 1, "name": "AttackCoord", "unlock_stage": 0 },
-    { "index": 2, "name": "DropPheromone", "unlock_stage": 2 },
-    { "index": 3, "name": "DropRepellent", "unlock_stage": 3 },
-    { "index": 4, "name": "SplitToCoord", "unlock_stage": 5 },
-    { "index": 5, "name": "MergeBack", "unlock_stage": 5 },
-    { "index": 6, "name": "ActivateSkill", "unlock_stage": 6 },
-    { "index": 7, "name": "Scout", "unlock_stage": 4 }
+    { "index": 2, "name": "ZoneModifier", "unlock_stage": 2 },
+    { "index": 3, "name": "SplitToCoord", "unlock_stage": 5 },
+    { "index": 4, "name": "MergeBack", "unlock_stage": 5 },
+    { "index": 5, "name": "SetPlaystyle", "unlock_stage": 5 },
+    { "index": 6, "name": "ActivateSkill", "unlock_stage": 7 },
+    { "index": 7, "name": "Retreat", "unlock_stage": 6 }
   ],
   "training": {
     "max_density": 50.0,
@@ -149,7 +149,7 @@
       },
       {
         "stage": 2,
-        "description": "Pheromone Path: use DropPheromone to attract swarm through safe route, avoid trap on fast path",
+        "description": "Pheromone Fortress: Rangers (ranged) inside walled fortress, Tanks block short path. Use DropPheromone to route through mud path, kill rangers first, then tanks.",
         "graduation": { "win_rate": 0.80, "min_episodes": 50 }
       },
       {

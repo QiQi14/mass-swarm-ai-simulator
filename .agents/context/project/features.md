@@ -277,3 +277,14 @@ Redesigned the Tactical Training interface into a dual-mode Vite application. Bu
 
 **Key files:** `debug-visualizer/training.html`, `debug-visualizer/src/training-main.js`, `debug-visualizer/src/styles/overlay.css`, `debug-visualizer/src/panels/training/dashboard.js`, `debug-visualizer/src/panels/training/stage-info.js`
 **Depends on:** Debug Visualizer UI Refactor (Dual-Mode Application)
+
+---
+
+### Training UI Revamp (Icons, Height Fix, Channel Bug, Action Chips)
+**Completed:** 2026-04-14 | **Archive:** `.agents/history/20260414_191926_training_ui_revamp/`
+
+Four UX fixes: (1) **Height mismatch** — `align-items: stretch` + `min-height: 148px` on ML Brain / Stage Info cards so they share identical height. (2) **Channel reset bug** — removed forced `input.checked=false` from `_updateChannelAvailability()`; only CSS `--disabled` class is toggled now, preserving user-toggled state across episode resets. (3) **SVG icon system** — new `icons.js` (Lucide, no runtime dep) replaces all emoji in card headers, buttons, and status indicators across all training panels. (4) **Action chip vs toggle confusion** — new `.action-chip` CSS class uses a left cyan accent border, visually distinct from `.layer-pill` toggle style; applied in both Stage Info card and curriculum detail modal. New `.stage-modal__section-title` and `.stage-details-btn` styles polish the modal hierarchy.
+
+**Key files:** `debug-visualizer/src/components/icons.js` [NEW], `debug-visualizer/src/styles/overlay.css`, `debug-visualizer/src/training-main.js`, `debug-visualizer/src/panels/training/ml-brain.js`, `debug-visualizer/src/panels/training/stage-info.js`, `debug-visualizer/src/panels/training/dashboard.js`, `debug-visualizer/src/panels/training/perf.js`, `debug-visualizer/src/panels/shared/telemetry.js`, `debug-visualizer/src/panels/shared/inspector.js`
+**Depends on:** Training Dashboard UI Redesign
+

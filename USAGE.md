@@ -1,6 +1,6 @@
 # Usage Guide — Mass-Swarm AI Simulator
 
-> **Last Updated:** 2026-04-12 · Phase 3.5 (Observation Channel v4.0)
+> **Last Updated:** 2026-04-16 · Phase 4.0 (Action Space v3 + Node Editor + Squad Control)
 
 ## Prerequisites
 
@@ -30,7 +30,9 @@ Start the Rust simulation + Debug Visualizer. No ML training — you control eve
 # http://127.0.0.1:5173#playground
 ```
 
-**What you get:** A browser-based tactical command center where you can spawn units, paint terrain, place zone modifiers, split factions, and watch the simulation in real-time.
+**What you get:** A browser-based tactical command center with two interaction modes:
+- **Node Editor** — Visual Drawflow-based rule editor. Design battle scenarios by connecting Faction, Unit, Combat, Navigation, and Death nodes, then press ▶ Launch to compile the graph into WS commands.
+- **Squad Control** — Box-select entities on the canvas, form squads (sub-factions), and issue RTS-style orders: move, attack, hold, retreat, disband. Right-click for contextual commands.
 
 ### 2. Training Mode (ML Training)
 
@@ -176,17 +178,23 @@ The visualizer operates in two modes, selected via URL hash:
 | Mode | URL | Purpose |
 |------|-----|---------|
 | **Training** | `#training` | Read-only monitoring: reward curves, episode stats, channel overlays |
-| **Playground** | `#playground` | Full interactive control: spawn, terrain, zones, split/merge, aggro |
+| **Playground** | `#playground` | Node-based scenario editor + tactical squad control |
 
 ### Canvas Controls
 
 | Action | Control |
 |--------|---------|
-| **Pan** | Click + drag |
+| **Pan** | Click + drag (on empty canvas) |
 | **Zoom** | Scroll wheel (toward pointer) |
 | **Reset view** | Double-click |
 | **Inspect entity** | Click near an entity |
-| **Context action** | Click when a mode (spawn/terrain/zone/split) is active |
+| **Box-select** | Left-click + drag (over entities) |
+| **Move order** | Right-click on empty map (with squad selected) |
+| **Attack order** | Right-click near enemy (with squad selected) |
+| **Hold** | `H` key (with squad selected) |
+| **Retreat** | `R` key + click target (with squad selected) |
+| **Deselect** | `Escape` |
+| **Disband squad** | `Delete` key |
 
 ### Observation Channel Overlays (v4.0)
 
@@ -200,22 +208,20 @@ Toggle these in the **Viewport Layers** panel to see what the CNN sees:
 | Ch3 — Enemy ECP | 🟦 Force | Magenta glow — enemy threat density |
 | Ch4 — Terrain Cost | 🟩 Environment | Amber/red overlay — walls and mud |
 | Ch5 — Fog Awareness | 🟩 Environment | Dark overlay — unknown/explored/visible |
-| Ch6 — Interactable | 🟨 Tactical | *(future — disabled)* |
-| Ch7 — System Objective | 🟨 Tactical | *(future — disabled)* |
+| Ch6 — Class 0 Density | 🟨 Tactical | Per-class density (frontline) |
+| Ch7 — Class 1 Density | 🟨 Tactical | Per-class density (midline) |
 
-### Sidebar Panels
+### Playground UI Components
 
-| Panel | Modes | Description |
-|-------|-------|-------------|
-| **Training Dashboard** | Training | Reward curves, episode stats, curriculum stage |
-| **Viewport Layers** | Both | Toggle grid, entity, and channel overlays |
-| **Game Setup** | Playground | Configure spawns, terrain, combat rules |
-| **Sim Controls** | Playground | Play/Pause, step N ticks, speed control |
-| **Spawn Panel** | Playground | Click-to-spawn units with faction/count/spread |
-| **Terrain Painter** | Playground | Paint walls, mud, pushable terrain |
-| **Zone Modifiers** | Playground | Place attract/repel zones on the map |
-| **Faction Splitter** | Playground | Split factions for pincer maneuvers |
-| **Aggro Masks** | Playground | Toggle combat between faction pairs |
+| Component | Description |
+|-----------|-------------|
+| **Top Bar** | Version badge, Preset dropdown, ▶ Launch button, Focus Mode toggle, Minimize |
+| **Node Editor** | Drawflow canvas — glassmorphic node-based scenario builder (semi-transparent over sim) |
+| **Bottom Toolbar** | Add node buttons (+Faction, +Unit, +Combat, +Nav, +Death), terrain paint, sim controls |
+| **Preset Gallery** | Fullscreen splash on first load — select a pre-built scenario or start blank |
+| **Squad Panel** | Right-side overlay card — squad name, unit count, HP bar, action buttons |
+| **Tactical Overlay** | Canvas layer — selection box, squad banners, pulsing order arrows, rally points |
+| **Focus Mode** | Toggle 30% → 90% opacity on node editor (backdrop frost effect) |
 
 ---
 
@@ -225,10 +231,11 @@ Toggle these in the **Viewport Layers** panel to see what the CNN sees:
 
 ```bash
 cd micro-core
-cargo test                        # All tests (221 tests)
+cargo test                        # All tests (257 tests)
 cargo test snapshot               # Snapshot builder tests
 cargo test density                # Density/ECP map tests
 cargo test interaction            # Combat system tests
+cargo test tactical               # Tactical overrides + class filter tests
 cargo test --no-default-features  # Without debug telemetry
 ```
 
@@ -236,10 +243,11 @@ cargo test --no-default-features  # Without debug telemetry
 
 ```bash
 cd macro-brain
-.venv/bin/python -m pytest tests/ -v              # All tests (214 tests)
+.venv/bin/python -m pytest tests/ -v              # All tests (219 tests)
 .venv/bin/python -m pytest tests/test_vectorizer.py      # Channel construction
 .venv/bin/python -m pytest tests/test_channel_integrity.py  # Channel invariants
 .venv/bin/python -m pytest tests/test_rewards.py         # Reward components
+.venv/bin/python -m pytest tests/test_actions.py         # Action space v3 (3D)
 .venv/bin/python -m pytest tests/test_tactical_integration.py  # Full pipeline
 ```
 
@@ -280,10 +288,12 @@ The agent auto-promotes through stages when it achieves an **80% win rate** over
 |-------|-----|------|-------------|
 | 0 | 400×400 | Navigate to 1 enemy | AttackCoord aiming |
 | 1 | 500×500 | Choose correct target (2 enemies) | ECP-based target selection |
-| 2 | 600×600 | Find path around walls | Pheromone routing |
-| 3 | 600×600 | Avoid trap groups | Repellent placement |
-| 4 | 800×800 | Scout fog, sequential targets | Intel Ping (ch7), retargeting |
-| 5+ | 1000×1000 | Flanking, retreat, ambush | Split/merge, aggro masks |
+| 2 | 600×600 | Find path around walls | ZoneModifier (attract/repel) |
+| 3 | 600×600 | Avoid trap groups | ZoneModifier (repel) |
+| 4 | 800×800 | Scout fog, sequential targets | Intel Ping, retargeting |
+| 5 | 1000×1000 | Class-aware splitting + tactics | SplitToCoord, MergeBack, SetPlaystyle |
+| 6 | 1000×1000 | Tactical withdrawal | Retreat |
+| 7+ | 1000×1000 | Flanking, kite, buff usage | ActivateSkill, Kite playstyle |
 
 ---
 
@@ -385,14 +395,18 @@ mass-swarm-ai-simulator/
 │       ├── terrain.rs              # 3-tier terrain (Pass/Destruct/Perm)
 │       ├── visibility.rs           # Bit-packed Fog of War per faction
 │       ├── components/             # ECS: Position, Velocity, FactionId, StatBlock, UnitClassId
-│       ├── config/                 # Resources: DensityConfig, BuffConfig, CooldownTracker
+│       ├── config/                 # Resources: DensityConfig, BuffConfig, FactionTacticalOverrides
+│       │   └── tactical_overrides.rs  # Runtime tactical behavior overrides per faction
 │       ├── rules/                  # InteractionRule, NavigationRule, RemovalRule
 │       ├── systems/                # Bevy systems
-│       │   ├── movement.rs         # Composite steering + soft cost
+│       │   ├── movement.rs         # Composite 3-vector steering (flow + boids + tactical)
 │       │   ├── flow_field_update.rs# Dijkstra flow fields + zone modifiers
-│       │   ├── directive_executor.rs# 8-action vocabulary executor
+│       │   ├── directive_executor/ # 8-action vocabulary executor
+│       │   │   └── executor.rs     # SplitFaction (class_filter), SetTacticalOverride, etc.
+│       │   ├── tactical_sensor.rs  # 10 Hz tactical behavior (Kite, PeelForAlly) + override lookup
 │       │   ├── interaction.rs      # Combat: range, mitigation, cooldowns
-│       │   ├── state_vectorizer.rs # 50×50 density + ECP heatmaps
+│       │   ├── state_vectorizer.rs # 50×50 density + ECP + per-class density maps
+│       │   ├── ws_command.rs       # WS command handler (spawn_wave, set_interaction)
 │       │   └── ws_sync.rs          # Debug broadcast to browser
 │       ├── bridges/
 │       │   ├── ws_server.rs        # Tokio WebSocket server (:8080)
@@ -402,6 +416,7 @@ mass-swarm-ai-simulator/
 │       │   │   ├── snapshot.rs     # State snapshot builder
 │       │   │   └── reset.rs        # ResetEnvironment handler
 │       │   └── zmq_protocol/       # DTOs: StateSnapshot, MacroDirective
+│       │       └── directives.rs   # SplitFaction{class_filter}, SetTacticalOverride
 │       ├── spatial/                # Spatial hash grid (collision)
 │       └── pathfinding/            # Flow field navigation
 │
@@ -412,10 +427,10 @@ mass-swarm-ai-simulator/
 │   ├── src/
 │   │   ├── config/                 # Profile parser, validator, definitions
 │   │   ├── env/
-│   │   │   ├── swarm_env.py        # Gymnasium env (ZMQ REP, bot controllers)
+│   │   │   ├── swarm_env.py        # Gymnasium env (ZMQ REP, 3D action masking)
 │   │   │   ├── rewards.py          # 5-component reward + anti-exploit
-│   │   │   ├── actions.py          # MultiDiscrete → MacroDirective
-│   │   │   ├── spaces.py           # Obs (8×50×50 + 12-dim) & action spaces
+│   │   │   ├── actions.py          # MultiDiscrete([8,2500,4]) → MacroDirective
+│   │   │   ├── spaces.py           # Action space v3 (8 actions × 2500 coords × 4 modifiers)
 │   │   │   ├── bot_controller.py   # Heuristic enemy AI (patrol, hold, chase)
 │   │   │   └── wrappers.py         # FrameSkipWrapper
 │   │   ├── training/
@@ -426,27 +441,51 @@ mass-swarm-ai-simulator/
 │   │   ├── models/
 │   │   │   └── feature_extractor.py# CNN(8×50×50→128) + MLP(12→64) → 256
 │   │   └── utils/
-│   │       ├── vectorizer.py       # Snapshot → 8-channel numpy observation
+│   │       ├── vectorizer.py       # Snapshot → 8-channel numpy (incl. per-class density)
 │   │       ├── terrain_generator.py# Procedural terrain (BFS-verified)
 │   │       └── lkp_buffer.py       # Last Known Position (fog decay)
-│   ├── tests/                      # 214 Python tests
+│   ├── tests/                      # 219 Python tests
 │   └── runs/                       # Training run outputs
 │
 ├── debug-visualizer/               # 🌐 Browser-based debug UI
-│   ├── package.json                # Vite + dependencies
-│   ├── vite.config.js              # Dev server config
+│   ├── package.json                # Vite + Drawflow
+│   ├── vite.config.js              # Multi-entry (main + playground)
 │   ├── index.html                  # Entry point
 │   └── src/
 │       ├── main.js                 # App init, mode router
-│       ├── state.js                # Shared mutable state
+│       ├── playground-main.js      # Playground entry point (floating overlay layout)
+│       ├── state.js                # Shared state (entities, squads, selection)
 │       ├── config.js               # Grid, colors, faction config
 │       ├── router.js               # Hash-based #training/#playground routing
 │       ├── websocket.js            # WS client (auto-reconnect)
-│       ├── draw/                   # Canvas rendering (terrain, entities, effects)
-│       ├── panels/                 # UI panels (viewport, training, playground)
-│       ├── components/             # Reusable UI components
+│       ├── draw/                   # Canvas rendering
+│       │   ├── entities.js         # Entity dots + effects
+│       │   └── tactical-overlay.js # Selection box, squad banners, order arrows
+│       ├── node-editor/            # Drawflow-based scenario builder
+│       │   ├── drawflow-setup.js   # Drawflow init + glassmorphic theme
+│       │   ├── compiler.js         # Graph → WS commands compiler
+│       │   ├── preset-gallery.js   # Preset splash modal
+│       │   ├── brain-runner.js     # ONNX.js inference loop for General node
+│       │   └── nodes/              # Node type renderers
+│       │       ├── faction.js, unit.js, stat.js, death.js
+│       │       ├── combat.js, relationship.js
+│       │       ├── navigation.js, waypoint.js, movement.js
+│       │       └── general.js      # ML brain node
+│       ├── squads/                 # Squad (sub-faction) control
+│       │   ├── squad-manager.js    # Create/disband squads via SplitFaction/MergeFaction
+│       │   └── order-system.js     # Move/attack/hold/retreat orders
 │       ├── controls/               # Event handlers
+│       │   ├── selection.js        # Box-select + faction-click selection
+│       │   └── init.js             # Right-click order dispatch
+│       ├── panels/                 # UI panels (viewport, training, playground)
+│       │   └── playground/
+│       │       ├── squad-panel.js   # Squad info overlay card
+│       │       ├── terrain-overlay.js
+│       │       └── sim-controls-overlay.js
 │       └── styles/                 # Tactical Command Center CSS
+│           ├── node-editor.css     # Drawflow glassmorphic overrides
+│           ├── tactical.css        # Selection, banners, arrows
+│           └── playground-overlay.css  # Overlay card styling
 │
 ├── docs/                           # Architecture docs (partially outdated)
 │   ├── architecture.md             # System architecture overview
@@ -496,8 +535,8 @@ npm install
 cd ..
 
 # 5. Verify everything works
-cd micro-core && cargo test && cd ..                  # 221 Rust tests
-cd macro-brain && .venv/bin/python -m pytest tests/ && cd ..  # 214 Python tests
+cd micro-core && cargo test && cd ..                  # 257 Rust tests
+cd macro-brain && .venv/bin/python -m pytest tests/ && cd ..  # 219 Python tests
 
 # 6. Start playground
 ./dev.sh

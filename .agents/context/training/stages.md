@@ -1,5 +1,19 @@
 # Curriculum Stages
 
+## 2. Action Vocabulary & Stage Unlocks (v3)
+
+The simulation uses a 3-dimension action encoding: `[action, coord, modifier]`.
+*   **0. Hold** (Stage 0)
+*   **1. AttackCoord** (Stage 0)
+*   **2. ZoneModifier** (Stage 2) — merged from DropPheromone/DropRepellent
+*   **3. SplitToCoord** (Stage 5)
+*   **4. MergeBack** (Stage 5)
+*   **5. SetPlaystyle** (Stage 5)
+*   **6. ActivateSkill** (Stage 7)
+*   **7. Retreat** (Stage 6)
+
+*Note: Scout has been removed from the action vocabulary.*
+
 ## 3. Stage Details
 
 ### Stage 0: 1v1 Navigation (500×500)
@@ -25,31 +39,36 @@
 > After debuff, trap charges the brain (bot controller switches HoldPosition → Charge).
 > This eliminates the need for retargeting — the fight comes to the brain.
 
-### Stage 2: Pheromone Path (600×600)
-- **Brain:** 50 units, 100 HP
-- **Trap:** 40 units, 200 HP, HoldPosition on the fast (top) path
-- **Target:** 20 units, 60 HP, HoldPosition at right side
-- **Terrain:** Two-path map with wall band through center
-  - Top path: fast (cost 100) but trap group blocks it
-  - Bottom path: slow (mud, soft_cost 40) but safe
-  - Wall: permanent (65535) with gap at x=2-5
-- **Goal:** Use DropPheromone on bottom path to attract swarm through safe route
-- **New action:** DropPheromone (cost modifier -50, attracts flow field)
+### Stage 2: Pheromone Fortress (600×600)
+- **Brain:** 50 units, 100 HP, spawns at left edge (80, random Y: 200-400)
+- **Rangers (target):** 20 units, 60 HP, HoldPosition INSIDE walled fortress
+  - Extended-range combat rule: range 150, -12 DPS (via `stage_combat_rules.py`)
+- **Tanks (trap):** 40 units, 200 HP, HoldPosition at Path A (clean entry)
+  - Standard melee: range 25, -25 DPS
+- **Terrain:** Fortress enclosure (grid 16-26, Y 9-21) with 2 openings on left wall
+  - Path A (clean, hard_cost=100): Tanks block this shortest entry
+  - Path B (mud, soft_cost=40): Safe but slow — requires pheromone to route through
+  - Seed controls which opening is A vs B (randomized per episode)
+- **Goal:** Use ZoneModifier on Path B to route swarm through mud, kill squishy rangers first, then pivot to fight tanks alone
+- **New action:** ZoneModifier (modifier 0: attracts flow field)
+- **Kill-order enforcement:** Fighting tanks first = -25/s melee + -12/s ranged = overwhelmed. Killing rangers first removes crossfire → tanks alone are beatable.
+- **No debuff mechanic** — the ranger/tank DPS asymmetry IS the mechanic
+- **Win condition:** All enemies dead (both rangers AND tanks)
 
 ### Stage 3: Repellent Field (600×600)
 - **Brain:** 50 units, 100 HP, spawns at left edge
 - **Traps:** 2-3 groups of 20 units, 200 HP, scattered in danger zones
 - **Target:** 20 units, 60 HP, right edge
-- **Terrain:** Open field with danger zones at NORMAL cost (hard_cost 100, soft_cost 40 visual markers). Flow field routes THROUGH traps by default. Agent must DropRepellent (+200) to create avoidance zones.
-- **Goal:** Use DropRepellent on danger zones to push swarm away from trap engagements
-- **New action:** DropRepellent (cost modifier +200, repels flow field)
+- **Terrain:** Open field with danger zones at NORMAL cost (hard_cost 100, soft_cost 40 visual markers). Flow field routes THROUGH traps by default. Agent must use ZoneModifier (+200) to create avoidance zones.
+- **Goal:** Use ZoneModifier on danger zones to push swarm away from trap engagements
+- **New action:** ZoneModifier (modifier 1: repels flow field)
 - **Trap count randomized:** 2-3 groups to prevent memorization
 
 ### Stage 4: Fog Scouting (800×800)
 - **Fog:** ON (first stage with fog)
 - **Brain:** 50 units, center of map
 - **Targets:** Target A and Target B spawn at opposite edges (hidden by fog)
-- **New action:** Scout (split 10% recon to coordinate)
+- **Strategy:** Scout using standard unit splitting to coordinate
 - **Mechanics:** `ch7` provides a decaying "Intel Ping" representing an active objective. Once Target A is eliminated, it automatically switches to Target B.
 - **Goal:** Follow decaying Intel Pings, explore fog, eliminate Target A, retarget and eliminate Target B.
 

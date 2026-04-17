@@ -68,6 +68,9 @@ pub enum WsMessage {
         #[cfg(feature = "debug-telemetry")]
         #[serde(skip_serializing_if = "Option::is_none")]
         ecp_density_maps: Option<std::collections::HashMap<u32, Vec<f32>>>,
+        #[cfg(feature = "debug-telemetry")]
+        #[serde(skip_serializing_if = "Option::is_none")]
+        terrain_sync: Option<TerrainSync>,
     },
     /// Flow field vector data for debug visualization.
     /// Only compiled when `debug-telemetry` feature is enabled.
@@ -126,4 +129,16 @@ pub struct MlBrainSync {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AggroMaskSync {
     pub masks: std::collections::HashMap<String, bool>,
+}
+
+/// Terrain grid data broadcast once per environment reset.
+/// Sent inside SyncDelta when TerrainChanged flag is set.
+#[cfg(feature = "debug-telemetry")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TerrainSync {
+    pub width: u32,
+    pub height: u32,
+    pub cell_size: f32,
+    pub hard_costs: Vec<u16>,
+    pub soft_costs: Vec<u16>,
 }

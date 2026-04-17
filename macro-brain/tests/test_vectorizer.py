@@ -37,7 +37,7 @@ def test_action_space_is_multidiscrete():
     """Verify action space is MultiDiscrete([8, 2500])."""
     action_space = make_action_space()
     assert isinstance(action_space, spaces.MultiDiscrete)
-    assert list(action_space.nvec) == [8, 2500]
+    assert list(action_space.nvec) == [8, 2500, 4]
 
 
 def test_vectorizer_basic():

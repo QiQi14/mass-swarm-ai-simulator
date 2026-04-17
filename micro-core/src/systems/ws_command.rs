@@ -136,16 +136,39 @@ pub fn ws_command_system(
                         stats.push((0, 100.0));
                     }
 
+                    let class_id = cmd
+                        .params
+                        .get("class_id")
+                        .and_then(|v| v.as_u64())
+                        .map(|v| UnitClassId(v as u32))
+                        .unwrap_or_default();
+
+                    let movement_config = if let Some(mc_json) = cmd.params.get("movement") {
+                        MovementConfig {
+                            max_speed: mc_json.get("max_speed").and_then(|v| v.as_f64()).unwrap_or(60.0) as f32,
+                            steering_factor: mc_json.get("steering_factor").and_then(|v| v.as_f64()).unwrap_or(5.0) as f32,
+                            separation_radius: mc_json.get("separation_radius").and_then(|v| v.as_f64()).unwrap_or(6.0) as f32,
+                            separation_weight: mc_json.get("separation_weight").and_then(|v| v.as_f64()).unwrap_or(1.5) as f32,
+                            flow_weight: mc_json.get("flow_weight").and_then(|v| v.as_f64()).unwrap_or(1.0) as f32,
+                        }
+                    } else {
+                        MovementConfig {
+                            max_speed: 60.0,
+                            steering_factor: 5.0,
+                            separation_radius: 6.0,
+                            separation_weight: 1.5,
+                            flow_weight: 1.0,
+                        }
+                    };
+
+                    let engagement_range = cmd
+                        .params
+                        .get("engagement_range")
+                        .and_then(|v| v.as_f64())
+                        .unwrap_or(0.0) as f32;
+
                     let mut rng = rand::rng();
                     let golden_angle = 137.5f32.to_radians();
-
-                    let default_mc = MovementConfig {
-                        max_speed: 60.0,
-                        steering_factor: 5.0,
-                        separation_radius: 6.0,
-                        separation_weight: 1.5,
-                        flow_weight: 1.0,
-                    };
 
                     let mut spawned_count = 0;
                     for i in 0..amount {
@@ -176,17 +199,20 @@ pub fn ws_command_system(
                             FactionId(faction_id),
                             StatBlock::with_defaults(&stats),
                             VisionRadius::default(),
-                            default_mc,
-                            UnitClassId::default(),
-                            crate::components::TacticalState::default(),
+                            movement_config,
+                            class_id,
+                            crate::components::TacticalState {
+                                engagement_range,
+                                ..Default::default()
+                            },
                             crate::components::CombatState::default(),
                         ));
                         next_id.0 += 1;
                         spawned_count += 1;
                     }
                     println!(
-                        "[WS Command] Spawned {}/{} faction_{} at ({}, {}) spread {}",
-                        spawned_count, amount, faction_id, x, y, spread
+                        "[WS Command] Spawned {}/{} faction_{} class_{} at ({}, {}) spread {}",
+                        spawned_count, amount, faction_id, class_id.0, x, y, spread
                     );
                 }
                 "set_speed" => {
@@ -415,6 +441,7 @@ pub fn ws_command_system(
                                 new_sub_faction: target as u32,
                                 percentage: pct as f32,
                                 epicenter: [ex as f32, ey as f32],
+                                class_filter: None,
                             }];
                             println!("[WS Command] Sent SplitFaction");
                         }
@@ -527,43 +554,13 @@ pub fn ws_command_system(
                     if let Some(rules_array) = cmd.params.get("rules").and_then(|v| v.as_array()) {
                         rule_sets.1.rules.clear();
                         for rule_json in rules_array {
-                            if let (Some(source), Some(target), Some(range)) = (
-                                rule_json.get("source_faction").and_then(|v| v.as_u64()),
-                                rule_json.get("target_faction").and_then(|v| v.as_u64()),
-                                rule_json.get("range").and_then(|v| v.as_f64()),
-                            ) {
-                                let effects = rule_json
-                                    .get("effects")
-                                    .and_then(|v| v.as_array())
-                                    .map(|fx| {
-                                        fx.iter()
-                                            .filter_map(|e| {
-                                                Some(crate::rules::StatEffect {
-                                                    stat_index: e.get("stat_index")?.as_u64()?
-                                                        as usize,
-                                                    delta_per_second: e
-                                                        .get("delta_per_second")?
-                                                        .as_f64()?
-                                                        as f32,
-                                                })
-                                            })
-                                            .collect()
-                                    })
-                                    .unwrap_or_default();
-
-                                rule_sets.1.rules.push(crate::rules::InteractionRule {
-                                    source_faction: source as u32,
-                                    target_faction: target as u32,
-                                    range: range as f32,
-                                    effects,
-                                    source_class: None,
-                                    target_class: None,
-                                    range_stat_index: None,
-                                    mitigation: None,
-                                    cooldown_ticks: None,
-                                    aoe: None,
-                                    penetration: None,
-                                });
+                            match serde_json::from_value::<crate::rules::InteractionRule>(rule_json.clone()) {
+                                Ok(rule) => {
+                                    rule_sets.1.rules.push(rule);
+                                }
+                                Err(e) => {
+                                    eprintln!("[WS Command] Failed to parse InteractionRule: {}", e);
+                                }
                             }
                         }
                         println!(
@@ -853,26 +850,220 @@ mod tests {
     }
 
     #[test]
-    fn test_set_interaction_ws_command() {
+    fn test_spawn_wave_with_class_id() {
+        // Arrange
         let (mut app, tx) = setup_app();
+
+        let cmd = serde_json::json!({
+            "type": "command",
+            "cmd": "spawn_wave",
+            "params": {
+                "amount": 5,
+                "faction_id": 1,
+                "x": 100.0, "y": 100.0,
+                "spread": 20.0,
+                "class_id": 3
+            }
+        });
+        tx.send(cmd.to_string()).unwrap();
+
+        // Act
+        app.update();
+
+        // Assert
+        let mut found_class = false;
+        for class in app.world_mut().query::<&UnitClassId>().iter(app.world()) {
+            assert_eq!(class.0, 3, "Spawned entity should have class_id 3");
+            found_class = true;
+        }
+        assert!(found_class, "Should have spawned at least one entity with class_id");
+    }
+
+    #[test]
+    fn test_spawn_wave_with_movement_config() {
+        // Arrange
+        let (mut app, tx) = setup_app();
+
+        let cmd = serde_json::json!({
+            "type": "command",
+            "cmd": "spawn_wave",
+            "params": {
+                "amount": 1,
+                "x": 100.0, "y": 100.0,
+                "spread": 0.0,
+                "movement": {
+                    "max_speed": 42.0,
+                    "steering_factor": 3.0,
+                    "separation_radius": 8.0,
+                    "separation_weight": 2.0,
+                    "flow_weight": 0.5
+                }
+            }
+        });
+        tx.send(cmd.to_string()).unwrap();
+
+        // Act
+        app.update();
+
+        // Assert
+        let mc = app.world_mut().query::<&MovementConfig>()
+            .iter(app.world())
+            .next()
+            .expect("Should have spawned one entity with MovementConfig");
+        assert!((mc.max_speed - 42.0).abs() < f32::EPSILON, "max_speed should be 42.0");
+        assert!((mc.flow_weight - 0.5).abs() < f32::EPSILON, "flow_weight should be 0.5");
+    }
+
+    #[test]
+    fn test_spawn_wave_without_class_id_defaults_to_zero() {
+        // Arrange
+        let (mut app, tx) = setup_app();
+
+        let cmd = serde_json::json!({
+            "type": "command",
+            "cmd": "spawn_wave",
+            "params": {
+                "amount": 1,
+                "x": 50.0, "y": 50.0,
+                "spread": 0.0
+            }
+        });
+        tx.send(cmd.to_string()).unwrap();
+
+        // Act
+        app.update();
+
+        // Assert — backward compatibility
+        let class = app.world_mut().query::<&UnitClassId>()
+            .iter(app.world())
+            .next()
+            .expect("Should have spawned one entity");
+        assert_eq!(class.0, 0, "Default class_id should be 0 for backward compatibility");
+    }
+
+    #[test]
+    fn test_spawn_wave_with_engagement_range() {
+        // Arrange
+        let (mut app, tx) = setup_app();
+
+        let cmd = serde_json::json!({
+            "type": "command",
+            "cmd": "spawn_wave",
+            "params": {
+                "amount": 1,
+                "x": 100.0, "y": 100.0,
+                "spread": 0.0,
+                "engagement_range": 150.0
+            }
+        });
+        tx.send(cmd.to_string()).unwrap();
+
+        // Act
+        app.update();
+
+        // Assert
+        let ts = app.world_mut().query::<&crate::components::TacticalState>()
+            .iter(app.world())
+            .next()
+            .expect("Should have spawned one entity with TacticalState");
+        assert!((ts.engagement_range - 150.0).abs() < f32::EPSILON,
+            "engagement_range should be 150.0, got {}", ts.engagement_range);
+    }
+
+    #[test]
+    fn test_set_interaction_with_class_filter() {
+        // Arrange
+        let (mut app, tx) = setup_app();
+
+        let cmd = serde_json::json!({
+            "type": "command",
+            "cmd": "set_interaction",
+            "params": {
+                "rules": [{
+                    "source_faction": 0,
+                    "target_faction": 1,
+                    "range": 30.0,
+                    "effects": [{"stat_index": 0, "delta_per_second": -5.0}],
+                    "source_class": 1,
+                    "target_class": 2,
+                    "cooldown_ticks": 60
+                }]
+            }
+        });
+        tx.send(cmd.to_string()).unwrap();
+
+        // Act
+        app.update();
+
+        // Assert
+        let rules = app.world().get_resource::<crate::rules::InteractionRuleSet>().unwrap();
+        assert_eq!(rules.rules.len(), 1, "Should have 1 interaction rule");
+        let rule = &rules.rules[0];
+        assert_eq!(rule.source_class, Some(1), "source_class should be Some(1)");
+        assert_eq!(rule.target_class, Some(2), "target_class should be Some(2)");
+        assert_eq!(rule.cooldown_ticks, Some(60), "cooldown_ticks should be Some(60)");
+    }
+
+    #[test]
+    fn test_set_interaction_backward_compat_no_optional_fields() {
+        // Arrange
+        let (mut app, tx) = setup_app();
+
+        // Legacy payload — no source_class, target_class, cooldown_ticks
+        let cmd = serde_json::json!({
+            "type": "command",
+            "cmd": "set_interaction",
+            "params": {
+                "rules": [{
+                    "source_faction": 0,
+                    "target_faction": 1,
+                    "range": 15.0,
+                    "effects": [{"stat_index": 0, "delta_per_second": -10.0}]
+                }]
+            }
+        });
+        tx.send(cmd.to_string()).unwrap();
+
+        // Act
+        app.update();
+
+        // Assert — backward compatibility
+        let rules = app.world().get_resource::<crate::rules::InteractionRuleSet>().unwrap();
+        assert_eq!(rules.rules.len(), 1, "Should have 1 interaction rule");
+        let rule = &rules.rules[0];
+        assert_eq!(rule.source_class, None, "source_class should default to None");
+        assert_eq!(rule.target_class, None, "target_class should default to None");
+        assert_eq!(rule.cooldown_ticks, None, "cooldown_ticks should default to None");
+        assert_eq!(rule.range_stat_index, None, "range_stat_index should default to None");
+        assert_eq!(rule.mitigation, None, "mitigation should default to None");
+        assert_eq!(rule.aoe, None, "aoe should default to None");
+        assert_eq!(rule.penetration, None, "penetration should default to None");
+    }
+
+    #[test]
+    fn test_set_interaction_malformed_rule_skipped() {
+        // Arrange
+        let (mut app, tx) = setup_app();
+
         let cmd = serde_json::json!({
             "type": "command",
             "cmd": "set_interaction",
             "params": {
                 "rules": [
-                    { "source_faction": 0, "target_faction": 1, "range": 15.0, "effects": [{ "stat_index": 0, "delta_per_second": -10.0 }] }
+                    {"source_faction": 0, "target_faction": 1, "range": 10.0, "effects": []},
+                    {"broken": true},
+                    {"source_faction": 1, "target_faction": 0, "range": 20.0, "effects": []}
                 ]
             }
         });
         tx.send(cmd.to_string()).unwrap();
+
+        // Act
         app.update();
-        let int_rules = app
-            .world()
-            .get_resource::<crate::rules::InteractionRuleSet>()
-            .unwrap();
-        assert_eq!(int_rules.rules.len(), 1);
-        assert_eq!(int_rules.rules[0].source_faction, 0);
-        assert_eq!(int_rules.rules[0].range, 15.0);
+
+        // Assert — malformed rule skipped, 2 valid rules parsed
+        let rules = app.world().get_resource::<crate::rules::InteractionRuleSet>().unwrap();
+        assert_eq!(rules.rules.len(), 2, "Should have 2 valid rules, 1 skipped");
     }
 
     #[test]

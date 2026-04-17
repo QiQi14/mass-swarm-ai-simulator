@@ -67,6 +67,45 @@ pub fn build_density_maps(
         .collect()
 }
 
+/// Builds per-class density heatmaps for the brain faction.
+///
+/// Returns a HashMap where each key is a class_id and each value
+/// is a flat Vec<f32> of size (grid_w × grid_h), row-major order.
+/// Values are normalized to [0.0, 1.0].
+pub fn build_class_density_maps(
+    entities: &[(f32, f32, u32, u32)],
+    grid_w: u32,
+    grid_h: u32,
+    cell_size: f32,
+    max_density: f32,
+    brain_faction: u32,
+) -> HashMap<u32, Vec<f32>> {
+    let total_cells = (grid_w * grid_h) as usize;
+    let mut class_density_maps: HashMap<u32, Vec<f32>> = HashMap::new();
+
+    for class_id in 0..2 {
+        let mut density = vec![0.0f32; total_cells];
+        for &(x, y, faction, unit_class) in entities {
+            if faction == brain_faction && unit_class == class_id {
+                let cx = (x / cell_size).floor() as i32;
+                let cy = (y / cell_size).floor() as i32;
+
+                if cx >= 0 && cx < grid_w as i32 && cy >= 0 && cy < grid_h as i32 {
+                    let idx = (cy as u32 * grid_w + cx as u32) as usize;
+                    density[idx] += 1.0;
+                }
+            }
+        }
+
+        for v in density.iter_mut() {
+            *v = (*v / max_density).min(1.0);
+        }
+        class_density_maps.insert(class_id, density);
+    }
+
+    class_density_maps
+}
+
 /// Builds Effective Combat Power (ECP) density heatmaps.
 ///
 /// Each cell value = sum(primary_stat * damage_mult) / max_ecp_per_cell

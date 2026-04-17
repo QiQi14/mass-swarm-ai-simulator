@@ -124,6 +124,8 @@ pub enum MacroDirective {
         new_sub_faction: u32,
         percentage: f32,
         epicenter: [f32; 2],
+        #[serde(default)]
+        class_filter: Option<u32>,
     },
 
     MergeFaction {
@@ -135,6 +137,11 @@ pub enum MacroDirective {
         source_faction: u32,
         target_faction: u32,
         allow_combat: bool,
+    },
+
+    SetTacticalOverride {
+        faction: u32,
+        behavior: Option<TacticalBehaviorPayload>,
     },
 }
 

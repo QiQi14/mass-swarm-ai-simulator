@@ -13,6 +13,7 @@ fn setup_app() -> App {
     app.insert_resource(AggroMaskRegistry::default());
     app.insert_resource(ActiveSubFactions::default());
     app.insert_resource(crate::config::BuffConfig::default());
+    app.insert_resource(crate::config::FactionTacticalOverrides::default());
     app.add_systems(Update, directive_executor_system);
     app
 }
@@ -175,14 +176,14 @@ fn test_directive_set_zone_modifier() {
 fn test_directive_split_faction_by_epicenter() {
     let mut app = setup_app();
     app.world_mut()
-        .spawn((Position { x: 10.0, y: 10.0 }, FactionId(1)));
+        .spawn((Position { x: 10.0, y: 10.0 }, FactionId(1), UnitClassId(0)));
     app.world_mut()
-        .spawn((Position { x: 20.0, y: 20.0 }, FactionId(1)));
+        .spawn((Position { x: 20.0, y: 20.0 }, FactionId(1), UnitClassId(0)));
 
     app.world_mut()
         .get_resource_mut::<LatestDirective>()
         .unwrap()
-        .directives = vec![MacroDirective::SplitFaction {
+        .directives = vec![MacroDirective::SplitFaction { class_filter: None,
         source_faction: 1,
         new_sub_faction: 2,
         percentage: 0.5,
@@ -213,13 +214,13 @@ fn test_directive_split_faction_percentage() {
     let mut app = setup_app();
     for _ in 0..100 {
         app.world_mut()
-            .spawn((Position { x: 0.0, y: 0.0 }, FactionId(1)));
+            .spawn((Position { x: 0.0, y: 0.0 }, FactionId(1), UnitClassId(0)));
     }
 
     app.world_mut()
         .get_resource_mut::<LatestDirective>()
         .unwrap()
-        .directives = vec![MacroDirective::SplitFaction {
+        .directives = vec![MacroDirective::SplitFaction { class_filter: None,
         source_faction: 1,
         new_sub_faction: 3,
         percentage: 0.3,
@@ -241,7 +242,7 @@ fn test_directive_split_faction_percentage() {
 fn test_directive_merge_faction() {
     let mut app = setup_app();
     app.world_mut()
-        .spawn((Position { x: 0.0, y: 0.0 }, FactionId(2)));
+        .spawn((Position { x: 0.0, y: 0.0 }, FactionId(2), UnitClassId(0)));
 
     app.world_mut()
         .get_resource_mut::<LatestDirective>()
@@ -283,13 +284,13 @@ fn test_vaporization_guard_directive_consumed_once() {
     let mut app = setup_app();
     for _ in 0..100 {
         app.world_mut()
-            .spawn((Position { x: 0.0, y: 0.0 }, FactionId(1)));
+            .spawn((Position { x: 0.0, y: 0.0 }, FactionId(1), UnitClassId(0)));
     }
 
     app.world_mut()
         .get_resource_mut::<LatestDirective>()
         .unwrap()
-        .directives = vec![MacroDirective::SplitFaction {
+        .directives = vec![MacroDirective::SplitFaction { class_filter: None,
         source_faction: 1,
         new_sub_faction: 3,
         percentage: 0.3,
@@ -414,13 +415,13 @@ fn test_split_faction_quickselect_correct_count() {
     let mut app = setup_app();
     for _ in 0..100 {
         app.world_mut()
-            .spawn((Position { x: 0.0, y: 0.0 }, FactionId(0)));
+            .spawn((Position { x: 0.0, y: 0.0 }, FactionId(0), UnitClassId(0)));
     }
 
     app.world_mut()
         .get_resource_mut::<LatestDirective>()
         .unwrap()
-        .directives = vec![MacroDirective::SplitFaction {
+        .directives = vec![MacroDirective::SplitFaction { class_filter: None,
         source_faction: 0,
         new_sub_faction: 101,
         percentage: 0.3,
